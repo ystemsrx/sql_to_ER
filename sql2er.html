@@ -142,16 +142,28 @@ Ref: 文章.作者 > 用户.编号
 
                         if (colored) {
                             if (model.nodeType === 'entity') {
+                                if (model.isPlaceholder) {
+                                    // Placeholder entity: same blue theme but dashed border
+                                    styles.style = {
+                                        fill: '#e0f2fe',
+                                        stroke: '#0ea5e9',
+                                        lineWidth: 2,
+                                        lineDash: [4, 4],
+                                        shadowColor: 'rgba(14, 165, 233, 0.2)',
+                                        shadowBlur: 10
+                                    };
+                                    styles.labelCfg = { style: { fill: '#0f172a', fontWeight: '700', fontFamily: 'Inter', fontStyle: 'italic' } };
+                                } else {
                                 // Sky Blue theme
                                 styles.style = {
                                     fill: '#e0f2fe',
                                     stroke: '#0ea5e9',
                                     lineWidth: 2,
-                                    radius: 8,
                                     shadowColor: 'rgba(14, 165, 233, 0.2)',
                                     shadowBlur: 10
                                 };
                                 styles.labelCfg = { style: { fill: '#0f172a', fontWeight: '700', fontFamily: 'Inter' } };
+                                }
                             } else if (model.nodeType === 'relationship') {
                                 // Violet theme
                                 styles.style = {
@@ -191,7 +203,13 @@ Ref: 文章.作者 > 用户.编号
                                 lineWidth: model.keyType === 'pk' || model.nodeType === 'entity' || model.nodeType === 'relationship' ? 2 : 1,
                                 shadowBlur: 0
                             };
-                            styles.labelCfg = { style: { fill: '#1e293b', fontWeight: (model.nodeType === 'entity' || model.keyType === 'pk') ? 'bold' : 'normal', fontFamily: 'Inter' } };
+                            if (model.isPlaceholder) {
+                                styles.style.lineDash = [4, 4];
+                                styles.style.stroke = '#64748b';
+                                styles.labelCfg = { style: { fill: '#64748b', fontWeight: 'bold', fontStyle: 'italic', fontFamily: 'Inter' } };
+                            } else {
+                                styles.labelCfg = { style: { fill: '#1e293b', fontWeight: (model.nodeType === 'entity' || model.keyType === 'pk') ? 'bold' : 'normal', fontFamily: 'Inter' } };
+                            }
                         }
 
                         graphInstance.updateItem(node, styles);

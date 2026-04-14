@@ -108,6 +108,35 @@ window.ERBuilder = (function () {
             });
         });
 
+        // Create placeholder entities for referenced tables not in the input SQL
+        relationships.forEach((rel) => {
+            if (!entityMap.has(rel.to)) {
+                const placeholderIndex = nodes.filter(n => n.nodeType === 'entity').length;
+                const entityId = `entity-${rel.to}-${placeholderIndex}`;
+                entityMap.set(rel.to, entityId);
+
+                nodes.push({
+                    id: entityId,
+                    type: 'entity',
+                    label: rel.to,
+                    style: {
+                        fill: '#ffffff',
+                        stroke: isColored ? '#595959' : '#000000',
+                        lineWidth: 2,
+                        lineDash: [4, 4]
+                    },
+                    labelCfg: {
+                        style: {
+                            fill: isColored ? '#999999' : '#666666',
+                            fontWeight: 'bold'
+                        }
+                    },
+                    nodeType: 'entity',
+                    isPlaceholder: true
+                });
+            }
+        });
+
         // Create relationship nodes (diamonds) and connections
         relationships.forEach((rel, relIndex) => {
             const relationshipId = `rel-${rel.from}-${rel.to}-${rel.label}-${relIndex}`;
@@ -247,16 +276,21 @@ window.ERBuilder = (function () {
                 const width = Math.max(minWidth, textWidth + padding * 2);
                 const height = Math.max(minHeight, fontSize + 20); // 垂直内边距
 
+                const rectAttrs = {
+                    x: -width / 2,
+                    y: -height / 2,
+                    width: width,
+                    height: height,
+                    fill: cfg.style?.fill || '#fff',
+                    stroke: cfg.style?.stroke || '#000',
+                    lineWidth: cfg.style?.lineWidth || 2
+                };
+                if (cfg.style?.lineDash) {
+                    rectAttrs.lineDash = cfg.style.lineDash;
+                }
+
                 const shape = group.addShape('rect', {
-                    attrs: {
-                        x: -width / 2,
-                        y: -height / 2,
-                        width: width,
-                        height: height,
-                        fill: cfg.style?.fill || '#fff',
-                        stroke: cfg.style?.stroke || '#000',
-                        lineWidth: cfg.style?.lineWidth || 2
-                    },
+                    attrs: rectAttrs,
                     name: 'entity-shape'
                 });
 
@@ -269,8 +303,9 @@ window.ERBuilder = (function () {
                             fontSize: fontSize,
                             textAlign: 'center',
                             textBaseline: 'middle',
-                            fill: '#000',
-                            fontWeight: 'bold'
+                            fill: cfg.labelCfg?.style?.fill || '#000',
+                            fontWeight: cfg.labelCfg?.style?.fontWeight || 'bold',
+                            fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal'
                         },
                         name: 'entity-text',
                         capture: false
@@ -278,6 +313,25 @@ window.ERBuilder = (function () {
                 }
 
                 return shape;
+            },
+            update(cfg, node) {
+                const group = node.getContainer();
+                const shape = group.find(e => e.get('name') === 'entity-shape');
+                if (shape && cfg.style) {
+                    shape.attr('fill', cfg.style.fill);
+                    shape.attr('stroke', cfg.style.stroke);
+                    shape.attr('lineWidth', cfg.style.lineWidth);
+                    shape.attr('lineDash', cfg.style.lineDash || [0, 0]);
+                    if (cfg.style.radius) shape.attr('radius', cfg.style.radius);
+                    if (cfg.style.shadowColor) shape.attr('shadowColor', cfg.style.shadowColor);
+                    if (cfg.style.shadowBlur !== undefined) shape.attr('shadowBlur', cfg.style.shadowBlur);
+                }
+                const text = group.find(e => e.get('name') === 'entity-text');
+                if (text && cfg.labelCfg?.style) {
+                    if (cfg.labelCfg.style.fill) text.attr('fill', cfg.labelCfg.style.fill);
+                    if (cfg.labelCfg.style.fontWeight) text.attr('fontWeight', cfg.labelCfg.style.fontWeight);
+                    if (cfg.labelCfg.style.fontStyle) text.attr('fontStyle', cfg.labelCfg.style.fontStyle);
+                }
             }
         });
 
