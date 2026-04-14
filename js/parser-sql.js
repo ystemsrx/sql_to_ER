@@ -98,6 +98,18 @@ const parseSQLTables = (sql) => {
                     });
                 }
             }
+            // Skip UNIQUE KEY / UNIQUE INDEX / INDEX / KEY index definitions (not column definitions)
+            else if (/^(?:UNIQUE\s+)?(?:KEY|INDEX)\s+/i.test(trimmedPart)) {
+                return;
+            }
+            // Skip standalone CONSTRAINT lines that aren't FOREIGN KEY (e.g. UNIQUE constraints)
+            else if (/^CONSTRAINT\s+/i.test(trimmedPart)) {
+                return;
+            }
+            // Skip CHECK constraints
+            else if (/^CHECK\s*\(/i.test(trimmedPart)) {
+                return;
+            }
             // Regular column definition
             else if (/^(\`?[\w\u4e00-\u9fa5]+\`?)\s+/.test(trimmedPart)) {
                 const columnMatch = trimmedPart.match(/^(\`?[\w\u4e00-\u9fa5]+\`?)\s+(\w+(?:\(\d+(?:,\s*\d+)?\))?)(.*)/i);
@@ -111,10 +123,15 @@ const parseSQLTables = (sql) => {
                         primaryKeys.push(columnName);
                     }
 
+                    // Extract COMMENT value if present
+                    const commentMatch = constraints.match(/COMMENT\s+'((?:[^'\\]|\\.)*)'/i);
+                    const comment = commentMatch ? commentMatch[1] : '';
+
                     columns.push({
                         name: columnName,
                         type: dataType,
-                        isPrimaryKey
+                        isPrimaryKey,
+                        comment
                     });
                 }
             }

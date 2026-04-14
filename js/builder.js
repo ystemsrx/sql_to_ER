@@ -19,7 +19,23 @@ window.ERBuilder = (function () {
      * @param {boolean} isColored - 是否使用彩色样式
      * @returns {Object} - { nodes, edges }
      */
-    const generateChenModelData = (tables, relationships, isColored = true) => {
+    /**
+     * 根据 labelMode 计算属性节点应显示的标签
+     * labelMode: 'name' | 'comment' | 'any'
+     *   'name'    - 只显示字段名
+     *   'comment' - 只显示注释（若注释为空则回退到字段名）
+     *   'any'     - 显示注释，若无注释则显示字段名
+     */
+    const resolveAttrLabel = (column, labelMode) => {
+        const name = column.name || '';
+        const comment = column.comment || '';
+        if (labelMode === 'name') return name;
+        if (labelMode === 'comment') return comment || name; // 注释为空回退到字段名
+        // 'any': 优先注释，无则字段名
+        return comment || name;
+    };
+
+    const generateChenModelData = (tables, relationships, isColored = true, labelMode = 'name') => {
         const nodes = [];
         const edges = [];
         const entityMap = new Map(); // 用于存储表名到实体ID的映射
@@ -56,11 +72,12 @@ window.ERBuilder = (function () {
             table.columns.forEach((column, colIndex) => {
                 const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;
                 const isPrimaryKey = table.primaryKeys.includes(column.name) || column.isPrimaryKey;
+                const attrLabel = resolveAttrLabel(column, labelMode);
 
                 nodes.push({
                     id: attributeId,
                     type: 'attribute',
-                    label: column.name,
+                    label: attrLabel,
                     // 移除固定位置
                     keyType: isPrimaryKey ? 'pk' : 'normal',
                     style: {
