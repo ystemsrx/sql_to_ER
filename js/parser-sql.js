@@ -6,11 +6,53 @@ const parseSQLTables = (sql) => {
     const tables = [];
     const relationships = [];
 
-    // Remove comments and normalize whitespace
-    const cleanSql = sql
-        .replace(/--.*$/gm, '')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .trim();
+    // Remove SQL comments while preserving string literals.
+    // Walk character-by-character so we never strip inside quoted strings.
+    const stripSqlComments = (src) => {
+        let out = '';
+        let i = 0;
+        while (i < src.length) {
+            const ch = src[i];
+            // Single-quoted string literal – copy verbatim
+            if (ch === "'") {
+                out += ch;
+                i++;
+                while (i < src.length) {
+                    if (src[i] === "'" && src[i + 1] === "'") {
+                        out += "''"; // doubled quote escape
+                        i += 2;
+                    } else if (src[i] === '\\') {
+                        out += src[i] + (src[i + 1] || '');
+                        i += 2;
+                    } else if (src[i] === "'") {
+                        out += "'";
+                        i++;
+                        break;
+                    } else {
+                        out += src[i];
+                        i++;
+                    }
+                }
+            }
+            // Line comment: --
+            else if (ch === '-' && src[i + 1] === '-') {
+                while (i < src.length && src[i] !== '\n') i++;
+            }
+            // Block comment: /* ... */
+            else if (ch === '/' && src[i + 1] === '*') {
+                i += 2;
+                while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+                i += 2; // skip closing */
+            }
+            else {
+                out += ch;
+                i++;
+            }
+        }
+        return out;
+    };
+
+    const cleanSql = stripSqlComments(sql).trim();
 
     // Split SQL into individual statements. This is more robust.
     const statements = cleanSql.split(';').filter(s => s.trim());
@@ -98,11 +140,19 @@ const parseSQLTables = (sql) => {
                     });
                 }
             }
-            // Skip UNIQUE KEY / UNIQUE INDEX / INDEX / KEY index definitions (not column definitions)
-            else if (/^(?:UNIQUE\s+)?(?:KEY|INDEX)\s+/i.test(trimmedPart)) {
+            // Skip index definitions: KEY, INDEX, UNIQUE KEY/INDEX, FULLTEXT KEY/INDEX, SPATIAL KEY/INDEX
+            else if (/^(?:UNIQUE\s+|FULLTEXT\s+|SPATIAL\s+)?(?:KEY|INDEX)\s+/i.test(trimmedPart)) {
                 return;
             }
-            // Skip standalone CONSTRAINT lines that aren't FOREIGN KEY (e.g. UNIQUE constraints)
+            // Handle CONSTRAINT ... PRIMARY KEY (named primary key constraint)
+            else if (/^CONSTRAINT\s+\S+\s+PRIMARY\s+KEY\s*\(/i.test(trimmedPart)) {
+                const pkMatch = trimmedPart.match(/PRIMARY\s+KEY\s*\((.*)\)/i);
+                if (pkMatch) {
+                    const pkColumns = pkMatch[1].split(',').map(col => col.trim().replace(/[`"']/g, ''));
+                    primaryKeys.push(...pkColumns);
+                }
+            }
+            // Skip other standalone CONSTRAINT lines (UNIQUE, CHECK, etc.)
             else if (/^CONSTRAINT\s+/i.test(trimmedPart)) {
                 return;
             }
@@ -124,8 +174,9 @@ const parseSQLTables = (sql) => {
                     }
 
                     // Extract COMMENT value if present
-                    const commentMatch = constraints.match(/COMMENT\s+'((?:[^'\\]|\\.)*)'/i);
-                    const comment = commentMatch ? commentMatch[1] : '';
+                    // Supports both backslash escapes (\') and SQL-standard doubled quotes ('')
+                    const commentMatch = constraints.match(/COMMENT\s+'((?:[^'\\]|''|\\.)*)'/i);
+                    const comment = commentMatch ? commentMatch[1].replace(/''/g, "'") : '';
 
                     columns.push({
                         name: columnName,
