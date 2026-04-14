@@ -33,7 +33,7 @@
                 if (!editorRef.current) return;
 
                 cmInstance.current = CodeMirror.fromTextArea(editorRef.current, {
-                    mode: "text/x-sql",
+                    mode: "text/x-pgsql",
                     lineNumbers: true,
                     theme: "default",
                     lineWrapping: true,
