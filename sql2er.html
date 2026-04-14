@@ -121,7 +121,7 @@ Ref: 用户.属于 > 国家.编号
 Ref: 文章.作者 > 用户.编号
 `);
                 const [isColored, setIsColored] = useState(true);
-                const [labelMode, setLabelMode] = useState('name'); // 'name' | 'comment' | 'any'
+                const [showComment, setShowComment] = useState(false);
                 const [error, setError] = useState(null);
                 const [loading, setLoading] = useState(false);
                 const [hasGraph, setHasGraph] = useState(false);
@@ -231,12 +231,12 @@ Ref: 文章.作者 > 用户.编号
                     }
                 }, [isColored, hasGraph]);
 
-                // 监听 labelMode 变化，重新生成图表
+                // 监听 showComment 变化，重新生成图表
                 useEffect(() => {
                     if (hasGraph && lastInputRef.current) {
                         handleGenerate();
                     }
-                }, [labelMode]);
+                }, [showComment]);
 
 
                 const handleGenerate = () => {
@@ -273,7 +273,7 @@ Ref: 文章.作者 > 用户.编号
                             return;
                         }
 
-                        const { nodes, edges } = generateChenModelData(tables, relationships, isColored, labelMode);
+                        const { nodes, edges } = generateChenModelData(tables, relationships, isColored, showComment ? 'comment' : 'name');
 
                         // 初始位置：先把不同组件分开围绕中心，避免初始交叉
                         applyInitialComponentPositions(nodes, edges, containerRef.current, 0);
@@ -572,11 +572,19 @@ Ref: 文章.作者 > 用户.编号
                     <div className="main-content">
                         <div className="input-section">
                             <div className="card">
-                                <div className="card-header">
+                                <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <h2 className="card-title">
                                         <span style={{ fontSize: '1.5rem' }}>📄</span>
-                                        SQL / DBML 输入
+                                        SQL / DBML
                                     </h2>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '13px', color: '#64748b' }}>属性显示注释</span>
+                                        <Switch
+                                            checked={showComment}
+                                            onChange={setShowComment}
+                                            size="small"
+                                        />
+                                    </div>
                                 </div>
                                 <div className="card-content">
                                     <div style={{ height: '480px', display: 'flex', flexDirection: 'column' }}>
@@ -585,25 +593,6 @@ Ref: 文章.作者 > 用户.编号
                                             onChange={setInputText}
                                             placeholder="在此处粘贴您的 CREATE TABLE 或 DBML 语句..."
                                         />
-                                    </div>
-                                    <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <label style={{ fontSize: '14px', fontWeight: '500', color: '#475569' }}>属性显示格式：</label>
-                                        <select
-                                            value={labelMode}
-                                            onChange={(e) => setLabelMode(e.target.value)}
-                                            style={{
-                                                padding: '6px 12px',
-                                                borderRadius: '6px',
-                                                border: '1px solid #cbd5e1',
-                                                fontSize: '14px',
-                                                cursor: 'pointer',
-                                                backgroundColor: '#fff'
-                                            }}
-                                        >
-                                            <option value="name">字段名</option>
-                                            <option value="comment">注释</option>
-                                            <option value="any">任意（优先注释）</option>
-                                        </select>
                                     </div>
                                     <div className="button-group">
                                         <button
