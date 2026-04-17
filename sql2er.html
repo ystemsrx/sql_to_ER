@@ -57,16 +57,206 @@
         ></path>
       </svg>
     </a>
-    <div class="app-container">
+    <div
+      class="lang-switch"
+      data-lang="zh"
+      role="tablist"
+      aria-label="切换语言 / Switch language"
+    >
+      <button type="button" class="lang-option is-active" data-lang="zh" role="tab" aria-selected="true">中</button>
+      <button type="button" class="lang-option" data-lang="en" role="tab" aria-selected="false">EN</button>
+      <span class="lang-thumb" aria-hidden="true"></span>
+    </div>
+
+    <div class="app-container lang-fade-target">
       <div class="header">
-        <span class="header-eyebrow">Chen Model · Entity-Relationship</span>
-        <h1>SQL / DBML 转 <em>ER 图</em> 生成器</h1>
-        <p>把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图</p>
-        <p class="header-hint">双击编辑节点 · 滚轮缩放 · 拖拽排布</p>
+        <span class="header-eyebrow" data-i18n="eyebrow">Chen Model · Entity-Relationship</span>
+        <h1 data-i18n-html="title">SQL / DBML 转 <em>ER 图</em> 生成器</h1>
+        <p data-i18n="subtitle">把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图</p>
+        <p class="header-hint" data-i18n="hint">双击编辑节点 · 滚轮缩放 · 拖拽排布</p>
       </div>
 
       <div id="root"></div>
     </div>
+
+    <script>
+      window.SQL2ER_I18N = {
+        zh: {
+          eyebrow: "Chen Model · Entity-Relationship",
+          title: "SQL / DBML 转 <em>ER 图</em> 生成器",
+          subtitle: "把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图",
+          hint: "双击编辑节点 · 滚轮缩放 · 拖拽排布",
+          pageTitle: "SQL/DBML2ER",
+          cardInputTitle: "SQL / DBML",
+          cardPreviewTitle: "ER 图预览",
+          showComment: "属性显示注释",
+          editorPlaceholder: "在此处粘贴您的 CREATE TABLE 或 DBML 语句...",
+          btnGenerate: "⚡ 生成 ER 图",
+          btnExport: "📥 导出 SVG",
+          btnSmartLayout: "✨ 智能布局",
+          btnForceAlign: "📐 强制对齐",
+          legendEntity: "实体",
+          legendRelation: "关系",
+          legendAttribute: "属性",
+          legendPk: "主键",
+          tipShowBg: "显示背景",
+          tipHideBg: "隐藏背景",
+          tipColorOn: "开启着色",
+          tipColorOff: "关闭着色",
+          errEmpty: "输入为空。",
+          errNoTable:
+            "未找到有效的 CREATE TABLE 或 Table 定义。请确保您的 SQL 或 DBML 语法正确。",
+          errParse: "SQL 解析失败",
+          errParseHint: "。请检查 SQL 语法是否正确。",
+          sample: `-- 示例 DBML，请在此处粘贴您的 DBML 或 SQL 语句
+Table 用户 {
+  编号 INT [pk, increment]
+  用户名 VARCHAR(255) [not null]
+  邮箱 VARCHAR(255) [unique]
+  创建时间 TIMESTAMP
+}
+
+Table 国家 {
+  编号 INT [pk]
+  名称 VARCHAR(255) [not null]
+}
+
+Table 文章 {
+  文章编号 INT [pk]
+  内容 TEXT
+}
+
+Ref: 用户.属于 > 国家.编号
+Ref: 文章.作者 > 用户.编号
+`,
+        },
+        en: {
+          eyebrow: "Chen Model · Entity-Relationship",
+          title: "Turn SQL / DBML into an <em>ER Diagram</em>",
+          subtitle:
+            "Render CREATE TABLE statements or DBML as a Chen-model entity-relationship diagram",
+          hint: "Double-click to edit · Scroll to zoom · Drag to arrange",
+          pageTitle: "SQL/DBML2ER",
+          cardInputTitle: "SQL / DBML",
+          cardPreviewTitle: "ER Preview",
+          showComment: "Show comments",
+          editorPlaceholder: "Paste your CREATE TABLE or DBML statement here...",
+          btnGenerate: "⚡ Generate",
+          btnExport: "📥 Export SVG",
+          btnSmartLayout: "✨ Smart layout",
+          btnForceAlign: "📐 Force align",
+          legendEntity: "Entity",
+          legendRelation: "Relationship",
+          legendAttribute: "Attribute",
+          legendPk: "Primary key",
+          tipShowBg: "Show background",
+          tipHideBg: "Hide background",
+          tipColorOn: "Enable color",
+          tipColorOff: "Disable color",
+          errEmpty: "Input is empty.",
+          errNoTable:
+            "No valid CREATE TABLE or Table definition found. Make sure your SQL or DBML syntax is correct.",
+          errParse: "SQL parsing failed",
+          errParseHint: ". Please check your SQL syntax.",
+          sample: `-- Sample DBML — paste your DBML or SQL statements here
+Table User {
+  ID INT [pk, increment]
+  Username VARCHAR(255) [not null]
+  Email VARCHAR(255) [unique]
+  CreatedAt TIMESTAMP
+}
+
+Table Country {
+  ID INT [pk]
+  Name VARCHAR(255) [not null]
+}
+
+Table Article {
+  ArticleID INT [pk]
+  Content TEXT
+}
+
+Ref: User.BelongsTo > Country.ID
+Ref: Article.Author > User.ID
+`,
+        },
+      };
+
+      (function () {
+        const root = document.documentElement;
+        const switcher = document.querySelector(".lang-switch");
+        const options = switcher.querySelectorAll(".lang-option");
+        const headerEls = {
+          i18n: document.querySelectorAll("[data-i18n]"),
+          html: document.querySelectorAll("[data-i18n-html]"),
+        };
+
+        function detectLang() {
+          const saved = localStorage.getItem("sql2er-lang");
+          if (saved === "zh" || saved === "en") return saved;
+          return (navigator.language || "en").toLowerCase().startsWith("zh")
+            ? "zh"
+            : "en";
+        }
+
+        function applyHeader(lang) {
+          const dict = window.SQL2ER_I18N[lang];
+          headerEls.i18n.forEach((el) => {
+            const k = el.getAttribute("data-i18n");
+            if (dict[k] !== undefined) el.textContent = dict[k];
+          });
+          headerEls.html.forEach((el) => {
+            const k = el.getAttribute("data-i18n-html");
+            if (dict[k] !== undefined) el.innerHTML = dict[k];
+          });
+          document.title = dict.pageTitle;
+          root.setAttribute("lang", lang === "zh" ? "zh-CN" : "en");
+          switcher.setAttribute("data-lang", lang);
+          options.forEach((btn) => {
+            const active = btn.getAttribute("data-lang") === lang;
+            btn.classList.toggle("is-active", active);
+            btn.setAttribute("aria-selected", active ? "true" : "false");
+          });
+        }
+
+        function setLang(lang, opts) {
+          const initial = opts && opts.initial;
+          if (initial) {
+            applyHeader(lang);
+            localStorage.setItem("sql2er-lang", lang);
+            window.dispatchEvent(
+              new CustomEvent("sql2er-lang", { detail: { lang, initial: true } }),
+            );
+            return;
+          }
+          if (document.documentElement.getAttribute("lang") &&
+              ((document.documentElement.getAttribute("lang").startsWith("zh") ? "zh" : "en") === lang)) {
+            return;
+          }
+          document.body.classList.add("is-lang-fading");
+          localStorage.setItem("sql2er-lang", lang);
+          setTimeout(() => {
+            applyHeader(lang);
+            window.dispatchEvent(
+              new CustomEvent("sql2er-lang", { detail: { lang } }),
+            );
+            requestAnimationFrame(() => {
+              document.body.classList.remove("is-lang-fading");
+            });
+          }, 200);
+        }
+
+        options.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            setLang(btn.getAttribute("data-lang"));
+          });
+        });
+
+        window.SQL2ER_setLang = setLang;
+        window.SQL2ER_currentLang = detectLang();
+        setLang(window.SQL2ER_currentLang, { initial: true });
+      })();
+    </script>
 
     <!-- Dependencies -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -129,29 +319,15 @@
         const CodeEditor = window.Editor.createCodeEditorComponent(React);
 
         const App = () => {
+          const I18N = window.SQL2ER_I18N;
+          const [lang, setLang] = useState(
+            () => window.SQL2ER_currentLang || "zh",
+          );
+          const t = I18N[lang];
           const [showBackground, setShowBackground] = useState(true);
-          const [inputText, setInputText] =
-            useState(`-- 示例DBML，请在此处粘贴您的 DBML 或 SQL 语句
-Table 用户 {
-  编号 INT [pk, increment]
-  用户名 VARCHAR(255) [not null]
-  邮箱 VARCHAR(255) [unique]
-  创建时间 TIMESTAMP
-}
-
-Table 国家 {
-  编号 INT [pk]
-  名称 VARCHAR(255) [not null]
-}
-
-Table 文章 {
-  文章编号 INT [pk]
-  内容 TEXT
-}
-
-Ref: 用户.属于 > 国家.编号
-Ref: 文章.作者 > 用户.编号
-`);
+          const [inputText, setInputText] = useState(
+            () => I18N[window.SQL2ER_currentLang || "zh"].sample,
+          );
           const [isColored, setIsColored] = useState(true);
           const [showComment, setShowComment] = useState(false);
           const [error, setError] = useState(null);
@@ -322,6 +498,35 @@ Ref: 文章.作者 > 用户.编号
             graphInstance.setAutoPaint(true);
           };
 
+          const pendingRegenRef = useRef(false);
+
+          // 监听语言切换事件（由顶部 vanilla 脚本派发）
+          useEffect(() => {
+            const onLang = (e) => {
+              const nextLang = e.detail && e.detail.lang;
+              if (!nextLang || nextLang === lang) return;
+              // 如果用户尚未修改示例，则切换为目标语言的示例
+              setInputText((prev) => {
+                if (prev === I18N.zh.sample || prev === I18N.en.sample) {
+                  pendingRegenRef.current = true;
+                  return I18N[nextLang].sample;
+                }
+                return prev;
+              });
+              setLang(nextLang);
+            };
+            window.addEventListener("sql2er-lang", onLang);
+            return () => window.removeEventListener("sql2er-lang", onLang);
+          }, [lang]);
+
+          // 语言切换后若示例已替换，则自动重新生成
+          useEffect(() => {
+            if (pendingRegenRef.current) {
+              pendingRegenRef.current = false;
+              handleGenerate();
+            }
+          }, [inputText]);
+
           // 监听着色状态变化
           useEffect(() => {
             if (hasGraph && graphRef.current) {
@@ -342,7 +547,7 @@ Ref: 文章.作者 > 用户.编号
               setLoading(true);
 
               if (!inputText.trim()) {
-                setError("输入为空。");
+                setError(t.errEmpty);
                 setLoading(false);
                 return;
               }
@@ -365,9 +570,7 @@ Ref: 文章.作者 > 用户.编号
               const { tables, relationships } = parsedData;
 
               if (tables.length === 0) {
-                setError(
-                  "未找到有效的 CREATE TABLE 或 Table 定义。请确保您的SQL或DBML语法正确。",
-                );
+                setError(t.errNoTable);
                 setLoading(false);
                 return;
               }
@@ -628,7 +831,7 @@ Ref: 文章.作者 > 用户.编号
               // 4. 布局完成后自动调整视图大小
             } catch (e) {
               console.error("SQL Parsing error:", e);
-              setError(`SQL 解析失败: ${e.message}. 请检查SQL语法是否正确。`);
+              setError(`${t.errParse}: ${e.message}${t.errParseHint}`);
             } finally {
               setLoading(false);
             }
@@ -703,7 +906,7 @@ Ref: 文章.作者 > 用户.编号
                   >
                     <h2 className="card-title">
                       <span style={{ fontSize: "1.5rem" }}>📄</span>
-                      SQL / DBML
+                      {t.cardInputTitle}
                     </h2>
                     <div
                       style={{
@@ -712,7 +915,7 @@ Ref: 文章.作者 > 用户.编号
                         gap: "10px",
                       }}
                     >
-                      <span className="inline-label">属性显示注释</span>
+                      <span className="inline-label">{t.showComment}</span>
                       <Switch
                         checked={showComment}
                         onChange={setShowComment}
@@ -731,7 +934,7 @@ Ref: 文章.作者 > 用户.编号
                       <CodeEditor
                         value={inputText}
                         onChange={setInputText}
-                        placeholder="在此处粘贴您的 CREATE TABLE 或 DBML 语句..."
+                        placeholder={t.editorPlaceholder}
                       />
                     </div>
                     <div className="button-group">
@@ -746,7 +949,7 @@ Ref: 文章.作者 > 用户.编号
                             style={{ width: 20, height: 20, borderWidth: 2 }}
                           ></div>
                         ) : (
-                          "⚡ 生成ER图"
+                          t.btnGenerate
                         )}
                       </button>
                       <button
@@ -754,7 +957,7 @@ Ref: 文章.作者 > 用户.编号
                         onClick={handleExportSVG}
                         disabled={!hasGraph}
                       >
-                        📥 导出SVG
+                        {t.btnExport}
                       </button>
                     </div>
                   </div>
@@ -781,7 +984,7 @@ Ref: 文章.作者 > 用户.编号
                         style={{ whiteSpace: "nowrap" }}
                       >
                         <span style={{ fontSize: "1.5rem" }}>🎨</span>
-                        ER图预览
+                        {t.cardPreviewTitle}
                       </h2>
 
                       <div
@@ -807,7 +1010,7 @@ Ref: 文章.作者 > 用户.编号
                                 : "2px solid #1e293b",
                             }}
                           ></div>
-                          <span>实体</span>
+                          <span>{t.legendEntity}</span>
                         </div>
                         <div
                           className="legend-item"
@@ -824,7 +1027,9 @@ Ref: 文章.作者 > 用户.编号
                                 : "2px solid #1e293b",
                             }}
                           ></div>
-                          <span style={{ marginLeft: "4px" }}>关系</span>
+                          <span style={{ marginLeft: "4px" }}>
+                            {t.legendRelation}
+                          </span>
                         </div>
                         <div
                           className="legend-item"
@@ -841,7 +1046,7 @@ Ref: 文章.作者 > 用户.编号
                                 : "1px solid #1e293b",
                             }}
                           ></div>
-                          <span>属性</span>
+                          <span>{t.legendAttribute}</span>
                         </div>
                         <div
                           className="legend-item"
@@ -858,7 +1063,9 @@ Ref: 文章.作者 > 用户.编号
                                 : "2px solid #1e293b",
                             }}
                           ></div>
-                          <span style={{ fontWeight: 600 }}>主键</span>
+                          <span style={{ fontWeight: 600 }}>
+                            {t.legendPk}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -876,14 +1083,14 @@ Ref: 文章.作者 > 用户.编号
                         onClick={handleArrangeLayout}
                         disabled={!hasGraph || loading}
                       >
-                        ✨ 智能布局
+                        {t.btnSmartLayout}
                       </button>
                       <button
                         className="btn btn-sm btn-accent"
                         onClick={handleForceAlign}
                         disabled={!hasGraph || loading}
                       >
-                        📐 强制对齐
+                        {t.btnForceAlign}
                       </button>
                     </div>
                   </div>
@@ -911,7 +1118,7 @@ Ref: 文章.作者 > 用户.编号
                       <div
                         className="background-toggle"
                         onClick={handleToggleBackground}
-                        title={showBackground ? "隐藏背景" : "显示背景"}
+                        title={showBackground ? t.tipHideBg : t.tipShowBg}
                       >
                         <i
                           className={`fa-solid ${showBackground ? "fa-eye" : "fa-eye-slash"}`}
@@ -920,7 +1127,7 @@ Ref: 文章.作者 > 用户.编号
                       <div
                         className={`colorize-toggle ${isColored ? "active" : ""}`}
                         onClick={() => setIsColored(!isColored)}
-                        title={isColored ? "关闭着色" : "开启着色"}
+                        title={isColored ? t.tipColorOff : t.tipColorOn}
                       >
                         <i className="fa-solid fa-palette"></i>
                       </div>
