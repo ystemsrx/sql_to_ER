@@ -1,0 +1,2863 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- ── SEO: primary ────────────────────────────── -->
+    <title>
+      SQL 转 ER 图在线工具 · Chen 模型生成器 | SQL / DBML to ER Diagram — sql2er
+    </title>
+    <meta
+      name="description"
+      content="免费在线 SQL 转 ER 图工具：把 CREATE TABLE 建表语句或 DBML 一键生成 Chen 模型实体-关系图。纯前端运行，数据不出浏览器，无需登录、不埋点；支持 PostgreSQL / MySQL / SQLite 语法，节点可拖动、双击改名，可导出 SVG / PNG。Free online tool to convert SQL & DBML into Chen-model ER diagrams, 100% client-side and open source."
+    />
+    <meta
+      name="keywords"
+      content="SQL 转 ER 图, SQL 转 ER 图在线工具, 免费 SQL 转 ER 图,ER 图生成器, ER图在线生成, 实体关系图, Chen 模型, 陈氏模型, 数据库建模工具, CREATE TABLE 可视化, DBML 转 ER 图, 数据库 ER 图, PostgreSQL ER 图, MySQL ER 图, SQLite ER 图, 开源 ER 工具, sql2er, SQL to ER diagram, ER diagram generator, Chen model ERD, DBML to ER, database diagram, entity relationship diagram, free ER tool, open source ERD, PostgreSQL ER diagram, MySQL ER diagram"
+    />
+    <meta name="author" content="ystemsrx" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta
+      name="googlebot"
+      content="index, follow, max-image-preview:large, max-snippet:-1"
+    />
+    <meta name="bingbot" content="index, follow" />
+    <meta
+      name="theme-color"
+      content="#ECE9E0"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#1A1916"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="application-name" content="sql2er" />
+    <meta name="apple-mobile-web-app-title" content="sql2er" />
+    <link rel="canonical" href="https://ystemsrx.github.io/sql_to_ER/" />
+    <link
+      rel="alternate"
+      hreflang="zh-CN"
+      href="https://ystemsrx.github.io/sql_to_ER/"
+    />
+    <link
+      rel="alternate"
+      hreflang="en"
+      href="https://ystemsrx.github.io/sql_to_ER/"
+    />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href="https://ystemsrx.github.io/sql_to_ER/"
+    />
+
+    <!-- ── SEO: Open Graph ─────────────────────────── -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="sql2er · SQL 转 ER 图" />
+    <meta
+      property="og:title"
+      content="SQL 转 ER 图在线工具 · Chen 模型生成器 | SQL / DBML to ER Diagram"
+    />
+    <meta
+      property="og:description"
+      content="把 SQL CREATE TABLE 或 DBML 一键转成 Chen 模型 ER 图，纯前端、开源、免登录。Turn SQL / DBML into Chen-model ER diagrams — free, open source, 100% client-side."
+    />
+    <meta property="og:url" content="https://ystemsrx.github.io/sql_to_ER/" />
+    <meta
+      property="og:image"
+      content="https://ystemsrx.github.io/sql_to_ER/assets/eg1.png"
+    />
+    <meta
+      property="og:image:alt"
+      content="sql2er 生成的 Chen 模型 ER 图示例 / Example Chen-model ER diagram produced by sql2er"
+    />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:locale:alternate" content="en_US" />
+
+    <!-- ── SEO: Twitter Card ────────────────────────── -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="SQL 转 ER 图在线工具 · Chen 模型生成器 | sql2er"
+    />
+    <meta
+      name="twitter:description"
+      content="把 SQL / DBML 一键生成 Chen 模型 ER 图，纯前端、开源、免登录。Free online SQL & DBML → Chen-model ER diagram generator."
+    />
+    <meta
+      name="twitter:image"
+      content="https://ystemsrx.github.io/sql_to_ER/assets/eg1.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="sql2er 生成的 Chen 模型 ER 图示例"
+    />
+    <meta name="twitter:creator" content="@ystemsrx" />
+
+    <!-- ── SEO: Schema.org JSON-LD ──────────────────── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "sql2er · SQL 转 ER 图",
+        "alternateName": [
+          "sql2er",
+          "SQL to ER diagram",
+          "SQL / DBML → ER Diagram Generator",
+          "SQL 转 ER 图在线工具",
+          "Chen 模型 ER 图生成器",
+          "数据库 ER 图生成器"
+        ],
+        "description": "免费开源、纯前端的 SQL / DBML 转 Chen 模型 ER 图在线工具。Free, open-source, pure front-end tool that converts SQL CREATE TABLE statements and DBML into Chen-model ER diagrams.",
+        "url": "https://ystemsrx.github.io/sql_to_ER/",
+        "image": "https://ystemsrx.github.io/sql_to_ER/assets/eg1.png",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Database tool",
+        "operatingSystem": "Any (browser)",
+        "browserRequirements": "Requires JavaScript. Requires HTML5.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "license": "https://opensource.org/licenses/MIT",
+        "author": {
+          "@type": "Person",
+          "name": "ystemsrx",
+          "url": "https://github.com/ystemsrx"
+        },
+        "codeRepository": "https://github.com/ystemsrx/sql_to_ER",
+        "inLanguage": ["zh-CN", "en"],
+        "keywords": "SQL 转 ER 图, ER 图生成器, Chen 模型, DBML, 数据库建模, CREATE TABLE 可视化, SQL to ER diagram, DBML to ER, entity relationship diagram, open source ERD",
+        "featureList": [
+          "解析 SQL CREATE TABLE 建表语句 / Parse SQL CREATE TABLE statements",
+          "解析 DBML（Database Markup Language）/ Parse DBML",
+          "生成 Chen 模型 ER 图（实体 / 关系 / 属性）/ Generate Chen-model ER diagrams",
+          "力导向自动布局（force2）/ Force-directed auto layout",
+          "节点拖拽编辑 / Drag-and-drop node editing",
+          "双击重命名 / Double-click rename",
+          "智能布局与对齐 / Smart layout and force-align",
+          "导出 SVG / 图片 / Export as SVG / image",
+          "100% 浏览器本地运行，不上传数据 / 100% client-side, no upload"
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "sql2er · SQL 转 ER 图",
+        "url": "https://ystemsrx.github.io/sql_to_ER/",
+        "inLanguage": ["zh-CN", "en"],
+        "publisher": {
+          "@type": "Person",
+          "name": "ystemsrx",
+          "url": "https://github.com/ystemsrx"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "sql2er 是什么？/ What is sql2er?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "sql2er 是一个免费开源、纯前端的在线工具，可以把 SQL CREATE TABLE 建表语句或 DBML 一键转换成 Chen 模型的实体-关系（ER）图。sql2er is a free, open-source, pure front-end tool that turns SQL or DBML into Chen-model ER diagrams."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "数据会被上传到服务器吗？/ Is my SQL uploaded anywhere?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "不会。所有解析和渲染都在浏览器本地完成，SQL 内容不会离开你的设备。No. All parsing and rendering happen in your browser — your SQL never leaves your device."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "支持哪些数据库方言？/ Which SQL dialects are supported?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "支持常见的 PostgreSQL、MySQL、SQLite 等 CREATE TABLE 语法，也支持 DBML。Common PostgreSQL / MySQL / SQLite CREATE TABLE syntax is supported, as well as DBML."
+            }
+          }
+        ]
+      }
+    </script>
+
+    <!-- ── Favicon (inline SVG, network/diagram icon) ── -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D97757' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='16' y='16' width='6' height='6' rx='1'/%3E%3Crect x='2' y='16' width='6' height='6' rx='1'/%3E%3Crect x='9' y='2' width='6' height='6' rx='1'/%3E%3Cpath d='M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3'/%3E%3Cpath d='M12 12V8'/%3E%3C/svg%3E"
+    />
+
+    <!-- 先字体，后 base -->
+    <link rel="stylesheet" href="./assets/fonts/fonts.css" />
+    <link rel="stylesheet" href="./assets/base.css" />
+
+    <!-- 中文字体 -->
+    <link rel="preconnect" href="https://cdn.jsdmirror.com" />
+    <link
+      href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-webfont@1.7.0/style.css"
+      rel="stylesheet"
+    />
+
+    <!-- 代码高亮 -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css"
+    />
+
+    <!-- Font Awesome（与 sql2er.html 一致，供少量场景用） -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+
+    <style>
+      /* ─── 主题变量 ───────────────── */
+      [data-theme="light"] {
+        --bg: var(--color-bg-base);
+        --bg-raised: var(--color-bg-raised);
+        --bg-overlay: var(--color-bg-overlay);
+        --ink: var(--color-text-primary);
+        --ink-2: var(--color-text-secondary);
+        --ink-3: var(--color-text-muted);
+        --hair: var(--color-border-subtle);
+        --rule: var(--color-border-default);
+        --invert-bg: #141413;
+        --invert-ink: #faf9f5;
+        --invert-ink-2: #a9a69c;
+        --invert-hair: #2b2a26;
+      }
+      [data-theme="dark"] {
+        --bg: #1a1916;
+        --bg-raised: #222119;
+        --bg-overlay: #2a2822;
+        --ink: #eae7dc;
+        --ink-2: #a9a69c;
+        --ink-3: #6b6860;
+        --hair: #2e2d27;
+        --rule: #3a3830;
+        --invert-bg: #faf9f5;
+        --invert-ink: #141413;
+        --invert-ink-2: #4f4c45;
+        --invert-hair: #d8d5cc;
+      }
+
+      html,
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-heading-cn);
+        transition:
+          background var(--duration-slow) var(--ease-default),
+          color var(--duration-slow) var(--ease-default);
+      }
+      ::selection {
+        background: var(--color-accent-orange);
+        color: #fff;
+      }
+
+      /* 单一暖色晕染，克制 */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background: radial-gradient(
+          ellipse 60% 50% at 15% 0%,
+          rgba(217, 119, 87, 0.09) 0%,
+          transparent 55%
+        );
+      }
+      [data-theme="dark"] body::before {
+        background: radial-gradient(
+          ellipse 60% 50% at 15% 0%,
+          rgba(217, 119, 87, 0.12) 0%,
+          transparent 55%
+        );
+      }
+
+      /* 排版 */
+      .display {
+        font-family: var(--font-display-cn);
+        font-weight: var(--weight-regular);
+        line-height: var(--leading-cn-tight);
+        letter-spacing: -0.01em;
+      }
+      .display em {
+        font-style: italic;
+        color: var(--color-accent-warm);
+      }
+      .eyebrow {
+        font-family: var(--font-heading);
+        font-size: var(--text-xs);
+        font-weight: var(--weight-medium);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .eyebrow::before {
+        content: "";
+        width: 24px;
+        height: 1px;
+        background: var(--rule);
+      }
+
+      /* ─── 导航 ───────────── */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        backdrop-filter: saturate(180%) blur(14px);
+        -webkit-backdrop-filter: saturate(180%) blur(14px);
+        background: color-mix(in srgb, var(--bg) 80%, transparent);
+        border-bottom: 1px solid transparent;
+        transition: border-color var(--duration-normal) var(--ease-default);
+      }
+      .nav.is-scrolled {
+        border-bottom-color: var(--hair);
+      }
+      .nav-row {
+        max-width: var(--max-width-full);
+        margin: 0 auto;
+        padding: 16px clamp(var(--space-6), 5vw, var(--space-16));
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 24px;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+      }
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--color-accent-orange);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        box-shadow: 0 4px 10px rgba(217, 119, 87, 0.28);
+        transition: transform var(--duration-normal) var(--ease-bounce);
+      }
+      .brand:hover .brand-mark {
+        transform: rotate(-8deg) scale(1.05);
+      }
+      .brand-mark svg {
+        width: 16px;
+        height: 16px;
+      }
+      .brand-name {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 1.15rem;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+      }
+      .nav-links {
+        justify-self: center;
+        display: flex;
+        gap: 4px;
+      }
+      .nav-links a {
+        font-family: var(--font-heading);
+        font-size: 0.88rem;
+        font-weight: 500;
+        color: var(--ink-2);
+        padding: 8px 14px;
+        border-radius: 999px;
+        transition:
+          color var(--duration-fast) var(--ease-default),
+          background var(--duration-fast) var(--ease-default);
+      }
+      .nav-links a:hover {
+        color: var(--ink);
+        background: var(--bg-raised);
+      }
+      .nav-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .icon-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        border: 1px solid var(--rule);
+        color: var(--ink-2);
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        transition: all var(--duration-fast) var(--ease-default);
+      }
+      .icon-btn:hover {
+        color: var(--ink);
+        border-color: var(--color-accent-orange);
+        background: var(--bg-raised);
+      }
+      .icon-btn svg {
+        width: 15px;
+        height: 15px;
+      }
+      @media (max-width: 820px) {
+        .nav-links {
+          display: none;
+        }
+      }
+
+      /* ─── 按钮 ───────────── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 13px 22px;
+        border-radius: 999px;
+        font-family: var(--font-heading);
+        font-weight: 500;
+        font-size: 0.95rem;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition:
+          transform var(--duration-fast) var(--ease-default),
+          background var(--duration-normal) var(--ease-default),
+          color var(--duration-normal) var(--ease-default),
+          box-shadow var(--duration-normal) var(--ease-default);
+      }
+      .btn svg {
+        width: 16px;
+        height: 16px;
+      }
+      .btn-primary {
+        background: var(--color-accent-orange);
+        color: #fff;
+        box-shadow: 0 6px 18px rgba(217, 119, 87, 0.28);
+      }
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        background: var(--color-accent-warm);
+        box-shadow: 0 10px 26px rgba(201, 100, 66, 0.4);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--rule);
+      }
+      .btn-ghost:hover {
+        transform: translateY(-2px);
+        border-color: var(--ink);
+        background: var(--bg-raised);
+      }
+
+      /* ─── Hero ───────────── */
+      .hero {
+        padding-block: clamp(32px, 4vw, 56px) clamp(40px, 5vw, 72px);
+      }
+      .hero-grid {
+        max-width: var(--max-width-full);
+        margin: 0 auto;
+        padding-inline: clamp(var(--space-6), 5vw, var(--space-16));
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: clamp(32px, 5vw, 64px);
+        align-items: center;
+      }
+      @media (max-width: 960px) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .hero-title {
+        font-size: clamp(2.2rem, 5.4vw, 4.2rem);
+        margin-top: var(--space-6);
+        margin-bottom: var(--space-5);
+      }
+      .hero-title .line-2 {
+        display: block;
+        margin-left: clamp(0px, 3vw, 36px);
+      }
+      .hero-lead {
+        font-family: var(--font-body-cn);
+        font-size: clamp(1.02rem, 1.4vw, 1.18rem);
+        color: var(--ink-2);
+        line-height: var(--leading-cn-loose);
+        max-width: 28em;
+        margin-bottom: var(--space-8);
+      }
+      .hero-cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      /* ─── Hero 右侧：真实 ER 图 ─── */
+      .er-stage {
+        position: relative;
+        aspect-ratio: 5 / 4;
+        background: var(--bg-raised);
+        border: 1px solid var(--hair);
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        box-shadow: var(--shadow-elevated);
+      }
+      .er-chip {
+        position: absolute;
+        top: 14px;
+        left: 14px;
+        z-index: 2;
+        pointer-events: none; /* 不拦截画布交互 */
+        font-family: var(--font-heading);
+        font-size: 0.72rem;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        color: var(--ink-2);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--bg-overlay) 85%, transparent);
+        border: 1px solid var(--hair);
+        backdrop-filter: blur(8px);
+      }
+      .er-chip::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--color-accent-orange);
+        box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.22);
+        animation: blink 1.8s ease-in-out infinite;
+      }
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.4;
+          transform: scale(0.85);
+        }
+      }
+
+      .er-reset {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        z-index: 2;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--bg-overlay) 85%, transparent);
+        border: 1px solid var(--hair);
+        color: var(--ink-2);
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        backdrop-filter: blur(8px);
+        transition:
+          color var(--duration-fast) var(--ease-default),
+          border-color var(--duration-fast) var(--ease-default),
+          transform 500ms var(--ease-default);
+      }
+      .er-reset:hover {
+        color: var(--color-accent-warm);
+        border-color: var(--color-accent-orange);
+        transform: rotate(-180deg);
+      }
+      .er-reset:active {
+        transform: rotate(-360deg);
+      }
+      .er-reset i {
+        font-size: 13px;
+        line-height: 1;
+      }
+      #hero-er {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 1;
+        transition: opacity 260ms var(--ease-default);
+      }
+      #hero-er canvas {
+        display: block;
+      }
+      /* 构建期间：瞬间隐藏，避免用户看到未 fit 的大图一闪；
+     移除该类后走 transition 平滑淡入 */
+      .er-stage.is-building #hero-er {
+        opacity: 0;
+        transition: none;
+      }
+      .er-fallback {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: var(--ink-3);
+        font-family: var(--font-heading);
+        font-size: 0.85rem;
+        opacity: 0;
+        pointer-events: none; /* 关键：opacity:0 不会自动禁用 pointer-events，必须显式加 */
+        transition: opacity var(--duration-normal) var(--ease-default);
+      }
+      .er-stage.is-failed .er-fallback {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* ─── 区块 ───────────── */
+      section {
+        padding-block: clamp(40px, 5vw, 72px) clamp(48px, 6vw, 88px);
+        position: relative;
+      }
+      .container {
+        max-width: var(--max-width-layout);
+        margin: 0 auto;
+        padding-inline: clamp(var(--space-6), 5vw, var(--space-16));
+      }
+      .section-head {
+        margin-bottom: clamp(28px, 3.5vw, 48px);
+        max-width: 36em;
+      }
+      .section-head h2 {
+        font-family: var(--font-display-cn);
+        font-weight: var(--weight-regular);
+        font-size: clamp(1.9rem, 4vw, 2.8rem);
+        line-height: var(--leading-cn-tight);
+        letter-spacing: -0.01em;
+        margin-top: var(--space-3);
+        margin-bottom: var(--space-4);
+      }
+      .section-head h2 em {
+        font-style: italic;
+        color: var(--color-accent-warm);
+      }
+      .section-head p {
+        font-family: var(--font-body-cn);
+        color: var(--ink-2);
+        font-size: 1.05rem;
+        line-height: var(--leading-cn-loose);
+        max-width: 28em;
+      }
+
+      /* ─── 特性（四条，编辑式）─── */
+      .features {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        column-gap: clamp(32px, 4vw, 64px);
+        row-gap: clamp(28px, 3.5vw, 48px);
+      }
+      @media (max-width: 720px) {
+        .features {
+          grid-template-columns: 1fr;
+        }
+      }
+      .feat {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 20px;
+        padding-top: var(--space-5);
+        border-top: 1px solid var(--hair);
+      }
+      .feat-num {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 1.2rem;
+        color: var(--color-accent-warm);
+        line-height: 1;
+        padding-top: 4px;
+      }
+      .feat h3 {
+        font-family: var(--font-heading-cn);
+        font-weight: var(--weight-semibold);
+        font-size: 1.1rem;
+        margin-bottom: 8px;
+        letter-spacing: -0.005em;
+      }
+      .feat p {
+        font-family: var(--font-body-cn);
+        color: var(--ink-2);
+        font-size: 0.98rem;
+        line-height: var(--leading-cn-loose);
+      }
+
+      /* ─── Demo ─── */
+      .demo-card {
+        background: var(--bg-raised);
+        border: 1px solid var(--hair);
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+      }
+      .demo-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 12px 16px;
+        background: var(--bg-overlay);
+        border-bottom: 1px solid var(--hair);
+      }
+      .tab {
+        padding: 7px 14px;
+        border-radius: 999px;
+        font-family: var(--font-heading);
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--ink-2);
+        cursor: pointer;
+        background: transparent;
+        border: 1px solid transparent;
+        transition: all var(--duration-fast) var(--ease-default);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .tab:hover {
+        color: var(--ink);
+      }
+      .tab.is-active {
+        color: var(--color-accent-warm);
+        background: color-mix(
+          in srgb,
+          var(--color-accent-orange) 10%,
+          transparent
+        );
+        border-color: color-mix(
+          in srgb,
+          var(--color-accent-orange) 30%,
+          transparent
+        );
+      }
+      .demo-actions {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+      }
+      .mini-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-family: var(--font-heading);
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--ink-2);
+        background: transparent;
+        border: 1px solid var(--rule);
+        cursor: pointer;
+        transition: all var(--duration-fast) var(--ease-default);
+      }
+      .mini-btn:hover {
+        color: var(--color-accent-warm);
+        border-color: var(--color-accent-orange);
+      }
+      .mini-btn svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      .code-panel {
+        display: none;
+      }
+      .code-panel.is-active {
+        display: block;
+      }
+      .code-panel pre {
+        margin: 0 !important;
+        padding: clamp(20px, 2.5vw, 32px) clamp(20px, 3vw, 36px) !important;
+        background: transparent !important;
+        font-family: var(--font-mono) !important;
+        font-size: 0.9rem !important;
+        line-height: 1.7 !important;
+        max-height: 360px;
+        overflow: auto;
+      }
+      .code-panel code {
+        font-family: var(--font-mono) !important;
+      }
+
+      .demo-foot {
+        padding: 12px 20px;
+        border-top: 1px solid var(--hair);
+        background: color-mix(
+          in srgb,
+          var(--color-accent-orange) 5%,
+          transparent
+        );
+        font-family: var(--font-body-cn);
+        font-size: 0.9rem;
+        color: var(--ink-2);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      /* Prism 覆写（暖色）*/
+      [data-theme="light"] .code-panel pre code {
+        color: #2b2a25;
+      }
+      [data-theme="light"] .token.comment {
+        color: #9b9890;
+        font-style: italic;
+      }
+      [data-theme="light"] .token.keyword,
+      [data-theme="light"] .token.atrule {
+        color: #c96442;
+        font-weight: 500;
+      }
+      [data-theme="light"] .token.string {
+        color: #6b8f47;
+      }
+      [data-theme="light"] .token.number {
+        color: #5a89b8;
+      }
+      [data-theme="light"] .token.function,
+      [data-theme="light"] .token.class-name {
+        color: #c9943a;
+      }
+      [data-theme="light"] .token.punctuation {
+        color: #6b6860;
+      }
+      [data-theme="light"] .token.operator {
+        color: #c96442;
+      }
+      [data-theme="dark"] .code-panel pre code {
+        color: #d9d5c6;
+      }
+      [data-theme="dark"] .token.comment {
+        color: #6b6860;
+        font-style: italic;
+      }
+      [data-theme="dark"] .token.keyword {
+        color: #e8a884;
+        font-weight: 500;
+      }
+      [data-theme="dark"] .token.string {
+        color: #a9c48a;
+      }
+      [data-theme="dark"] .token.number {
+        color: #8fb5d9;
+      }
+      [data-theme="dark"] .token.function {
+        color: #e0c47a;
+      }
+      [data-theme="dark"] .token.operator {
+        color: #e8a884;
+      }
+
+      /* ─── Steps ─── */
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 0;
+        border-top: 1px solid var(--hair);
+        border-bottom: 1px solid var(--hair);
+      }
+      @media (max-width: 900px) {
+        .steps {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      @media (max-width: 560px) {
+        .steps {
+          grid-template-columns: 1fr;
+        }
+      }
+      .step {
+        padding: clamp(24px, 3vw, 36px) clamp(16px, 2vw, 24px);
+        border-right: 1px solid var(--hair);
+        transition: background var(--duration-normal) var(--ease-default);
+      }
+      .step:last-child {
+        border-right: none;
+      }
+      .step:hover {
+        background: color-mix(
+          in srgb,
+          var(--color-accent-orange) 4%,
+          transparent
+        );
+      }
+      .step-num {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 400;
+        font-size: 2rem;
+        color: var(--color-accent-warm);
+        line-height: 1;
+        margin-bottom: var(--space-4);
+      }
+      .step h4 {
+        font-family: var(--font-heading-cn);
+        font-weight: var(--weight-semibold);
+        font-size: 1rem;
+        margin-bottom: 6px;
+      }
+      .step p {
+        font-family: var(--font-body-cn);
+        color: var(--ink-2);
+        font-size: 0.93rem;
+        line-height: 1.7;
+      }
+      @media (max-width: 900px) {
+        .step {
+          border-right: 1px solid var(--hair);
+          border-bottom: 1px solid var(--hair);
+        }
+        .step:nth-child(even) {
+          border-right: none;
+        }
+        .step:last-child {
+          border-bottom: none;
+        }
+      }
+
+      .callout {
+        margin-top: var(--space-8);
+        padding: var(--space-5) var(--space-6);
+        background: color-mix(in srgb, var(--color-warning) 7%, transparent);
+        border-left: 3px solid var(--color-warning);
+        border-radius: 0 var(--radius-md) var(--radius-md) 0;
+        font-family: var(--font-body-cn);
+        color: var(--ink);
+        font-size: 0.96rem;
+        line-height: var(--leading-cn-loose);
+      }
+      .callout strong {
+        font-family: var(--font-heading-cn);
+        font-weight: var(--weight-semibold);
+      }
+      .callout code {
+        font-family: var(--font-mono);
+        font-size: 0.88em;
+        padding: 1px 7px;
+        border-radius: 4px;
+        background: var(--bg-raised);
+        border: 1px solid var(--hair);
+      }
+
+      /* ─── Chen 模型卡片 ─── */
+      .chen-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: clamp(14px, 2vw, 20px);
+      }
+      @media (max-width: 900px) {
+        .chen-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .chen-card {
+        background: var(--bg-raised);
+        border: 1px solid var(--hair);
+        border-radius: var(--radius-lg);
+        padding: var(--space-6) var(--space-5);
+        text-align: center;
+        transition:
+          transform var(--duration-normal) var(--ease-default),
+          border-color var(--duration-normal) var(--ease-default);
+      }
+      .chen-card:hover {
+        transform: translateY(-3px);
+        border-color: var(--color-accent-orange);
+      }
+      .chen-shape {
+        height: 60px;
+        display: grid;
+        place-items: center;
+        color: var(--color-accent-warm);
+        margin-bottom: var(--space-4);
+        transition: transform var(--duration-normal) var(--ease-bounce);
+      }
+      .chen-card:hover .chen-shape {
+        transform: scale(1.08);
+      }
+      .chen-card h4 {
+        font-family: var(--font-heading-cn);
+        font-weight: var(--weight-semibold);
+        font-size: 0.98rem;
+        margin-bottom: 4px;
+      }
+      .chen-card h4 em {
+        font-family: var(--font-display);
+        font-style: italic;
+        color: var(--color-accent-warm);
+        font-weight: 400;
+        margin-right: 4px;
+      }
+      .chen-card p {
+        font-family: var(--font-body-cn);
+        color: var(--ink-2);
+        font-size: 0.86rem;
+      }
+
+      /* ─── Gallery（简化：单图）─── */
+      .fig {
+        background: var(--bg-raised);
+        border: 1px solid var(--hair);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        cursor: zoom-in;
+        transition:
+          transform var(--duration-normal) var(--ease-default),
+          box-shadow var(--duration-normal) var(--ease-default);
+      }
+      .fig:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-elevated);
+      }
+      .fig img {
+        width: 100%;
+        display: block;
+        background: #fff;
+      }
+      .fig figcaption {
+        padding: 14px 20px;
+        border-top: 1px solid var(--hair);
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        font-family: var(--font-body-cn);
+        color: var(--ink-2);
+        font-size: 0.92rem;
+      }
+      .fig figcaption .tag {
+        font-family: var(--font-display);
+        font-style: italic;
+        color: var(--color-accent-warm);
+        font-size: 0.95rem;
+      }
+
+      /* ─── Lightbox ─── */
+      .lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        background: color-mix(in srgb, #141413 92%, transparent);
+        backdrop-filter: blur(6px);
+        display: grid;
+        place-items: center;
+        padding: clamp(20px, 4vw, 60px);
+        opacity: 0;
+        pointer-events: none;
+        cursor: zoom-out;
+        transition: opacity var(--duration-normal) var(--ease-default);
+      }
+      .lightbox.is-open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .lightbox img {
+        max-width: 100%;
+        max-height: 100%;
+        border-radius: var(--radius-md);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.5);
+      }
+
+      /* ─── FAQ ─── */
+      .faq {
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      .faq details {
+        border-top: 1px solid var(--hair);
+        padding: var(--space-5) 0;
+      }
+      .faq details:last-of-type {
+        border-bottom: 1px solid var(--hair);
+      }
+      .faq summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        font-family: var(--font-display-cn);
+        font-size: 1.15rem;
+        font-weight: var(--weight-regular);
+        color: var(--ink);
+        transition: color var(--duration-fast) var(--ease-default);
+      }
+      .faq summary::-webkit-details-marker {
+        display: none;
+      }
+      .faq summary:hover {
+        color: var(--color-accent-warm);
+      }
+      .faq summary::after {
+        content: "+";
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 1.5rem;
+        color: var(--color-accent-warm);
+        flex-shrink: 0;
+        line-height: 1;
+        transition: transform var(--duration-normal) var(--ease-default);
+      }
+      .faq details[open] summary::after {
+        content: "–";
+      }
+      .faq summary::after {
+        display: inline-block;
+        transition: transform var(--duration-normal) var(--ease-default);
+      }
+      /* 平滑展开/折叠：用 JS 精确控制 height 过渡 */
+      .faq-wrap {
+        display: block; /* 覆盖 UA: details:not([open]) > *:not(summary){display:none} */
+        height: 0; /* 初始闭合 */
+        overflow: hidden;
+        transition: height 340ms var(--ease-default);
+        will-change: height;
+      }
+      .faq-body {
+        padding-top: var(--space-3);
+        font-family: var(--font-body-cn);
+        color: var(--ink-2);
+        font-size: 0.98rem;
+        line-height: var(--leading-cn-loose);
+        max-width: 36em;
+        opacity: 0;
+        transition: opacity 240ms var(--ease-default) 80ms;
+      }
+      .faq details[open] .faq-body {
+        opacity: 1;
+      }
+      .faq-body code {
+        font-family: var(--font-mono);
+        font-size: 0.88em;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--bg-raised);
+        border: 1px solid var(--hair);
+      }
+
+      /* ─── CTA ─── */
+      /* 两种主题下都保持「深色卡片 + 暖橙高光」的调性，不做反转 */
+      .cta {
+        background: #141413;
+        color: #faf9f5;
+        padding-block: clamp(56px, 7vw, 96px);
+        position: relative;
+        overflow: hidden;
+        /* 作用域覆盖 invert-* 变量，确保子元素里引用的 var 都走深色调 */
+        --invert-bg: #141413;
+        --invert-ink: #faf9f5;
+        --invert-ink-2: #a9a69c;
+        --invert-hair: #2b2a26;
+      }
+      [data-theme="dark"] .cta {
+        background: #0d0c0a; /* 比页面背景更深一档，形成层次 */
+        color: #faf9f5;
+      }
+      .cta::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(
+          ellipse 65% 55% at 20% 30%,
+          rgba(217, 119, 87, 0.28) 0%,
+          transparent 60%
+        );
+      }
+      [data-theme="dark"] .cta::before {
+        background: radial-gradient(
+          ellipse 65% 55% at 20% 30%,
+          rgba(217, 119, 87, 0.35) 0%,
+          transparent 60%
+        );
+      }
+      .cta-inner {
+        position: relative;
+        max-width: var(--max-width-layout);
+        margin: 0 auto;
+        padding-inline: clamp(var(--space-6), 5vw, var(--space-16));
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: clamp(28px, 4vw, 56px);
+        align-items: end;
+      }
+      @media (max-width: 760px) {
+        .cta-inner {
+          grid-template-columns: 1fr;
+          align-items: stretch;
+        }
+      }
+      .cta .eyebrow {
+        color: var(--invert-ink-2);
+      }
+      .cta .eyebrow::before {
+        background: var(--invert-hair);
+      }
+      .cta-title {
+        font-family: var(--font-display-cn);
+        font-weight: var(--weight-regular);
+        font-size: clamp(1.9rem, 4vw, 3rem);
+        line-height: var(--leading-cn-tight);
+        letter-spacing: -0.01em;
+        margin-top: var(--space-4);
+      }
+      .cta-title em {
+        font-style: italic;
+        background: linear-gradient(120deg, #e8a884, #d97757);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .cta-right {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-5);
+        align-items: flex-start;
+      }
+      @media (min-width: 761px) {
+        .cta-right {
+          align-items: flex-end;
+        }
+      }
+      .cta-note {
+        font-family: var(--font-body-cn);
+        color: var(--invert-ink-2);
+        font-size: 0.96rem;
+        line-height: var(--leading-cn-loose);
+        max-width: 24em;
+      }
+
+      /* ─── Footer ─── */
+      footer {
+        padding: var(--space-10) clamp(var(--space-6), 5vw, var(--space-16));
+        max-width: var(--max-width-layout);
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 16px;
+        font-family: var(--font-heading);
+        font-size: 0.88rem;
+        color: var(--ink-2);
+        border-top: 1px solid var(--hair);
+      }
+      footer a {
+        color: var(--ink);
+        transition: color var(--duration-fast) var(--ease-default);
+      }
+      footer a:hover {
+        color: var(--color-accent-warm);
+      }
+      footer em {
+        font-family: var(--font-display);
+        font-style: italic;
+        color: var(--color-accent-warm);
+      }
+
+      /* ─── 返回顶部 ─── */
+      .to-top {
+        position: fixed;
+        right: 22px;
+        bottom: 22px;
+        z-index: 60;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: var(--color-accent-orange);
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        box-shadow: 0 8px 20px rgba(217, 119, 87, 0.35);
+        opacity: 0;
+        transform: translateY(12px);
+        pointer-events: none;
+        transition: all var(--duration-normal) var(--ease-default);
+      }
+      .to-top.is-show {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+      .to-top:hover {
+        background: var(--color-accent-warm);
+        transform: translateY(-2px);
+      }
+      .to-top svg {
+        width: 15px;
+        height: 15px;
+      }
+
+      /* ─── Toast ─── */
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 28px;
+        transform: translateX(-50%) translateY(16px);
+        z-index: 70;
+        background: var(--invert-bg);
+        color: var(--invert-ink);
+        padding: 9px 18px;
+        border-radius: 999px;
+        font-family: var(--font-heading);
+        font-size: 0.86rem;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: var(--shadow-elevated);
+        opacity: 0;
+        pointer-events: none;
+        transition: all var(--duration-normal) var(--ease-default);
+      }
+      .toast.is-show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      .toast svg {
+        width: 14px;
+        height: 14px;
+        color: var(--color-accent-orange);
+      }
+
+      /* ─── Scroll reveal ─── */
+      .scroll-reveal {
+        opacity: 0;
+        transform: translateY(20px);
+        transition:
+          opacity 520ms var(--ease-default),
+          transform 520ms var(--ease-default);
+      }
+      .scroll-reveal.is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- NAV -->
+    <nav class="nav" id="nav" aria-label="主导航">
+      <div class="nav-row">
+        <a href="#" class="brand" aria-label="SQL to ER diagram">
+          <span class="brand-mark" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="16" y="16" width="6" height="6" rx="1" />
+              <rect x="2" y="16" width="6" height="6" rx="1" />
+              <rect x="9" y="2" width="6" height="6" rx="1" />
+              <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" />
+              <path d="M12 12V8" />
+            </svg>
+          </span>
+          <span class="brand-name">SQL to ER diagram</span>
+        </a>
+        <div class="nav-links">
+          <a href="#features" data-i18n="nav_features">特性</a>
+          <a href="#demo" data-i18n="nav_demo">示例</a>
+          <a href="#how" data-i18n="nav_how">用法</a>
+          <a href="#faq" data-i18n="nav_faq">FAQ</a>
+        </div>
+        <div class="nav-actions">
+          <button class="icon-btn" id="langBtn" aria-label="切换语言">
+            <span
+              id="langLabel"
+              style="
+                font-family: var(--font-heading);
+                font-size: 0.76rem;
+                font-weight: 600;
+              "
+              >EN</span
+            >
+          </button>
+          <button class="icon-btn" id="themeBtn" aria-label="切换主题">
+            <svg
+              id="themeIcon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          </button>
+          <a
+            class="icon-btn"
+            href="https://github.com/ystemsrx/sql_to_ER"
+            target="_blank"
+            rel="noopener"
+            aria-label="GitHub"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.05-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5 1 .11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.77.84 1.23 1.91 1.23 3.22 0 4.61-2.8 5.62-5.48 5.92.43.37.82 1.1.82 2.22 0 1.61-.01 2.9-.01 3.3 0 .32.22.7.83.58A12 12 0 0 0 24 12c0-6.63-5.37-12-12-12z"
+              />
+            </svg>
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <header class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow"
+            ><span data-i18n="badge">Open source · Pure front-end</span></span
+          >
+          <h1 class="display hero-title">
+            <span data-i18n="hero1">把 SQL 建表语句，</span>
+            <span class="line-2" data-i18n-html="hero2"
+              >一键<em>翻译</em>成 ER 图</span
+            >
+          </h1>
+          <p class="hero-lead" data-i18n="lead">
+            基于 Chen 模型的在线 SQL / DBML
+            转换器。所有解析都在你的浏览器里发生，不上传、不登录、不计费。
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="sql2er.html">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="5 12 19 12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+              <span data-i18n="cta1">打开生成器</span>
+            </a>
+            <a
+              class="btn btn-ghost"
+              href="https://github.com/ystemsrx/sql_to_ER"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.05-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5 1 .11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.77.84 1.23 1.91 1.23 3.22 0 4.61-2.8 5.62-5.48 5.92.43.37.82 1.1.82 2.22 0 1.61-.01 2.9-.01 3.3 0 .32.22.7.83.58A12 12 0 0 0 24 12c0-6.63-5.37-12-12-12z"
+                />
+              </svg>
+              <span data-i18n="cta2">Star on GitHub</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- 真实 ER 图（G6 force2 默认布局）-->
+        <div class="er-stage" id="erStage">
+          <span class="er-chip" data-i18n="live">试试拖动</span>
+          <button
+            class="er-reset"
+            id="erReset"
+            aria-label="重置布局"
+            title="重置布局"
+          >
+            <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
+          </button>
+          <div id="hero-er"></div>
+          <div class="er-fallback" data-i18n="fallback">加载中…</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- FEATURES -->
+    <section id="features">
+      <div class="container">
+        <div class="section-head scroll-reveal">
+          <span class="eyebrow"
+            ><span data-i18n="f_eyebrow">Why this tool</span></span
+          >
+          <h2 data-i18n-html="f_title">轻量、<em>优雅</em>，直接能用</h2>
+        </div>
+        <div class="features">
+          <div class="feat scroll-reveal">
+            <div class="feat-num">01</div>
+            <div>
+              <h3 data-i18n="f1_t">纯前端，打开即用</h3>
+              <p data-i18n="f1_d">
+                解析在你的浏览器里完成，SQL 不会被上传到任何地方。
+              </p>
+            </div>
+          </div>
+          <div class="feat scroll-reveal">
+            <div class="feat-num">02</div>
+            <div>
+              <h3 data-i18n="f2_t">同时支持 SQL 与 DBML</h3>
+              <p data-i18n="f2_d">
+                粘贴 CREATE TABLE 或 DBML Ref，自动识别并生成 Chen 模型。
+              </p>
+            </div>
+          </div>
+          <div class="feat scroll-reveal">
+            <div class="feat-num">03</div>
+            <div>
+              <h3 data-i18n="f3_t">拖拽与双击编辑</h3>
+              <p data-i18n="f3_d">
+                节点可拖动，双击即可改名字，不用回到源代码反复生成。
+              </p>
+            </div>
+          </div>
+          <div class="feat scroll-reveal">
+            <div class="feat-num">04</div>
+            <div>
+              <h3 data-i18n="f4_t">MIT 开源</h3>
+              <p data-i18n="f4_d">
+                代码完全开源，支持导出图片，欢迎 fork、提 issue、发 PR。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DEMO -->
+    <section id="demo">
+      <div class="container">
+        <div class="section-head scroll-reveal">
+          <span class="eyebrow"
+            ><span data-i18n="d_eyebrow">Try it out</span></span
+          >
+          <h2 data-i18n-html="d_title">两种输入，<em>一种</em>输出</h2>
+          <p data-i18n="d_sub">
+            切换标签看看不同格式，点「复制」然后粘到生成器里。
+          </p>
+        </div>
+
+        <div class="demo-card scroll-reveal">
+          <div class="demo-bar">
+            <button class="tab is-active" data-tab="sql">SQL</button>
+            <button class="tab" data-tab="dbml">DBML</button>
+            <div class="demo-actions">
+              <button class="mini-btn" id="copyBtn">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path
+                    d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                  />
+                </svg>
+                <span data-i18n="copy">复制</span>
+              </button>
+              <a
+                class="mini-btn"
+                href="sql2er.html"
+                style="
+                  color: var(--color-accent-warm);
+                  border-color: color-mix(
+                    in srgb,
+                    var(--color-accent-orange) 35%,
+                    transparent
+                  );
+                "
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                <span data-i18n="try">打开生成器</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="code-panel is-active" data-panel="sql">
+            <pre><code class="language-sql">CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE
+);
+
+CREATE TABLE posts (
+    id INT PRIMARY KEY,
+    author_id INT,
+    title VARCHAR(255),
+    FOREIGN KEY (author_id) REFERENCES users(id)
+);</code></pre>
+          </div>
+          <div class="code-panel" data-panel="dbml">
+            <pre><code class="language-javascript">Table users {
+  id INT [pk]
+  username VARCHAR(255) [not null]
+  email VARCHAR(255) [unique]
+}
+
+Table posts {
+  id INT [pk]
+  author_id INT
+  title VARCHAR(255)
+}
+
+Ref: posts.author_id &gt; users.id</code></pre>
+          </div>
+
+          <div class="demo-foot">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              style="color: var(--color-accent-warm); flex-shrink: 0"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4M12 8h.01" />
+            </svg>
+            <span data-i18n="d_hint"
+              >粘到生成器左侧，点「生成 ER 图」即可。</span
+            >
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW -->
+    <section id="how">
+      <div class="container">
+        <div class="section-head scroll-reveal">
+          <span class="eyebrow"
+            ><span data-i18n="h_eyebrow">How it works</span></span
+          >
+          <h2 data-i18n-html="h_title">从粘贴到完成，<em>五步</em>以内</h2>
+        </div>
+
+        <div class="steps scroll-reveal">
+          <div class="step">
+            <div class="step-num">i.</div>
+            <h4 data-i18n="s1_t">打开生成器</h4>
+            <p data-i18n="s1_d">在线使用或本地跑一个 HTTP server。</p>
+          </div>
+          <div class="step">
+            <div class="step-num">ii.</div>
+            <h4 data-i18n="s2_t">粘贴代码</h4>
+            <p data-i18n="s2_d">SQL 或 DBML 都行，编辑器带语法高亮。</p>
+          </div>
+          <div class="step">
+            <div class="step-num">iii.</div>
+            <h4 data-i18n="s3_t">生成图</h4>
+            <p data-i18n="s3_d">右侧立刻出现 Chen 模型可视化。</p>
+          </div>
+          <div class="step">
+            <div class="step-num">iv.</div>
+            <h4 data-i18n="s4_t">手动微调</h4>
+            <p data-i18n="s4_d">拖节点、双击改名、滚轮缩放。</p>
+          </div>
+          <div class="step">
+            <div class="step-num">v.</div>
+            <h4 data-i18n="s5_t">智能布局</h4>
+            <p data-i18n="s5_d">复杂图形一键整理，几秒排整齐。</p>
+          </div>
+        </div>
+
+        <div class="callout scroll-reveal">
+          <strong><span data-i18n="warn_t">本地运行提示：</span></strong>
+          <span data-i18n="warn_d"
+            >不能直接双击 sql2er.html 打开 —— file:// 会拦截本地资源。请执行
+          </span>
+          <code>python -m http.server 8000</code>
+          <span data-i18n="warn_d2">，再访问 localhost:8000/sql2er.html。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHEN -->
+    <section id="chen">
+      <div class="container">
+        <div class="section-head scroll-reveal">
+          <span class="eyebrow"
+            ><span data-i18n="c_eyebrow">Shape semantics</span></span
+          >
+          <h2 data-i18n-html="c_title">Chen 模型<em>四件套</em></h2>
+        </div>
+
+        <div class="chen-grid">
+          <div class="chen-card scroll-reveal">
+            <div class="chen-shape">
+              <svg width="88" height="48" viewBox="0 0 88 48">
+                <rect
+                  x="5"
+                  y="5"
+                  width="78"
+                  height="38"
+                  rx="3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+              </svg>
+            </div>
+            <h4><em>i.</em> <span data-i18n="c1_t">矩形 · 实体</span></h4>
+            <p data-i18n="c1_d">对应数据库中的表</p>
+          </div>
+          <div class="chen-card scroll-reveal">
+            <div class="chen-shape">
+              <svg width="88" height="48" viewBox="0 0 88 48">
+                <polygon
+                  points="44,4 84,24 44,44 4,24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+              </svg>
+            </div>
+            <h4><em>ii.</em> <span data-i18n="c2_t">菱形 · 关系</span></h4>
+            <p data-i18n="c2_d">对应表之间的外键关系</p>
+          </div>
+          <div class="chen-card scroll-reveal">
+            <div class="chen-shape">
+              <svg width="88" height="48" viewBox="0 0 88 48">
+                <ellipse
+                  cx="44"
+                  cy="24"
+                  rx="38"
+                  ry="19"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+              </svg>
+            </div>
+            <h4><em>iii.</em> <span data-i18n="c3_t">椭圆 · 属性</span></h4>
+            <p data-i18n="c3_d">对应表中的列</p>
+          </div>
+          <div class="chen-card scroll-reveal">
+            <div class="chen-shape">
+              <svg width="88" height="48" viewBox="0 0 88 48">
+                <ellipse
+                  cx="44"
+                  cy="21"
+                  rx="30"
+                  ry="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+                <text
+                  x="44"
+                  y="25"
+                  text-anchor="middle"
+                  fill="currentColor"
+                  font-size="11"
+                  font-family="serif"
+                  font-style="italic"
+                  text-decoration="underline"
+                >
+                  id
+                </text>
+                <line
+                  x1="34"
+                  y1="42"
+                  x2="54"
+                  y2="42"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                />
+              </svg>
+            </div>
+            <h4><em>iv.</em> <span data-i18n="c4_t">下划线 · 主键</span></h4>
+            <p data-i18n="c4_d">标识该属性为主键</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GALLERY（简化：一张图）-->
+    <section id="gallery">
+      <div class="container" style="max-width: 860px">
+        <div class="section-head scroll-reveal">
+          <span class="eyebrow"
+            ><span data-i18n="g_eyebrow">Showcase</span></span
+          >
+          <h2 data-i18n-html="g_title">真实输出<em>长这样</em></h2>
+        </div>
+
+        <figure class="fig scroll-reveal" data-lightbox>
+          <img src="./assets/eg1.png" alt="示例" loading="lazy" />
+          <figcaption>
+            <span data-i18n="g_cap">一键「智能布局」后的整洁 ER 图</span>
+            <span class="tag">eg.</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq">
+      <div class="container">
+        <div
+          class="section-head scroll-reveal"
+          style="text-align: center; margin-inline: auto"
+        >
+          <span class="eyebrow" style="justify-content: center"
+            ><span>Questions</span></span
+          >
+          <h2 data-i18n-html="q_title">你可能想知道的<em>几件事</em></h2>
+        </div>
+
+        <div class="faq">
+          <details class="scroll-reveal">
+            <summary data-i18n="q1">数据会上传到服务器吗？</summary>
+            <div class="faq-wrap">
+              <div class="faq-body">
+                <p data-i18n="a1">
+                  不会。工具完全是纯前端的，所有 SQL
+                  解析都在你的浏览器里完成。没有后端、没有日志，你粘贴的代码永远不会离开这个页面。
+                </p>
+              </div>
+            </div>
+          </details>
+          <details class="scroll-reveal">
+            <summary data-i18n="q2">和标准 Chen 模型有什么差别？</summary>
+            <div class="faq-wrap">
+              <div class="faq-body">
+                <p data-i18n="a2">
+                  为了自动化，工具默认用外键字段名作为菱形的标签，用表名 /
+                  列名作为实体 / 属性。学术作业请双击图形改名，或改源 SQL
+                  再重新生成。
+                </p>
+              </div>
+            </div>
+          </details>
+          <details class="scroll-reveal">
+            <summary data-i18n="q3">我双击 sql2er.html 打不开？</summary>
+            <div class="faq-wrap">
+              <div class="faq-body">
+                <p data-i18n-html="a3_html">
+                  这是浏览器的 file:// 安全限制。用
+                  <code>python -m http.server 8000</code> 起个本地
+                  server，然后访问
+                  <code>http://localhost:8000/sql2er.html</code>。VS Code Live
+                  Server 也可以。
+                </p>
+              </div>
+            </div>
+          </details>
+          <details class="scroll-reveal">
+            <summary data-i18n="q4">支持哪些 SQL 方言？</summary>
+            <div class="faq-wrap">
+              <div class="faq-body">
+                <p data-i18n="a4">
+                  解析以 PostgreSQL 方言为主，同时兼容常见的 MySQL / SQLite
+                  CREATE TABLE 语法。外键无论写在列里还是尾部约束里都能识别。
+                </p>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+      <div class="cta-inner">
+        <div>
+          <span class="eyebrow"><span>Ready when you are</span></span>
+          <h2 class="cta-title" data-i18n-html="cta_title">
+            准备好把 SQL <em>变成图</em>了吗？
+          </h2>
+        </div>
+        <div class="cta-right">
+          <p class="cta-note" data-i18n="cta_note">
+            浏览器里就能跑，不用注册，不用付费。
+          </p>
+          <a class="btn btn-primary" href="sql2er.html">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="5 12 19 12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+            <span data-i18n="cta_btn">打开生成器</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+      <span>
+        © <span id="year">2025</span>
+        <span data-i18n-html="foot_copy">
+          · made with <em>care</em> by ystemsrx · MIT</span
+        >
+      </span>
+      <a
+        href="https://github.com/ystemsrx/sql_to_ER"
+        target="_blank"
+        rel="noopener"
+        >GitHub</a
+      >
+    </footer>
+
+    <!-- Back to top -->
+    <button class="to-top" id="toTop" aria-label="返回顶部">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="18 15 12 9 6 15" />
+      </svg>
+    </button>
+
+    <!-- Lightbox -->
+    <div class="lightbox" id="lightbox"><img id="lightboxImg" alt="" /></div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      <span id="toastText">已复制</span>
+    </div>
+
+    <!-- Prism -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+
+    <!-- G6 + 项目 JS（用于 Hero 的真实 ER 图）-->
+    <script src="https://unpkg.com/@antv/g6@4.8.24/dist/g6.min.js"></script>
+    <script src="js/parser-sql.js"></script>
+    <script src="js/parser-dbml.js"></script>
+    <script src="js/builder.js"></script>
+    <script src="js/layout.js"></script>
+
+    <script>
+      // ───── YEAR ─────
+      document.getElementById("year").textContent = new Date().getFullYear();
+
+      // ───── THEME ─────
+      const themeBtn = document.getElementById("themeBtn");
+      const themeIcon = document.getElementById("themeIcon");
+      function applyTheme(t) {
+        document.documentElement.setAttribute("data-theme", t);
+        themeIcon.innerHTML =
+          t === "dark"
+            ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>'
+            : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+        localStorage.setItem("sql2er-theme", t);
+      }
+      applyTheme(
+        localStorage.getItem("sql2er-theme") ||
+          (window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light"),
+      );
+      themeBtn.addEventListener("click", () => {
+        applyTheme(
+          document.documentElement.getAttribute("data-theme") === "dark"
+            ? "light"
+            : "dark",
+        );
+      });
+
+      // ───── I18N ─────
+      const I18N = {
+        zh: {
+          nav_features: "特性",
+          nav_demo: "示例",
+          nav_how: "用法",
+          nav_faq: "FAQ",
+          badge: "开源 · 纯前端",
+          hero1: "把 SQL 建表语句，",
+          hero2: "一键<em>翻译</em>成 ER 图",
+          lead: "基于 Chen 模型的在线 SQL / DBML 转换器。所有解析都在你的浏览器里发生，不上传、不登录、不计费。",
+          cta1: "打开生成器",
+          cta2: "Star on GitHub",
+          live: "试试拖动",
+          fallback: "加载中…",
+          f_eyebrow: "为什么用它",
+          f_title: "轻量、<em>优雅</em>，直接能用",
+          f1_t: "纯前端，打开即用",
+          f1_d: "解析在你的浏览器里完成，SQL 不会被上传到任何地方。",
+          f2_t: "同时支持 SQL 与 DBML",
+          f2_d: "粘贴 CREATE TABLE 或 DBML Ref，自动识别并生成 Chen 模型。",
+          f3_t: "拖拽与双击编辑",
+          f3_d: "节点可拖动，双击即可改名字，不用回到源代码反复生成。",
+          f4_t: "MIT 开源",
+          f4_d: "代码完全开源，支持导出图片，欢迎 fork、提 issue、发 PR。",
+          d_eyebrow: "试一下",
+          d_title: "两种输入，<em>一种</em>输出",
+          d_sub: "切换标签看看不同格式，点「复制」然后粘到生成器里。",
+          copy: "复制",
+          try: "打开生成器",
+          d_hint: "粘到生成器左侧，点「生成 ER 图」即可。",
+          h_eyebrow: "使用步骤",
+          h_title: "从粘贴到完成，<em>五步</em>以内",
+          s1_t: "打开生成器",
+          s1_d: "在线使用或本地跑一个 HTTP server。",
+          s2_t: "粘贴代码",
+          s2_d: "SQL 或 DBML 都行，编辑器带语法高亮。",
+          s3_t: "生成图",
+          s3_d: "右侧立刻出现 Chen 模型可视化。",
+          s4_t: "手动微调",
+          s4_d: "拖节点、双击改名、滚轮缩放。",
+          s5_t: "智能布局",
+          s5_d: "复杂图形一键整理，几秒排整齐。",
+          warn_t: "本地运行提示：",
+          warn_d:
+            "不能直接双击 sql2er.html 打开 —— file:// 会拦截本地资源。请执行 ",
+          warn_d2: "，再访问 localhost:8000/sql2er.html。",
+          c_eyebrow: "图形语义",
+          c_title: "Chen 模型<em>四件套</em>",
+          c1_t: "矩形 · 实体",
+          c1_d: "对应数据库中的表",
+          c2_t: "菱形 · 关系",
+          c2_d: "对应表之间的外键关系",
+          c3_t: "椭圆 · 属性",
+          c3_d: "对应表中的列",
+          c4_t: "下划线 · 主键",
+          c4_d: "标识该属性为主键",
+          g_eyebrow: "效果展示",
+          g_title: "真实输出<em>长这样</em>",
+          g_cap: "一键「智能布局」后的整洁 ER 图",
+          q_title: "你可能想知道的<em>几件事</em>",
+          q1: "数据会上传到服务器吗？",
+          a1: "不会。工具完全是纯前端的，所有 SQL 解析都在你的浏览器里完成。没有后端、没有日志，你粘贴的代码永远不会离开这个页面。",
+          q2: "和标准 Chen 模型有什么差别？",
+          a2: "为了自动化，工具默认用外键字段名作为菱形的标签，用表名 / 列名作为实体 / 属性。学术作业请双击图形改名，或改源 SQL 再重新生成。",
+          q3: "我双击 sql2er.html 打不开？",
+          a3_html:
+            "这是浏览器的 file:// 安全限制。用 <code>python -m http.server 8000</code> 起个本地 server，然后访问 <code>http://localhost:8000/sql2er.html</code>。VS Code Live Server 也可以。",
+          q4: "支持哪些 SQL 方言？",
+          a4: "解析以 PostgreSQL 方言为主，同时兼容常见的 MySQL / SQLite CREATE TABLE 语法。外键无论写在列里还是尾部约束里都能识别。",
+          cta_title: "准备好把 SQL <em>变成图</em>了吗？",
+          cta_note: "浏览器里就能跑，不用注册，不用付费。",
+          cta_btn: "打开生成器",
+          foot_copy: " · made with <em>care</em> by ystemsrx · MIT",
+          toast_copied: "已复制到剪贴板",
+        },
+        en: {
+          nav_features: "Features",
+          nav_demo: "Demo",
+          nav_how: "How",
+          nav_faq: "FAQ",
+          badge: "Open source · Pure front-end",
+          hero1: "Turn SQL create statements into",
+          hero2: "Chen-model <em>ER diagrams</em>",
+          lead: "An online SQL / DBML converter based on the Chen model. Parsing happens inside your browser. No upload, no login, no billing.",
+          cta1: "Open generator",
+          cta2: "Star on GitHub",
+          live: "Try dragging",
+          fallback: "Loading…",
+          f_eyebrow: "Why this tool",
+          f_title: "Lightweight, <em>elegant</em>, actually usable",
+          f1_t: "Pure front-end",
+          f1_d: "Parsing runs in your browser. SQL is never uploaded anywhere.",
+          f2_t: "SQL & DBML both",
+          f2_d: "Paste CREATE TABLE or DBML Ref — auto-detects and builds the Chen model.",
+          f3_t: "Drag & double-click edit",
+          f3_d: "Move nodes, double-click to rename — no need to regenerate from source.",
+          f4_t: "MIT licensed",
+          f4_d: "Fully open source with image export — fork it, open issues, send PRs.",
+          d_eyebrow: "Try it",
+          d_title: "Two inputs, <em>one</em> output",
+          d_sub: "Switch the tab, hit copy, paste it into the generator.",
+          copy: "Copy",
+          try: "Open generator",
+          d_hint:
+            'Paste it on the left side of the generator, then hit "Generate".',
+          h_eyebrow: "How it works",
+          h_title: "From paste to polish, in <em>five steps</em>",
+          s1_t: "Open the tool",
+          s1_d: "Use the hosted version, or run a local HTTP server.",
+          s2_t: "Paste code",
+          s2_d: "SQL or DBML, both work. Syntax highlighted.",
+          s3_t: "Generate",
+          s3_d: "Chen-model visualization appears on the right.",
+          s4_t: "Tweak",
+          s4_d: "Drag nodes, double-click to rename, scroll to zoom.",
+          s5_t: "Smart layout",
+          s5_d: "One click to auto-arrange complex diagrams.",
+          warn_t: "Running locally:",
+          warn_d:
+            "Do NOT double-click sql2er.html — file:// blocks assets. Run ",
+          warn_d2: ", then visit localhost:8000/sql2er.html.",
+          c_eyebrow: "Shape semantics",
+          c_title: "The Chen <em>four-piece set</em>",
+          c1_t: "Rectangle · Entity",
+          c1_d: "Maps to a database table",
+          c2_t: "Diamond · Relationship",
+          c2_d: "Maps to a foreign-key relation",
+          c3_t: "Ellipse · Attribute",
+          c3_d: "Maps to a column",
+          c4_t: "Underline · Primary key",
+          c4_d: "Marks the attribute as primary",
+          g_eyebrow: "Showcase",
+          g_title: "Real output <em>looks like this</em>",
+          g_cap: 'An ER diagram after one click of "Smart layout"',
+          q_title: "A <em>few things</em> you might want to know",
+          q1: "Is my data uploaded anywhere?",
+          a1: "No. The tool is purely front-end. All SQL parsing happens in your browser. No backend, no logs — what you paste never leaves the page.",
+          q2: "How does it differ from the textbook Chen model?",
+          a2: "For automation, relationship diamonds default to the foreign-key column name, and entities/attributes use raw table/column names. Double-click any shape to rename.",
+          q3: "sql2er.html does not open when I double-click.",
+          a3_html:
+            "Browser file:// restriction. Run <code>python -m http.server 8000</code> and visit <code>http://localhost:8000/sql2er.html</code>. VS Code Live Server works too.",
+          q4: "Which SQL dialects are supported?",
+          a4: "Mainly PostgreSQL, also accepts common MySQL / SQLite CREATE TABLE syntax. Foreign keys work inline or as trailing constraints.",
+          cta_title: "Ready to turn SQL <em>into diagrams</em>?",
+          cta_note: "Runs in your browser. No signup, no billing.",
+          cta_btn: "Open the generator",
+          foot_copy: " · made with <em>care</em> by ystemsrx · MIT",
+          toast_copied: "Copied to clipboard",
+        },
+      };
+      const langBtn = document.getElementById("langBtn");
+      const langLabel = document.getElementById("langLabel");
+      function applyLang(lang) {
+        document.documentElement.setAttribute(
+          "lang",
+          lang === "zh" ? "zh-CN" : "en",
+        );
+        const d = I18N[lang];
+        document.querySelectorAll("[data-i18n]").forEach((el) => {
+          const k = el.getAttribute("data-i18n");
+          if (d[k] !== undefined) el.textContent = d[k];
+        });
+        document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+          const k = el.getAttribute("data-i18n-html");
+          if (d[k] !== undefined) el.innerHTML = d[k];
+        });
+        langLabel.textContent = lang === "zh" ? "EN" : "中";
+        localStorage.setItem("sql2er-lang", lang);
+      }
+      applyLang(
+        localStorage.getItem("sql2er-lang") ||
+          (navigator.language.startsWith("zh") ? "zh" : "en"),
+      );
+      langBtn.addEventListener("click", () => {
+        const cur = document.documentElement
+          .getAttribute("lang")
+          .startsWith("zh")
+          ? "zh"
+          : "en";
+        applyLang(cur === "zh" ? "en" : "zh");
+      });
+
+      // ───── TABS ─────
+      document.querySelectorAll(".tab").forEach((t) => {
+        t.addEventListener("click", () => {
+          const key = t.dataset.tab;
+          document
+            .querySelectorAll(".tab")
+            .forEach((x) => x.classList.toggle("is-active", x === t));
+          document
+            .querySelectorAll(".code-panel")
+            .forEach((p) =>
+              p.classList.toggle("is-active", p.dataset.panel === key),
+            );
+        });
+      });
+
+      // ───── COPY ─────
+      const toast = document.getElementById("toast");
+      const toastText = document.getElementById("toastText");
+      function showToast(msg) {
+        toastText.textContent = msg;
+        toast.classList.add("is-show");
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(
+          () => toast.classList.remove("is-show"),
+          1600,
+        );
+      }
+      document.getElementById("copyBtn").addEventListener("click", async () => {
+        const code = document.querySelector(
+          ".code-panel.is-active code",
+        ).textContent;
+        try {
+          await navigator.clipboard.writeText(code);
+          const lang = localStorage.getItem("sql2er-lang") || "zh";
+          showToast(I18N[lang].toast_copied);
+        } catch {
+          showToast("Copy failed");
+        }
+      });
+
+      // ───── FAQ smooth toggle ─────
+      // <details> 原生切换是瞬时的（且关闭时 UA 直接隐藏内容）；
+      // 这里拦截 summary 点击，手动控制 .faq-wrap 的 height 过渡
+      document.querySelectorAll(".faq details").forEach((d) => {
+        const summary = d.querySelector("summary");
+        const wrap = d.querySelector(".faq-wrap");
+        if (!summary || !wrap) return;
+
+        let animating = false;
+
+        const afterTransition = (cb) => {
+          const handler = (ev) => {
+            if (ev.propertyName !== "height") return;
+            wrap.removeEventListener("transitionend", handler);
+            cb();
+          };
+          wrap.addEventListener("transitionend", handler);
+        };
+
+        summary.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (animating) return;
+          animating = true;
+
+          if (d.open) {
+            // —— 折叠 ——
+            wrap.style.height = wrap.scrollHeight + "px";
+            void wrap.offsetHeight; // force reflow
+            requestAnimationFrame(() => {
+              wrap.style.height = "0px";
+              afterTransition(() => {
+                d.open = false; // 动画结束后再移除 [open]
+                animating = false;
+              });
+            });
+          } else {
+            // —— 展开 ——
+            d.open = true; // 先 open，内容进入布局
+            wrap.style.height = "0px";
+            void wrap.offsetHeight; // force reflow
+            const target = wrap.scrollHeight;
+            requestAnimationFrame(() => {
+              wrap.style.height = target + "px";
+              afterTransition(() => {
+                wrap.style.height = "auto"; // 解除固定，内部 reflow 自由
+                animating = false;
+              });
+            });
+          }
+        });
+      });
+
+      // ───── LIGHTBOX ─────
+      const lb = document.getElementById("lightbox");
+      const lbImg = document.getElementById("lightboxImg");
+      document.querySelectorAll("[data-lightbox] img").forEach((img) => {
+        img.addEventListener("click", () => {
+          lbImg.src = img.src;
+          lb.classList.add("is-open");
+        });
+      });
+      lb.addEventListener("click", () => lb.classList.remove("is-open"));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") lb.classList.remove("is-open");
+      });
+
+      // ───── NAV SCROLL + BACK TO TOP ─────
+      const nav = document.getElementById("nav");
+      const toTop = document.getElementById("toTop");
+      window.addEventListener(
+        "scroll",
+        () => {
+          nav.classList.toggle("is-scrolled", window.scrollY > 10);
+          toTop.classList.toggle("is-show", window.scrollY > 600);
+        },
+        { passive: true },
+      );
+      toTop.addEventListener("click", () =>
+        window.scrollTo({ top: 0, behavior: "smooth" }),
+      );
+
+      // ───── SCROLL REVEAL ─────
+      const io = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (e.isIntersecting) {
+              e.target.classList.add("is-visible");
+              io.unobserve(e.target);
+            }
+          });
+        },
+        { threshold: 0.1 },
+      );
+      document
+        .querySelectorAll(".scroll-reveal")
+        .forEach((el) => io.observe(el));
+
+      // ───── KEYBOARD ─────
+      document.addEventListener("keydown", (e) => {
+        if (
+          (e.key === "t" || e.key === "T") &&
+          !e.target.matches("input, textarea")
+        )
+          themeBtn.click();
+      });
+
+      // ─────────────────────────────────────────────────
+      //  HERO 真实 ER 图（G6 force2，与 sql2er.html 同款示例）
+      //  —— 拖动时实时重跑 force2：其他节点被挤开或拉过来
+      // ─────────────────────────────────────────────────
+      const HERO_SOURCES = {
+        zh: `Table 用户 {
+  编号 INT [pk, increment]
+  用户名 VARCHAR(255) [not null]
+  邮箱 VARCHAR(255) [unique]
+  创建时间 TIMESTAMP
+}
+
+Table 国家 {
+  编号 INT [pk]
+  名称 VARCHAR(255) [not null]
+}
+
+Table 文章 {
+  文章编号 INT [pk]
+  内容 TEXT
+}
+
+Ref: 用户.属于 > 国家.编号
+Ref: 文章.作者 > 用户.编号`,
+        en: `Table users {
+  id INT [pk, increment]
+  username VARCHAR(255) [not null]
+  email VARCHAR(255) [unique]
+  created_at TIMESTAMP
+}
+
+Table countries {
+  id INT [pk]
+  name VARCHAR(255) [not null]
+}
+
+Table posts {
+  post_id INT [pk]
+  content TEXT
+}
+
+Ref: users.belongs_to > countries.id
+Ref: posts.author > users.id`,
+      };
+
+      let heroGraph = null;
+      const heroState = { pinnedId: null, dragging: false };
+
+      function buildHeroGraph() {
+        const stage = document.getElementById("erStage");
+        const mount = document.getElementById("hero-er");
+        // 构建期间瞬时隐藏，防止用户看到未 fit 的大图一闪
+        stage.classList.add("is-building");
+        const G6 = window.G6;
+        if (
+          !G6 ||
+          !window.ERBuilder ||
+          !window.Layout ||
+          typeof parseSQLTables !== "function" ||
+          typeof parseDBML !== "function"
+        ) {
+          stage.classList.add("is-failed");
+          return;
+        }
+        window.ERBuilder.registerCustomNodes(G6);
+
+        const lang =
+          localStorage.getItem("sql2er-lang") ||
+          (navigator.language.startsWith("zh") ? "zh" : "en");
+        const SRC = HERO_SOURCES[lang] || HERO_SOURCES.zh;
+
+        let parsed = parseSQLTables(SRC);
+        if (!parsed.tables.length) parsed = parseDBML(SRC);
+        const { tables, relationships } = parsed;
+        if (!tables.length) {
+          stage.classList.add("is-failed");
+          return;
+        }
+
+        const { nodes, edges } = window.ERBuilder.generateChenModelData(
+          tables,
+          relationships,
+          true,
+          "name",
+        );
+        window.Layout.applyInitialComponentPositions(nodes, edges, mount, 0);
+
+        if (heroGraph && !heroGraph.destroyed) {
+          heroGraph.destroy();
+          heroGraph = null;
+        }
+
+        const W = mount.offsetWidth,
+          H = mount.offsetHeight;
+        const isDark =
+          document.documentElement.getAttribute("data-theme") === "dark";
+        const CANVAS_BG = isDark ? "#1b1a16" : "#ffffff";
+
+        const graph = new G6.Graph({
+          container: mount,
+          width: W,
+          height: H,
+          renderer: "canvas",
+          background: CANVAS_BG,
+          fitView: false, // 自己在 onLayoutEnd 用 smoothFitView，避免双重 fit 的抖动
+          // 关键：drag-canvas 必须 allowDragOnItem:true 且在节点上 shouldBegin 返回 false，
+          // 否则画布拖动会吃掉节点上的 mousedown，drag-node 永远触发不了。
+          modes: {
+            default: [
+              { type: "drag-node", enableDelegate: false },
+              {
+                type: "drag-canvas",
+                allowDragOnItem: true,
+                enableOptimize: false,
+                shouldBegin(e) {
+                  return !e.item || e.item.getType() !== "node";
+                },
+              },
+              "zoom-canvas",
+            ],
+          },
+          // —— 初始布局：force2 同步跑完（animate:false），避免渲染时看到过程 ——
+          layout: {
+            type: "force2",
+            preventOverlap: true,
+            nodeSize: (node) =>
+              ({ entity: 120, relationship: 80, attribute: 80 })[
+                node.nodeType
+              ] || 80,
+            nodeSpacing: 16,
+            linkDistance: 100,
+            coulombDisScale: 0.005,
+            damping: 0.9,
+            maxSpeed: 1000,
+            minMovement: 0.4,
+            interval: 0.02,
+            factor: 1,
+            maxIteration: 600,
+            animate: false, // 关键：同步收敛，不再边跑边渲染
+            center: [W / 2, H / 2],
+            onLayoutEnd: () => {
+              // 只处理多个不连通分量的情况（单分量时 onFinish 立即触发）
+              // fitView 不放这里——放在 buildHeroGraph 最后统一调，避免被后续
+              // applyWarmTheme / patchRelationshipLinkPoints / paint 盖掉。
+              if (heroGraph && !heroGraph.destroyed) {
+                window.Layout.spreadDisconnectedComponents(heroGraph, () => {});
+              }
+            },
+          },
+          defaultNode: {
+            style: { lineWidth: 2, stroke: "#141413", fill: "#ffffff" },
+            labelCfg: {
+              style: {
+                fill: "#141413",
+                fontSize: 13,
+                fontFamily: "Poppins, system-ui, sans-serif",
+              },
+            },
+          },
+          defaultEdge: {
+            style: { lineWidth: 1.2, stroke: "#6B6860" },
+            labelCfg: {
+              style: {
+                fill: "#141413",
+                fontSize: 11,
+                fontFamily: "Poppins, system-ui, sans-serif",
+                background: {
+                  fill: "#ffffff",
+                  padding: [2, 4, 2, 4],
+                  radius: 2,
+                },
+              },
+            },
+          },
+        });
+
+        heroGraph = graph;
+        graph.data({
+          nodes: JSON.parse(JSON.stringify(nodes)),
+          edges: JSON.parse(JSON.stringify(edges)),
+        });
+        graph.render();
+
+        // 暖调配色：light / dark 分别一套，保持 Chen 模型可读
+        // 暗色模式：边框 & 连线 & 文字全白；菱形保持橙色
+        const T = isDark
+          ? {
+              entityFill: "#1b1a16",
+              entityStroke: "#ffffff",
+              entityText: "#ffffff",
+              relFill: "#3a261c",
+              relStroke: "#D97757",
+              relText: "#ffffff",
+              pkFill: "#1b1a16",
+              pkStroke: "#ffffff",
+              pkText: "#ffffff",
+              attrFill: "#1b1a16",
+              attrStroke: "#ffffff",
+              attrText: "#ffffff",
+              edgeStroke: "#ffffff",
+              edgeLabelFill: "#ffffff",
+              edgeLabelBg: "#1b1a16",
+            }
+          : {
+              entityFill: "#FDFCF8",
+              entityStroke: "#141413",
+              entityText: "#141413",
+              relFill: "#FCEEE4",
+              relStroke: "#D97757",
+              relText: "#C96442",
+              pkFill: "#FDFCF8",
+              pkStroke: "#141413",
+              pkText: "#141413",
+              attrFill: "#FDFCF8",
+              attrStroke: "#9B9890",
+              attrText: "#6B6860",
+              edgeStroke: "#9B9890",
+              edgeLabelFill: "#6B6860",
+              edgeLabelBg: "#FDFCF8",
+            };
+
+        // ⚠️ builder.js 里 attribute/relationship 的 draw() 把 text fill 写死为 '#000'，
+        // 而且这两个自定义节点没有 update() 方法 —— G6 对没 update 的节点执行
+        // updateItem 时会重新调用 draw()，把硬编码的黑色文字又刷回来。
+        // 我们必须在 updateItem 之后绕开 G6，直接拿到底层 text/line shape 改 attr。
+        const repaintNodeText = () => {
+          if (!graph || graph.destroyed) return;
+          graph.getNodes().forEach((node) => {
+            const m = node.getModel();
+            let textFill;
+            if (m.nodeType === "entity") textFill = T.entityText;
+            else if (m.nodeType === "relationship") textFill = T.relText;
+            else if (m.nodeType === "attribute")
+              textFill = m.keyType === "pk" ? T.pkText : T.attrText;
+            if (!textFill) return;
+
+            const group = node.getContainer && node.getContainer();
+            const children =
+              group &&
+              (group.getChildren
+                ? group.getChildren()
+                : group.get && group.get("children"));
+            if (!children || !children.forEach) return;
+
+            children.forEach((child) => {
+              const name = child.get
+                ? child.get("name")
+                : child.cfg && child.cfg.name;
+              if (
+                name === "entity-text" ||
+                name === "attribute-text" ||
+                name === "relationship-text"
+              ) {
+                child.attr("fill", textFill);
+              } else if (name === "attribute-underline") {
+                child.attr("stroke", textFill);
+              }
+            });
+          });
+        };
+
+        const applyWarmTheme = () => {
+          if (!graph || graph.destroyed) return;
+          graph.setAutoPaint(false);
+          graph.getNodes().forEach((node) => {
+            const m = node.getModel();
+            const styles = {};
+            if (m.nodeType === "entity") {
+              styles.style = {
+                fill: T.entityFill,
+                stroke: T.entityStroke,
+                lineWidth: 1.8,
+              };
+              styles.labelCfg = {
+                style: {
+                  fill: T.entityText,
+                  fontWeight: "600",
+                  fontFamily: "Poppins, sans-serif",
+                },
+              };
+            } else if (m.nodeType === "relationship") {
+              styles.style = {
+                fill: T.relFill,
+                stroke: T.relStroke,
+                lineWidth: 1.6,
+              };
+              styles.labelCfg = {
+                style: { fill: T.relText, fontFamily: "Poppins, sans-serif" },
+              };
+            } else if (m.nodeType === "attribute") {
+              if (m.keyType === "pk") {
+                styles.style = {
+                  fill: T.pkFill,
+                  stroke: T.pkStroke,
+                  lineWidth: 1.6,
+                };
+                styles.labelCfg = {
+                  style: {
+                    fill: T.pkText,
+                    fontWeight: "600",
+                    fontFamily: "Poppins, sans-serif",
+                  },
+                };
+              } else {
+                styles.style = {
+                  fill: T.attrFill,
+                  stroke: T.attrStroke,
+                  lineWidth: 1.2,
+                };
+                styles.labelCfg = {
+                  style: {
+                    fill: T.attrText,
+                    fontFamily: "Poppins, sans-serif",
+                  },
+                };
+              }
+            }
+            graph.updateItem(node, styles);
+          });
+          graph.getEdges().forEach((edge) => {
+            graph.updateItem(edge, {
+              style: { stroke: T.edgeStroke, lineWidth: 1.2, endArrow: false },
+              labelCfg: {
+                style: {
+                  fill: T.edgeLabelFill,
+                  fontSize: 11,
+                  background: {
+                    fill: T.edgeLabelBg,
+                    padding: [2, 4, 2, 4],
+                    radius: 2,
+                  },
+                },
+              },
+            });
+          });
+          repaintNodeText(); // 放在 updateItem 之后
+          graph.paint();
+          graph.setAutoPaint(true);
+        };
+
+        // 先 patch 菱形连线再上色；patchRelationshipLinkPoints 里的 graph.refresh()
+        // 如果触发重绘，也会把 draw() 里的 '#000' 刷回来，所以颜色覆盖必须放最后。
+        window.ERBuilder.patchRelationshipLinkPoints(graph);
+        applyWarmTheme();
+        // 再兜底一次：保证 text fill 是最终态
+        repaintNodeText();
+        graph.paint();
+
+        // 最后一步：等所有 paint / refresh 都稳定了，再 fit 到画布大小
+        // 用 RAF 推迟一帧，避开当前 paint 周期内的任何视口重置；
+        // fit 完成后再 RAF 一帧才撤掉 is-building，让浏览器先画出 fit 后的状态
+        requestAnimationFrame(() => {
+          if (heroGraph && !heroGraph.destroyed) heroGraph.fitView(20);
+          requestAnimationFrame(() => {
+            stage.classList.remove("is-building");
+          });
+        });
+
+        // ─────────────────────────────────────────────
+        //  实时拖拽：自写轻量物理模拟（force2 思路）
+        //  —— 不依赖 G6 的 layout tick（它 animate:false 初始后就不再跑）
+        //  —— drag-node 会把被拖节点同步到鼠标，其余节点在 sim loop 里被斥力/引力推拉
+        // ─────────────────────────────────────────────
+        const radius = (m) =>
+          ({ entity: 70, relationship: 45, attribute: 45 })[m.nodeType] || 45;
+        const adj = new Map();
+        graph.getEdges().forEach((e) => {
+          const m = e.getModel();
+          if (!adj.has(m.source)) adj.set(m.source, new Set());
+          if (!adj.has(m.target)) adj.set(m.target, new Set());
+          adj.get(m.source).add(m.target);
+          adj.get(m.target).add(m.source);
+        });
+
+        const velocities = new Map();
+        let simRaf = null;
+        let settleFrames = 0; // 松手后继续跑的帧数，让画面自然收敛
+
+        const simStep = () => {
+          if (!heroGraph || heroGraph.destroyed) {
+            simRaf = null;
+            return;
+          }
+          const nodes = heroGraph.getNodes();
+          const pos = {};
+          const radii = {};
+          nodes.forEach((n) => {
+            const m = n.getModel();
+            pos[m.id] = { x: m.x || 0, y: m.y || 0 };
+            radii[m.id] = radius(m);
+          });
+
+          const ids = Object.keys(pos);
+          const IDEAL = 95,
+            K_ATTRACT = 0.04,
+            K_REPEL = 5500,
+            DAMPING = 0.75,
+            MAX_V = 14;
+
+          nodes.forEach((n) => {
+            const id = n.getID();
+            if (id === heroState.pinnedId) return; // 被拖节点由 G6 drag-node 负责，不算力
+            const p = pos[id],
+              r = radii[id];
+            let fx = 0,
+              fy = 0;
+
+            // 斥力：所有其它节点
+            for (let i = 0; i < ids.length; i++) {
+              const oid = ids[i];
+              if (oid === id) continue;
+              const op = pos[oid],
+                orr = radii[oid];
+              const dx = p.x - op.x,
+                dy = p.y - op.y;
+              let d2 = dx * dx + dy * dy;
+              if (d2 < 1) d2 = 1;
+              const d = Math.sqrt(d2);
+              const minD = r + orr + 8;
+              // 近程重斥 + 远程弱斥
+              const mag = K_REPEL / d2 + (d < minD ? (minD - d) * 0.8 : 0);
+              fx += (dx / d) * mag;
+              fy += (dy / d) * mag;
+            }
+
+            // 引力：连边邻居
+            const nb = adj.get(id);
+            if (nb)
+              nb.forEach((nid) => {
+                const op = pos[nid];
+                if (!op) return;
+                const dx = op.x - p.x,
+                  dy = op.y - p.y;
+                const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                const delta = (d - IDEAL) * K_ATTRACT;
+                fx += (dx / d) * delta;
+                fy += (dy / d) * delta;
+              });
+
+            // 速度 + 阻尼 + 速度上限
+            const v = velocities.get(id) || { vx: 0, vy: 0 };
+            v.vx = (v.vx + fx) * DAMPING;
+            v.vy = (v.vy + fy) * DAMPING;
+            const sp = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
+            if (sp > MAX_V) {
+              v.vx = (v.vx / sp) * MAX_V;
+              v.vy = (v.vy / sp) * MAX_V;
+            }
+            velocities.set(id, v);
+
+            if (Math.abs(v.vx) > 0.05 || Math.abs(v.vy) > 0.05) {
+              heroGraph.updateItem(n, { x: p.x + v.vx, y: p.y + v.vy }, false);
+            }
+          });
+
+          // 是否继续
+          if (heroState.dragging) {
+            simRaf = requestAnimationFrame(simStep);
+          } else if (settleFrames-- > 0) {
+            simRaf = requestAnimationFrame(simStep);
+          } else {
+            simRaf = null;
+          }
+        };
+
+        const startSim = () => {
+          if (!simRaf) simRaf = requestAnimationFrame(simStep);
+        };
+
+        graph.on("node:dragstart", (e) => {
+          if (!e.item) return;
+          heroState.dragging = true;
+          heroState.pinnedId = e.item.getID();
+          velocities.clear();
+          startSim();
+        });
+
+        // 跟 sql2er.html 一致：drag-node 已经把节点 model.x/y 同步到鼠标了，
+        // 我们只【读取】model，不要手动 updateItem 去覆盖——否则会把节点甩到错误坐标
+        graph.on("node:drag", () => {
+          startSim();
+        });
+
+        graph.on("node:dragend", () => {
+          heroState.dragging = false;
+          heroState.pinnedId = null;
+          settleFrames = 40; // 松手后再跑 ~0.6s 让画面自然停下来
+          startSim();
+        });
+      }
+
+      window.addEventListener("load", () => {
+        buildHeroGraph();
+        // 语言切换后用对应语言的示例重建
+        langBtn.addEventListener("click", () => {
+          setTimeout(buildHeroGraph, 60);
+        });
+        // 主题切换时重建（配色 + 画布背景都会跟着换）
+        themeBtn.addEventListener("click", () => {
+          setTimeout(buildHeroGraph, 60);
+        });
+        // 重置按钮：回到初始 force2 收敛态
+        const resetBtn = document.getElementById("erReset");
+        if (resetBtn)
+          resetBtn.addEventListener("click", () => buildHeroGraph());
+        // 响应式：显著宽度变化才重建
+        const mount = document.getElementById("hero-er");
+        let lastW = mount.offsetWidth;
+        const ro = new ResizeObserver(() => {
+          const w = mount.offsetWidth;
+          if (Math.abs(w - lastW) > 60) {
+            lastW = w;
+            buildHeroGraph();
+          } else if (heroGraph && !heroGraph.destroyed) {
+            heroGraph.changeSize(mount.offsetWidth, mount.offsetHeight);
+          }
+        });
+        ro.observe(mount);
+      });
+    </script>
+  </body>
+</html>
