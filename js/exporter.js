@@ -186,9 +186,33 @@
         }
     }
 
+    /**
+     * 导出 ER 图为 PNG
+     * @param {Object} options - 导出选项
+     */
+    function exportPNG(options) {
+        const { graphRef, hasGraph, onError } = options;
+
+        if (!graphRef.current || !hasGraph) {
+            onError && onError('请先生成ER图');
+            return;
+        }
+
+        try {
+            graphRef.current.downloadFullImage('er-diagram', 'image/png', {
+                backgroundColor: '#ffffff',
+                padding: 40
+            });
+        } catch (error) {
+            console.error('导出PNG失败:', error);
+            onError && onError('导出PNG失败: ' + error.message);
+        }
+    }
+
     // 导出到全局命名空间
     global.Exporter = {
         exportSVG: exportSVG,
+        exportPNG: exportPNG,
         downloadSVG: downloadSVG
     };
 

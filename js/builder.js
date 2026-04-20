@@ -35,7 +35,7 @@ window.ERBuilder = (function () {
         return comment || name;
     };
 
-    const generateChenModelData = (tables, relationships, isColored = true, labelMode = 'name') => {
+    const generateChenModelData = (tables, relationships, isColored = true, labelMode = 'name', hideFields = false) => {
         const nodes = [];
         const edges = [];
         const entityMap = new Map(); // 用于存储表名到实体ID的映射
@@ -68,44 +68,46 @@ window.ERBuilder = (function () {
                 nodeType: 'entity'
             });
 
-            // Create attribute nodes (ellipses) for each column
-            table.columns.forEach((column, colIndex) => {
-                const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;
-                const isPrimaryKey = table.primaryKeys.includes(column.name) || column.isPrimaryKey;
-                const attrLabel = resolveAttrLabel(column, labelMode);
+            if (!hideFields) {
+                // Create attribute nodes (ellipses) for each column
+                table.columns.forEach((column, colIndex) => {
+                    const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;
+                    const isPrimaryKey = table.primaryKeys.includes(column.name) || column.isPrimaryKey;
+                    const attrLabel = resolveAttrLabel(column, labelMode);
 
-                nodes.push({
-                    id: attributeId,
-                    type: 'attribute',
-                    label: attrLabel,
-                    // 移除固定位置
-                    keyType: isPrimaryKey ? 'pk' : 'normal',
-                    style: {
-                        fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
-                        stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
-                        lineWidth: isPrimaryKey ? 2 : 1
-                    },
-                    labelCfg: {
+                    nodes.push({
+                        id: attributeId,
+                        type: 'attribute',
+                        label: attrLabel,
+                        // 移除固定位置
+                        keyType: isPrimaryKey ? 'pk' : 'normal',
                         style: {
-                            fill: '#000000',
-                            fontWeight: isPrimaryKey ? 'bold' : 'normal'
-                        }
-                    },
-                    nodeType: 'attribute',
-                    parentEntity: entityId // 标记父实体
-                });
+                            fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
+                            stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
+                            lineWidth: isPrimaryKey ? 2 : 1
+                        },
+                        labelCfg: {
+                            style: {
+                                fill: '#000000',
+                                fontWeight: isPrimaryKey ? 'bold' : 'normal'
+                            }
+                        },
+                        nodeType: 'attribute',
+                        parentEntity: entityId // 标记父实体
+                    });
 
-                // Connect attribute to entity
-                edges.push({
-                    id: `edge-${entityId}-${attributeId}-${tableIndex}-${colIndex}`,
-                    source: entityId,
-                    target: attributeId,
-                    style: {
-                        stroke: '#000000'
-                    },
-                    edgeType: 'entity-attribute'
+                    // Connect attribute to entity
+                    edges.push({
+                        id: `edge-${entityId}-${attributeId}-${tableIndex}-${colIndex}`,
+                        source: entityId,
+                        target: attributeId,
+                        style: {
+                            stroke: '#000000'
+                        },
+                        edgeType: 'entity-attribute'
+                    });
                 });
-            });
+            }
         });
 
         // Create placeholder entities for referenced tables not in the input SQL
