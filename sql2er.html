@@ -90,9 +90,11 @@
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER 图预览",
           showComment: "属性显示注释",
+          hideFields: "隐藏字段",
           editorPlaceholder: "在此处粘贴您的 CREATE TABLE 或 DBML 语句...",
           btnGenerate: "⚡ 生成 ER 图",
           btnExport: "📥 导出 SVG",
+          btnExportPNG: "📥 导出 PNG",
           btnSmartLayout: "✨ 智能布局",
           btnForceAlign: "📐 强制对齐",
           legendEntity: "实体",
@@ -140,9 +142,11 @@ Ref: 文章.作者 > 用户.编号
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER Preview",
           showComment: "Show comments",
+          hideFields: "Hide fields",
           editorPlaceholder: "Paste your CREATE TABLE or DBML statement here...",
           btnGenerate: "⚡ Generate",
           btnExport: "📥 Export SVG",
+          btnExportPNG: "📥 Export PNG",
           btnSmartLayout: "✨ Smart layout",
           btnForceAlign: "📐 Force align",
           legendEntity: "Entity",
@@ -330,6 +334,7 @@ Ref: Article.Author > User.ID
           );
           const [isColored, setIsColored] = useState(true);
           const [showComment, setShowComment] = useState(false);
+          const [hideFields, setHideFields] = useState(false);
           const [error, setError] = useState(null);
           const [loading, setLoading] = useState(false);
           const [hasGraph, setHasGraph] = useState(false);
@@ -534,12 +539,12 @@ Ref: Article.Author > User.ID
             }
           }, [isColored, hasGraph]);
 
-          // 监听 showComment 变化，重新生成图表
+          // 监听 showComment 或 hideFields 变化，重新生成图表
           useEffect(() => {
             if (hasGraph && lastInputRef.current) {
               handleGenerate();
             }
-          }, [showComment]);
+          }, [showComment, hideFields]);
 
           const handleGenerate = () => {
             try {
@@ -580,6 +585,7 @@ Ref: Article.Author > User.ID
                 relationships,
                 isColored,
                 showComment ? "comment" : "name",
+                hideFields
               );
 
               // 初始位置：先把不同组件分开围绕中心，避免初始交叉
@@ -859,13 +865,23 @@ Ref: Article.Author > User.ID
 
           // 导出SVG功能 - 使用 Exporter 模块
           const handleExportSVG = () => {
+            if (!hasGraph || !graphRef.current) return;
             window.Exporter.exportSVG({
-              graphRef: graphRef,
-              hasGraph: hasGraph,
-              containerRef: containerRef,
+              graphRef,
+              hasGraph,
+              containerRef,
               onError: setError,
-              patchRelationshipLinkPoints: patchRelationshipLinkPoints,
-              G6: G6,
+              patchRelationshipLinkPoints,
+              G6: window.G6,
+            });
+          };
+
+          const handleExportPNG = () => {
+            if (!hasGraph || !graphRef.current) return;
+            window.Exporter.exportPNG({
+              graphRef,
+              hasGraph,
+              onError: setError,
             });
           };
 
@@ -915,6 +931,12 @@ Ref: Article.Author > User.ID
                         gap: "10px",
                       }}
                     >
+                      <span className="inline-label">{t.hideFields}</span>
+                      <Switch
+                        checked={hideFields}
+                        onChange={setHideFields}
+                        size="small"
+                      />
                       <span className="inline-label">{t.showComment}</span>
                       <Switch
                         checked={showComment}
@@ -958,6 +980,13 @@ Ref: Article.Author > User.ID
                         disabled={!hasGraph}
                       >
                         {t.btnExport}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={handleExportPNG}
+                        disabled={!hasGraph}
+                      >
+                        {t.btnExportPNG}
                       </button>
                     </div>
                   </div>

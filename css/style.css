@@ -257,11 +257,11 @@ body::before {
 ═══════════════════════════════════════ */
 .btn {
   height: 46px;
-  padding: 0 22px;
+  padding: 0 18px;
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   font-family: var(--app-font);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: var(--weight-medium);
   letter-spacing: 0.01em;
   cursor: pointer;
@@ -270,6 +270,7 @@ body::before {
   justify-content: center;
   gap: 8px;
   width: 100%;
+  white-space: nowrap;
   transition:
     transform var(--duration-fast) var(--ease-default),
     background var(--duration-normal) var(--ease-default),
@@ -344,8 +345,18 @@ body::before {
 
 .button-group {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-top: auto;
+}
+
+.button-group .btn-primary {
+  flex: 1 1 100%;
+}
+
+.button-group .btn-secondary {
+  flex: 1;
+  min-width: 140px;
 }
 
 /* ═══════════════════════════════════════
