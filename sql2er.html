@@ -939,8 +939,11 @@ Ref: Article.Author > User.ID
             window.Exporter.exportPNG({
               graphRef,
               hasGraph,
+              containerRef,
               onError: setError,
               onDone,
+              patchRelationshipLinkPoints,
+              G6: window.G6,
             });
           };
 

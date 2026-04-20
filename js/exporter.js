@@ -23,151 +23,76 @@
     }
 
     /**
-     * 导出 ER 图为 SVG
-     * @param {Object} options - 导出选项
-     * @param {Object} options.graphRef - 图形引用 (React ref)
-     * @param {boolean} options.hasGraph - 是否已生成图形
-     * @param {HTMLElement} options.containerRef - 容器元素引用 (React ref)
-     * @param {Function} options.onError - 错误回调函数
-     * @param {Function} options.patchRelationshipLinkPoints - 修正菱形连线计算函数
-     * @param {Object} options.G6 - G6 库引用
+     * 基于当前图形构建一份独立、完整的导出用 SVG 字符串。
+     * 生成过程与 exportSVG 完全一致（临时 SVG graph + 菱形补丁 + viewBox + 白底）。
+     * 回调 cb(err, { svgString, width, height })
      */
-    function exportSVG(options) {
-        const {
-            graphRef,
-            hasGraph,
-            containerRef,
-            onError,
-            onDone,
-            patchRelationshipLinkPoints,
-            G6
-        } = options;
-
-        // onDone(err, download) —— 成功时 download 是一个实际触发浏览器保存的函数
-        // 交给调用方在"进度完成时"再调用，保证下载与进度一致。
-        const finishErr = (err) => {
-            onError && onError(err);
-            onDone && onDone(err, null);
-        };
-        const finishOk = (download) => {
-            onDone && onDone(null, download);
-        };
-
-        if (!graphRef.current || !hasGraph) {
-            finishErr('请先生成ER图');
-            return;
-        }
-
+    function buildExportSVG(options, cb) {
+        const { graphRef, containerRef, patchRelationshipLinkPoints, G6 } = options;
         try {
-            // 获取当前图形数据，包括节点的实际位置
             const data = graphRef.current.save();
 
-            // 创建一个临时容器
             const tempContainer = document.createElement('div');
             tempContainer.style.position = 'absolute';
             tempContainer.style.left = '-9999px';
             tempContainer.style.top = '-9999px';
             document.body.appendChild(tempContainer);
 
-            // 创建临时SVG图形，使用相同的配置
             const tempGraph = new G6.Graph({
                 container: tempContainer,
                 width: containerRef.current.offsetWidth,
                 height: 600,
                 renderer: 'svg',
-                modes: {
-                    default: []
-                },
-                // 不使用布局，直接使用保存的位置
+                modes: { default: [] },
                 layout: null,
                 defaultNode: {
-                    style: {
-                        lineWidth: 2,
-                        stroke: '#000',
-                        fill: '#fff'
-                    },
-                    labelCfg: {
-                        style: {
-                            fill: '#000',
-                            fontSize: 16
-                        }
-                    }
+                    style: { lineWidth: 2, stroke: '#000', fill: '#fff' },
+                    labelCfg: { style: { fill: '#000', fontSize: 16 } }
                 },
                 defaultEdge: {
-                    style: {
-                        lineWidth: 1,
-                        stroke: '#000'
-                    },
+                    style: { lineWidth: 1, stroke: '#000' },
                     labelCfg: {
                         style: {
                             fill: '#000',
                             fontSize: 14,
-                            background: {
-                                fill: '#fff',
-                                padding: [2, 4, 2, 4]
-                            }
+                            background: { fill: '#fff', padding: [2, 4, 2, 4] }
                         }
                     }
                 },
-                edgeStateStyles: {
-                    hover: {
-                        stroke: '#1890ff',
-                        lineWidth: 2
-                    }
-                },
+                edgeStateStyles: { hover: { stroke: '#1890ff', lineWidth: 2 } },
                 defaultEdgeConfig: {
                     type: 'cubic-horizontal',
                     router: {
                         name: 'orthogonal',
-                        args: {
-                            offset: 25,
-                            maxTurns: 5,
-                            useMaxTurns: false,
-                            gridSize: 1
-                        }
+                        args: { offset: 25, maxTurns: 5, useMaxTurns: false, gridSize: 1 }
                     },
                     connector: {
                         name: 'curve',
-                        args: {
-                            curveType: 'cubic-horizontal',
-                            curveOffset: 50
-                        }
+                        args: { curveType: 'cubic-horizontal', curveOffset: 50 }
                     }
                 }
             });
 
-            // 读取当前图形数据（包含节点位置）
             tempGraph.read(data);
-            // 让导出的 SVG 也使用菱形真实边界
             patchRelationshipLinkPoints(tempGraph);
 
-            // 等待渲染完成
             setTimeout(() => {
                 try {
-                    const tempCanvas = tempGraph.get('canvas');
-                    const svgElement = tempCanvas.get('el');
-
-                    // 克隆SVG元素以避免修改原始元素
+                    const svgElement = tempGraph.get('canvas').get('el');
                     const clonedSvg = svgElement.cloneNode(true);
 
-                    // 获取所有图形的边界框
-                    const group = tempGraph.getGroup();
-                    const bbox = group.getCanvasBBox();
-
-                    // 添加padding
+                    const bbox = tempGraph.getGroup().getCanvasBBox();
                     const padding = 40;
                     const viewBoxX = bbox.minX - padding;
                     const viewBoxY = bbox.minY - padding;
                     const viewBoxWidth = bbox.width + padding * 2;
                     const viewBoxHeight = bbox.height + padding * 2;
 
-                    // 设置SVG属性以包含完整内容
                     clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
                     clonedSvg.setAttribute('width', viewBoxWidth);
                     clonedSvg.setAttribute('height', viewBoxHeight);
                     clonedSvg.setAttribute('viewBox', `${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`);
 
-                    // 设置白色背景，使用viewBox的尺寸
                     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
                     rect.setAttribute('x', viewBoxX);
                     rect.setAttribute('y', viewBoxY);
@@ -178,63 +103,31 @@
 
                     const svgString = new XMLSerializer().serializeToString(clonedSvg);
 
-                    // 清理临时图形和容器
                     tempGraph.destroy();
                     document.body.removeChild(tempContainer);
 
-                    // 只是"准备好了"，真正的保存动作由调用方在进度完成时再触发
-                    finishOk(() => downloadSVG(svgString, 'er-diagram.svg'));
+                    cb(null, {
+                        svgString,
+                        width: viewBoxWidth,
+                        height: viewBoxHeight
+                    });
                 } catch (innerError) {
-                    console.error('SVG生成失败:', innerError);
                     tempGraph.destroy();
                     if (tempContainer.parentNode) {
                         document.body.removeChild(tempContainer);
                     }
-                    finishErr('SVG生成失败: ' + innerError.message);
+                    cb(innerError);
                 }
-            }, 1000); // 增加等待时间确保渲染完成
-        } catch (error) {
-            console.error('导出SVG失败:', error);
-            finishErr('导出SVG失败: ' + error.message);
+            }, 1000);
+        } catch (err) {
+            cb(err);
         }
     }
 
     /**
-     * 导出 ER 图为 PNG
-     * @param {Object} options - 导出选项
+     * 导出 ER 图为 SVG
      */
-    function dataURLToBlob(dataURL) {
-        const commaIdx = dataURL.indexOf(',');
-        const header = dataURL.substring(0, commaIdx);
-        const data = dataURL.substring(commaIdx + 1);
-        const mimeMatch = header.match(/data:([^;]+)/);
-        const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
-        const isBase64 = /;base64/i.test(header);
-        let bytes;
-        if (isBase64) {
-            const binary = atob(data);
-            bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        } else {
-            const decoded = decodeURIComponent(data);
-            bytes = new Uint8Array(decoded.length);
-            for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
-        }
-        return new Blob([bytes], { type: mime });
-    }
-
-    function downloadBlob(blob, filename) {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-    }
-
-    function exportPNG(options) {
+    function exportSVG(options) {
         const { graphRef, hasGraph, onError, onDone } = options;
 
         const finishErr = (err) => {
@@ -250,35 +143,101 @@
             return;
         }
 
-        try {
-            // 用 toFullDataURL 拿到 dataURL，立即转成 Blob（复杂图的 data URL 很大，
-            // 直接把 data: 作为 <a href> 会让浏览器在 click 后还需很长时间解码才开始下载，
-            // 造成"已保存"提示先于真正下载），用 blob URL 能让 click 立即触发保存。
-            graphRef.current.toFullDataURL(
-                (dataURL) => {
-                    if (!dataURL) {
-                        finishErr('导出PNG失败：生成图像失败');
+        buildExportSVG(options, (err, result) => {
+            if (err) {
+                console.error('SVG生成失败:', err);
+                finishErr('SVG生成失败: ' + (err.message || err));
+                return;
+            }
+            finishOk(() => downloadSVG(result.svgString, 'er-diagram.svg'));
+        });
+    }
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    // 把 SVG 字符串按 scale 倍数光栅化成 PNG Blob。
+    // 走这条路而不是 G6 的 toFullDataURL：后者按 CSS 像素 1:1 输出，
+    // 在高分屏或放大查看时文字和细线会糊。
+    function rasterizeSVGToPNG(svgString, width, height, scale, cb) {
+        const svgBlob = new Blob(
+            ['<?xml version="1.0" encoding="UTF-8"?>\n' + svgString],
+            { type: 'image/svg+xml;charset=utf-8' }
+        );
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(width * scale));
+                canvas.height = Math.max(1, Math.round(height * scale));
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => {
+                    URL.revokeObjectURL(url);
+                    if (!blob) {
+                        cb(new Error('canvas.toBlob 返回空'));
                         return;
                     }
-                    let blob;
-                    try {
-                        blob = dataURLToBlob(dataURL);
-                    } catch (convErr) {
-                        finishErr('导出PNG失败：' + convErr.message);
-                        return;
-                    }
-                    finishOk(() => downloadBlob(blob, 'er-diagram.png'));
-                },
-                'image/png',
-                {
-                    backgroundColor: '#ffffff',
-                    padding: 40
-                }
-            );
-        } catch (error) {
-            console.error('导出PNG失败:', error);
-            finishErr('导出PNG失败: ' + error.message);
+                    cb(null, blob);
+                }, 'image/png');
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                cb(e);
+            }
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            cb(new Error('SVG 加载失败'));
+        };
+        img.src = url;
+    }
+
+    function exportPNG(options) {
+        const { graphRef, hasGraph, onError, onDone, scale: scaleOpt } = options;
+
+        const finishErr = (err) => {
+            onError && onError(err);
+            onDone && onDone(err, null);
+        };
+        const finishOk = (download) => {
+            onDone && onDone(null, download);
+        };
+
+        if (!graphRef.current || !hasGraph) {
+            finishErr('请先生成ER图');
+            return;
         }
+
+        // 默认至少 2x，在高 DPR 屏幕上跟随系统（封顶 3x 以控制文件体积）。
+        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+        const scale = scaleOpt || Math.max(2, Math.min(3, Math.ceil(dpr)));
+
+        buildExportSVG(options, (err, result) => {
+            if (err) {
+                console.error('导出PNG失败:', err);
+                finishErr('导出PNG失败: ' + (err.message || err));
+                return;
+            }
+            rasterizeSVGToPNG(result.svgString, result.width, result.height, scale, (rErr, blob) => {
+                if (rErr) {
+                    console.error('导出PNG失败:', rErr);
+                    finishErr('导出PNG失败: ' + (rErr.message || rErr));
+                    return;
+                }
+                finishOk(() => downloadBlob(blob, 'er-diagram.png'));
+            });
+        });
     }
 
     // 导出到全局命名空间
