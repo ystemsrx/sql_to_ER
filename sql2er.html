@@ -118,6 +118,7 @@
           btnGenerateShort: "⚡ 生成",
           btnExport: "📥 导出 SVG",
           btnExportPNG: "📥 导出 PNG",
+          btnExportXML: "📥 导出 XML",
           btnExportLabel: "导出",
           exportGenerating: "生成",
           exportSaved: "已保存",
@@ -174,9 +175,10 @@ Ref: 文章.作者 > 用户.编号
           editorPlaceholder:
             "Paste your CREATE TABLE or DBML statement here...",
           btnGenerate: "⚡ Generate",
-          btnGenerateShort: "⚡ Generate",
+          btnGenerateShort: "⚡ Gen",
           btnExport: "📥 Export SVG",
           btnExportPNG: "📥 Export PNG",
+          btnExportXML: "📥 Export XML",
           btnExportLabel: "Export",
           exportGenerating: "Generating",
           exportSaved: "Saved",
@@ -976,6 +978,20 @@ Ref: Article.Author > User.ID
             });
           };
 
+          const handleExportDrawio = (onDone) => {
+            if (!hasGraph || !graphRef.current) {
+              onDone && onDone(new Error("no-graph"));
+              return;
+            }
+            window.Exporter.exportDrawio({
+              graphRef,
+              hasGraph,
+              onError: setError,
+              onDone,
+              patchRelationshipLinkPoints,
+            });
+          };
+
           // 动效导出按钮：idle → open → loading → success → idle
           const [exportState, setExportState] = useState("idle");
           const [exportView, setExportView] = useState("idle"); // 错位显示的 view
@@ -1067,6 +1083,7 @@ Ref: Article.Author > User.ID
 
             // 触发实际导出"准备"工作（此时并不会下载文件）
             if (fmt === "PNG") handleExportPNG(onDone);
+            else if (fmt === "XML") handleExportDrawio(onDone);
             else handleExportSVG(onDone);
           };
 
@@ -1260,6 +1277,10 @@ Ref: Article.Author > User.ID
                           >
                             <div className="export-opt" data-fmt="PNG">
                               <span className="export-opt-label">PNG</span>
+                            </div>
+                            <div className="export-sep" />
+                            <div className="export-opt" data-fmt="XML">
+                              <span className="export-opt-label">XML</span>
                             </div>
                             <div className="export-sep" />
                             <div className="export-opt" data-fmt="SVG">

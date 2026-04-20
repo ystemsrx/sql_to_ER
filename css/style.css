@@ -1216,9 +1216,9 @@ body.is-lang-fading .lang-fade-target {
 }
 
 .export-btn[data-state="idle"] { width: 140px; }
-.export-btn[data-state="open"] { width: 216px; cursor: default; }
-.export-btn[data-state="loading"] { width: 160px; cursor: default; }
-.export-btn[data-state="success"] { width: 160px; cursor: default; }
+.export-btn[data-state="open"] { width: 296px; cursor: default; }
+.export-btn[data-state="loading"] { width: 200px; cursor: default; }
+.export-btn[data-state="success"] { width: 180px; cursor: default; }
 
 .export-btn[data-state="idle"]:hover {
   transform: scale(1.02);
@@ -1317,6 +1317,7 @@ body.is-lang-fading .lang-fade-target {
 }
 .export-opt[data-fmt="PNG"]:hover .export-opt-label { color: #60a5fa; }
 .export-opt[data-fmt="SVG"]:hover .export-opt-label { color: #34d399; }
+.export-opt[data-fmt="XML"]:hover .export-opt-label { color: #f59e0b; }
 
 .export-sep {
   width: 1px;
