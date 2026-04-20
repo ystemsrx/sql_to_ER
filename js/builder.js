@@ -142,6 +142,7 @@ window.ERBuilder = (function () {
         // Create relationship nodes (diamonds) and connections
         relationships.forEach((rel, relIndex) => {
             const relationshipId = `rel-${rel.from}-${rel.to}-${rel.label}-${relIndex}`;
+            const isSelfLoop = rel.from === rel.to;
 
             nodes.push({
                 id: relationshipId,
@@ -157,8 +158,21 @@ window.ERBuilder = (function () {
                         fill: '#000000'
                     }
                 },
-                nodeType: 'relationship'
+                nodeType: 'relationship',
+                isSelfLoop
             });
+
+            // For a self-referencing FK we use a custom edge type (self-loop-arc)
+            // that extends single-edge, so both edges compute start/end via the
+            // same straight-line getLinkPoint call -- endpoints are therefore
+            // identical across the two arcs. A custom getControlPoints places the
+            // quadratic control point perpendicular to the straight line with
+            // sign taken from model.curveOffset. The two edges keep their natural
+            // source/target directions (entity->rel for N, rel->entity for 1) which
+            // flips the tangent (and therefore the perpendicular) between them, so
+            // BOTH edges use the same positive curveOffset -- after the tangent
+            // flip that lands the control points on opposite sides of the straight
+            // line, forming a lens/eye shape with no gap at the vertices.
 
             // Connect source entity (the one with the FK, 'many' side) to relationship
             edges.push({
@@ -166,6 +180,8 @@ window.ERBuilder = (function () {
                 source: entityMap.get(rel.from),
                 target: relationshipId,
                 label: 'N',
+                type: isSelfLoop ? 'self-loop-arc' : undefined,
+                curveOffset: isSelfLoop ? 22 : undefined,
                 style: {
                     stroke: '#000000',
                     lineWidth: 2
@@ -188,6 +204,8 @@ window.ERBuilder = (function () {
                 source: relationshipId,
                 target: entityMap.get(rel.to),
                 label: '1',
+                type: isSelfLoop ? 'self-loop-arc' : undefined,
+                curveOffset: isSelfLoop ? 22 : undefined,
                 style: {
                     stroke: '#000000',
                     lineWidth: 2
@@ -464,6 +482,42 @@ window.ERBuilder = (function () {
                 return [];
             }
         });
+
+        // 自引用外键的自环边：扩展 single-edge 以保留**直线**端点计算
+        // (single-edge 用 source/target 的另一个端点中心作为 getLinkPoint 的
+        // 参考方向，两条自环边的 source/target 完全一致，所以算出来的
+        // startPoint / endPoint 也完全一致),再通过 getControlPoints 注入
+        // 一个由 model.curveOffset 决定偏移方向的控制点,最后用 getPath
+        // 画二次贝塞尔曲线。两条边在端点处严丝合缝,只在中段分向两侧，
+        // 形成对称的透镜/眼睛形。
+        G6.registerEdge('self-loop-arc', {
+            getControlPoints(cfg) {
+                const { startPoint, endPoint, curveOffset = 22 } = cfg;
+                if (!startPoint || !endPoint) return [];
+                const dx = endPoint.x - startPoint.x;
+                const dy = endPoint.y - startPoint.y;
+                const dist = Math.hypot(dx, dy) || 1;
+                const perpX = -dy / dist;
+                const perpY = dx / dist;
+                return [{
+                    x: (startPoint.x + endPoint.x) / 2 + perpX * curveOffset,
+                    y: (startPoint.y + endPoint.y) / 2 + perpY * curveOffset
+                }];
+            },
+            getPath(points) {
+                if (!points || points.length < 2) return [];
+                const start = points[0];
+                const end = points[points.length - 1];
+                const control = points.length >= 3 ? points[1] : {
+                    x: (start.x + end.x) / 2,
+                    y: (start.y + end.y) / 2
+                };
+                return [
+                    ['M', start.x, start.y],
+                    ['Q', control.x, control.y, end.x, end.y]
+                ];
+            }
+        }, 'single-edge');
     };
 
     /**
