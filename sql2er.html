@@ -37,7 +37,7 @@
 
   <body>
     <a
-      href="https://github.com/ystemsrx/ER_diagram_generator"
+      href="https://github.com/ystemsrx/sql_to_ER"
       class="github-corner"
       aria-label="View source on GitHub"
       target="_blank"
@@ -63,17 +63,39 @@
       role="tablist"
       aria-label="切换语言 / Switch language"
     >
-      <button type="button" class="lang-option is-active" data-lang="zh" role="tab" aria-selected="true">中</button>
-      <button type="button" class="lang-option" data-lang="en" role="tab" aria-selected="false">EN</button>
+      <button
+        type="button"
+        class="lang-option is-active"
+        data-lang="zh"
+        role="tab"
+        aria-selected="true"
+      >
+        中
+      </button>
+      <button
+        type="button"
+        class="lang-option"
+        data-lang="en"
+        role="tab"
+        aria-selected="false"
+      >
+        EN
+      </button>
       <span class="lang-thumb" aria-hidden="true"></span>
     </div>
 
     <div class="app-container lang-fade-target">
       <div class="header">
-        <span class="header-eyebrow" data-i18n="eyebrow">Chen Model · Entity-Relationship</span>
+        <span class="header-eyebrow" data-i18n="eyebrow"
+          >Chen Model · Entity-Relationship</span
+        >
         <h1 data-i18n-html="title">SQL / DBML 转 <em>ER 图</em> 生成器</h1>
-        <p data-i18n="subtitle">把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图</p>
-        <p class="header-hint" data-i18n="hint">双击编辑节点 · 滚轮缩放 · 拖拽排布</p>
+        <p data-i18n="subtitle">
+          把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图
+        </p>
+        <p class="header-hint" data-i18n="hint">
+          双击编辑节点 · 滚轮缩放 · 拖拽排布
+        </p>
       </div>
 
       <div id="root"></div>
@@ -149,7 +171,8 @@ Ref: 文章.作者 > 用户.编号
           cardPreviewTitle: "ER Preview",
           showComment: "Show comments",
           hideFields: "Hide attributes",
-          editorPlaceholder: "Paste your CREATE TABLE or DBML statement here...",
+          editorPlaceholder:
+            "Paste your CREATE TABLE or DBML statement here...",
           btnGenerate: "⚡ Generate",
           btnGenerateShort: "⚡ Generate",
           btnExport: "📥 Export SVG",
@@ -241,12 +264,18 @@ Ref: Article.Author > User.ID
             applyHeader(lang);
             localStorage.setItem("sql2er-lang", lang);
             window.dispatchEvent(
-              new CustomEvent("sql2er-lang", { detail: { lang, initial: true } }),
+              new CustomEvent("sql2er-lang", {
+                detail: { lang, initial: true },
+              }),
             );
             return;
           }
-          if (document.documentElement.getAttribute("lang") &&
-              ((document.documentElement.getAttribute("lang").startsWith("zh") ? "zh" : "en") === lang)) {
+          if (
+            document.documentElement.getAttribute("lang") &&
+            (document.documentElement.getAttribute("lang").startsWith("zh")
+              ? "zh"
+              : "en") === lang
+          ) {
             return;
           }
           document.body.classList.add("is-lang-fading");
@@ -636,7 +665,7 @@ Ref: Article.Author > User.ID
                 relationships,
                 isColored,
                 showComment ? "comment" : "name",
-                hideFields
+                hideFields,
               );
 
               // 初始位置：先把不同组件分开围绕中心，避免初始交叉
@@ -1072,7 +1101,10 @@ Ref: Article.Author > User.ID
             }
           };
           const onExportBtnKey = (e) => {
-            if ((e.key === "Enter" || e.key === " ") && exportState === "idle") {
+            if (
+              (e.key === "Enter" || e.key === " ") &&
+              exportState === "idle"
+            ) {
               e.preventDefault();
               toExportOpen();
             }
@@ -1403,9 +1435,7 @@ Ref: Article.Author > User.ID
                                 : "2px solid #1e293b",
                             }}
                           ></div>
-                          <span style={{ fontWeight: 600 }}>
-                            {t.legendPk}
-                          </span>
+                          <span style={{ fontWeight: 600 }}>{t.legendPk}</span>
                         </div>
                       </div>
                     </div>
