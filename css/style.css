@@ -519,11 +519,13 @@ body::before {
   color: #0284c7;
 }
 
-.attrs-toggle {
+.attrs-toggle,
+.colorize-toggle {
   overflow: hidden;
 }
 
-.attrs-toggle::after {
+.attrs-toggle::after,
+.colorize-toggle::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -544,7 +546,12 @@ body::before {
   transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
 }
 
-.attrs-toggle:hover::after {
+.colorize-toggle:not(.active)::after {
+  transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
+}
+
+.attrs-toggle:hover::after,
+.colorize-toggle:hover::after {
   background: var(--app-accent-warm);
 }
 
