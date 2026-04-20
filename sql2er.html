@@ -93,8 +93,12 @@
           hideFields: "隐藏字段",
           editorPlaceholder: "在此处粘贴您的 CREATE TABLE 或 DBML 语句...",
           btnGenerate: "⚡ 生成 ER 图",
+          btnGenerateShort: "⚡ 生成",
           btnExport: "📥 导出 SVG",
           btnExportPNG: "📥 导出 PNG",
+          btnExportLabel: "导出",
+          exportGenerating: "生成",
+          exportSaved: "已保存",
           btnSmartLayout: "✨ 智能布局",
           btnForceAlign: "📐 强制对齐",
           legendEntity: "实体",
@@ -145,8 +149,12 @@ Ref: 文章.作者 > 用户.编号
           hideFields: "Hide fields",
           editorPlaceholder: "Paste your CREATE TABLE or DBML statement here...",
           btnGenerate: "⚡ Generate",
+          btnGenerateShort: "⚡ Generate",
           btnExport: "📥 Export SVG",
           btnExportPNG: "📥 Export PNG",
+          btnExportLabel: "Export",
+          exportGenerating: "Generating",
+          exportSaved: "Saved",
           btnSmartLayout: "✨ Smart layout",
           btnForceAlign: "📐 Force align",
           legendEntity: "Entity",
@@ -864,25 +872,164 @@ Ref: Article.Author > User.ID
           };
 
           // 导出SVG功能 - 使用 Exporter 模块
-          const handleExportSVG = () => {
-            if (!hasGraph || !graphRef.current) return;
+          const handleExportSVG = (onDone) => {
+            if (!hasGraph || !graphRef.current) {
+              onDone && onDone(new Error("no-graph"));
+              return;
+            }
             window.Exporter.exportSVG({
               graphRef,
               hasGraph,
               containerRef,
               onError: setError,
+              onDone,
               patchRelationshipLinkPoints,
               G6: window.G6,
             });
           };
 
-          const handleExportPNG = () => {
-            if (!hasGraph || !graphRef.current) return;
+          const handleExportPNG = (onDone) => {
+            if (!hasGraph || !graphRef.current) {
+              onDone && onDone(new Error("no-graph"));
+              return;
+            }
             window.Exporter.exportPNG({
               graphRef,
               hasGraph,
               onError: setError,
+              onDone,
             });
+          };
+
+          // 动效导出按钮：idle → open → loading → success → idle
+          const [exportState, setExportState] = useState("idle");
+          const [exportView, setExportView] = useState("idle"); // 错位显示的 view
+          const [exportFmt, setExportFmt] = useState("PNG");
+          const [exportProgress, setExportProgress] = useState(0);
+          const exportBtnRef = useRef(null);
+          const exportTimersRef = useRef([]);
+          const clearExportTimers = () => {
+            exportTimersRef.current.forEach(clearTimeout);
+            exportTimersRef.current = [];
+          };
+          const addExportTimer = (fn, ms) => {
+            const id = setTimeout(fn, ms);
+            exportTimersRef.current.push(id);
+            return id;
+          };
+
+          const toExportIdle = () => {
+            clearExportTimers();
+            setExportState("idle");
+            setExportView(null);
+            addExportTimer(() => setExportView("idle"), 240);
+            setExportProgress(0);
+          };
+          const toExportOpen = () => {
+            if (!hasGraph) return;
+            clearExportTimers();
+            setExportState("open");
+            setExportView(null);
+            addExportTimer(() => setExportView("open"), 220);
+          };
+          const toExportLoading = (fmt) => {
+            clearExportTimers();
+            setExportFmt(fmt);
+            setExportState("loading");
+            setExportView(null);
+            setExportProgress(0);
+
+            // phase.done 记录准备完成；triggerDownload 是"真正保存文件"的函数，
+            // 由 exporter 在文件就绪时交回，我们在进度到 100% 的那一刻再调用它。
+            const phase = {
+              done: false,
+              rampStartedAt: 0,
+              triggerDownload: null,
+            };
+            const MIN_RAMP_MS = 260;
+
+            const finalizeAfter = (wait) => {
+              addExportTimer(() => {
+                // 进度走满的同一瞬间触发实际下载
+                if (phase.triggerDownload) {
+                  try {
+                    phase.triggerDownload();
+                  } catch (e) {
+                    setError(String(e && e.message ? e.message : e));
+                  }
+                }
+                setExportProgress(100);
+                addExportTimer(() => {
+                  setExportState("success");
+                  setExportView(null);
+                  addExportTimer(() => setExportView("success"), 160);
+                  addExportTimer(() => toExportIdle(), 2000);
+                }, 240);
+              }, wait);
+            };
+
+            const onDone = (err, download) => {
+              if (err) {
+                toExportIdle();
+                return;
+              }
+              phase.done = true;
+              phase.triggerDownload = download || null;
+              // 如果视图还没出现，等视图出现的定时器里再判定完成
+              if (phase.rampStartedAt === 0) return;
+              const elapsed = performance.now() - phase.rampStartedAt;
+              finalizeAfter(Math.max(0, MIN_RAMP_MS - elapsed));
+            };
+
+            // 切换到 loading view 并启动"爬升到 85%"的慢动画。
+            // 若此时准备工作已完成，直接安排完成流程（保证进度条最少可见 MIN_RAMP_MS）。
+            addExportTimer(() => {
+              setExportView("loading");
+              phase.rampStartedAt = performance.now();
+              setExportProgress(85);
+              if (phase.done) finalizeAfter(MIN_RAMP_MS);
+            }, 160);
+
+            // 触发实际导出"准备"工作（此时并不会下载文件）
+            if (fmt === "PNG") handleExportPNG(onDone);
+            else handleExportSVG(onDone);
+          };
+
+          // 点击按钮外部折叠；按 Esc 折叠
+          useEffect(() => {
+            if (exportState !== "open") return;
+            const onDown = (e) => {
+              if (!exportBtnRef.current) return;
+              if (!exportBtnRef.current.contains(e.target)) toExportIdle();
+            };
+            const onKey = (e) => {
+              if (e.key === "Escape") toExportIdle();
+            };
+            document.addEventListener("mousedown", onDown);
+            document.addEventListener("keydown", onKey);
+            return () => {
+              document.removeEventListener("mousedown", onDown);
+              document.removeEventListener("keydown", onKey);
+            };
+          }, [exportState]);
+
+          useEffect(() => () => clearExportTimers(), []);
+
+          const onExportBtnClick = (e) => {
+            if (exportState === "idle") {
+              toExportOpen();
+              return;
+            }
+            if (exportState === "open") {
+              const opt = e.target.closest && e.target.closest(".export-opt");
+              if (opt) toExportLoading(opt.dataset.fmt);
+            }
+          };
+          const onExportBtnKey = (e) => {
+            if ((e.key === "Enter" || e.key === " ") && exportState === "idle") {
+              e.preventDefault();
+              toExportOpen();
+            }
           };
 
           useEffect(() => {
@@ -970,24 +1117,148 @@ Ref: Article.Author > User.ID
                             className="spinner"
                             style={{ width: 20, height: 20, borderWidth: 2 }}
                           ></div>
-                        ) : (
+                        ) : t.btnGenerate === t.btnGenerateShort ? (
+                          // 长短标签一致（如英文）时不需要切换动效，直接渲染文本
                           t.btnGenerate
+                        ) : (
+                          <span
+                            className="btn-primary-label-stack"
+                            data-compact={exportState !== "idle"}
+                          >
+                            <span className="label-long">{t.btnGenerate}</span>
+                            <span className="label-short">
+                              {t.btnGenerateShort}
+                            </span>
+                          </span>
                         )}
                       </button>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={handleExportSVG}
-                        disabled={!hasGraph}
-                      >
-                        {t.btnExport}
-                      </button>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={handleExportPNG}
-                        disabled={!hasGraph}
-                      >
-                        {t.btnExportPNG}
-                      </button>
+                      <div className="export-btn-wrap">
+                        <button
+                          ref={exportBtnRef}
+                          type="button"
+                          className="export-btn"
+                          data-state={exportState}
+                          disabled={!hasGraph}
+                          onClick={onExportBtnClick}
+                          onKeyDown={onExportBtnKey}
+                          aria-label={t.btnExportLabel}
+                        >
+                          <div
+                            className="export-progress"
+                            style={{
+                              width: `${exportProgress}%`,
+                              transitionDuration:
+                                exportProgress >= 100
+                                  ? "220ms"
+                                  : exportProgress > 0
+                                    ? "2400ms"
+                                    : "300ms",
+                              transitionTimingFunction:
+                                exportProgress >= 100
+                                  ? "cubic-bezier(0.2, 0.7, 0.2, 1)"
+                                  : exportProgress > 0
+                                    ? "cubic-bezier(0, 0.6, 0.2, 1)"
+                                    : "cubic-bezier(0, 0, 0.2, 1)",
+                            }}
+                          />
+
+                          <div
+                            className={`export-view export-view-idle${exportView === "idle" ? " is-on" : ""}`}
+                          >
+                            <span className="idle-label">
+                              {t.btnExportLabel}
+                            </span>
+                            <svg
+                              className="arrow-icon"
+                              viewBox="0 0 14 14"
+                              width="16"
+                              height="16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M7 2v7.5m0 0l-3-3m3 3l3-3M2.5 12h9" />
+                            </svg>
+                          </div>
+
+                          <div
+                            className={`export-view export-view-open${exportView === "open" ? " is-on" : ""}`}
+                          >
+                            <div className="export-opt" data-fmt="PNG">
+                              <span className="export-opt-label">PNG</span>
+                            </div>
+                            <div className="export-sep" />
+                            <div className="export-opt" data-fmt="SVG">
+                              <span className="export-opt-label">SVG</span>
+                            </div>
+                            <div className="export-sep" />
+                            <div
+                              className="export-cancel"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toExportIdle();
+                              }}
+                              aria-label="Cancel"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <line x1="18" x2="6" y1="6" y2="18" />
+                                <line x1="6" x2="18" y1="6" y2="18" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          <div
+                            className={`export-view export-view-loading${exportView === "loading" ? " is-on" : ""}`}
+                          >
+                            <svg
+                              className="export-spinner"
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                            </svg>
+                            <span className="loading-label">
+                              {t.exportGenerating} {exportFmt}...
+                            </span>
+                          </div>
+
+                          <div
+                            className={`export-view export-view-success${exportView === "success" ? " is-on" : ""}`}
+                          >
+                            <svg
+                              className="check-icon"
+                              viewBox="0 0 14 14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M2.5 7.2l3 3 6-6" />
+                            </svg>
+                            <span className="success-label">
+                              {t.exportSaved}
+                            </span>
+                          </div>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

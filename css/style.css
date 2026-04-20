@@ -346,17 +346,65 @@ body::before {
 .button-group {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   margin-top: auto;
 }
 
 .button-group .btn-primary {
-  flex: 1 1 100%;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .button-group .btn-secondary {
   flex: 1;
   min-width: 140px;
+}
+
+/* 主按钮标签在导出按钮展开时平滑收缩为短标签；
+   切换动效与导出按钮的 .export-view 完全一致（同一组 transition） */
+.btn-primary-label-stack {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.btn-primary-label-stack .label-long,
+.btn-primary-label-stack .label-short {
+  transition:
+    opacity 240ms ease,
+    transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: opacity, transform;
+}
+.btn-primary-label-stack .label-short {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 默认：长标签在位，短标签下移并透明 */
+.btn-primary-label-stack .label-long {
+  opacity: 1;
+  transform: translateY(0);
+}
+.btn-primary-label-stack .label-short {
+  opacity: 0;
+  transform: translateY(6px);
+}
+/* compact：长标签下移并透明，短标签归位 */
+.btn-primary-label-stack[data-compact="true"] .label-long {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.btn-primary-label-stack[data-compact="true"] .label-short {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 /* ═══════════════════════════════════════
@@ -1084,6 +1132,213 @@ body.is-lang-fading .lang-fade-target {
   ::-webkit-scrollbar-thumb {
     background: var(--color-border-default);
   }
+}
+
+/* ═══════════════════════════════════════
+   动效导出按钮
+═══════════════════════════════════════ */
+.export-btn-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.export-btn {
+  position: relative;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  color: #fff;
+  background: linear-gradient(to bottom, #262626, #171717);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 16px 32px -10px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-family: var(--app-font);
+  transition:
+    width 560ms cubic-bezier(0.32, 0.72, 0, 1),
+    transform 560ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 560ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.export-btn[data-state="idle"] { width: 140px; }
+.export-btn[data-state="open"] { width: 216px; cursor: default; }
+.export-btn[data-state="loading"] { width: 160px; cursor: default; }
+.export-btn[data-state="success"] { width: 160px; cursor: default; }
+
+.export-btn[data-state="idle"]:hover {
+  transform: scale(1.02);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 20px 40px -10px rgba(0, 0, 0, 0.4);
+}
+.export-btn[data-state="idle"]:active {
+  transform: scale(0.97);
+}
+.export-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 16px 32px -10px rgba(0, 0, 0, 0.3),
+    0 0 0 2px var(--app-bg),
+    0 0 0 4px var(--app-accent);
+}
+.export-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.export-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: rgba(255, 255, 255, 0.1);
+  transition: width 300ms cubic-bezier(0, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.export-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  white-space: nowrap;
+  transition:
+    opacity 240ms ease,
+    transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.export-view.is-on {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.export-view-idle .idle-label {
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  font-size: 15px;
+}
+.export-view-idle .arrow-icon {
+  color: #d4d4d4;
+  transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.export-btn[data-state="idle"]:hover .export-view-idle .arrow-icon {
+  transform: translateY(2px);
+}
+
+.export-view-open {
+  padding: 0 6px;
+  gap: 0;
+  justify-content: space-between;
+}
+.export-opt {
+  flex: 1;
+  height: 40px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+.export-opt:hover {
+  background: rgba(64, 64, 64, 0.5);
+}
+.export-opt-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #d4d4d4;
+  pointer-events: none;
+  transition: color 200ms ease;
+}
+.export-opt[data-fmt="PNG"]:hover .export-opt-label { color: #60a5fa; }
+.export-opt[data-fmt="SVG"]:hover .export-opt-label { color: #34d399; }
+
+.export-sep {
+  width: 1px;
+  height: 18px;
+  background: #404040;
+  margin: 0 2px;
+  transition: opacity 200ms ease;
+  flex: 0 0 1px;
+}
+.export-view-open:hover .export-sep {
+  opacity: 0.4;
+}
+
+.export-cancel {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a3a3a3;
+  cursor: pointer;
+  transition: background 200ms ease, color 200ms ease;
+}
+.export-cancel:hover {
+  background: rgba(64, 64, 64, 0.5);
+  color: #fff;
+}
+.export-cancel svg {
+  pointer-events: none;
+}
+
+.export-view-loading .export-spinner {
+  width: 16px;
+  height: 16px;
+  color: #a3a3a3;
+  animation: export-spin 800ms linear infinite;
+}
+@keyframes export-spin {
+  to { transform: rotate(360deg); }
+}
+.export-view-loading .loading-label {
+  font-size: 14px;
+  color: #e5e5e5;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.export-view-success .check-icon {
+  width: 16px;
+  height: 16px;
+  color: #34d399;
+}
+.export-view-success .check-icon path {
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+}
+.export-view-success.is-on .check-icon path {
+  animation: export-draw 460ms cubic-bezier(0.32, 0.72, 0, 1) 180ms forwards;
+}
+@keyframes export-draw {
+  to { stroke-dashoffset: 0; }
+}
+.export-view-success .success-label {
+  font-size: 14px;
+  color: #34d399;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 /* ═══════════════════════════════════════

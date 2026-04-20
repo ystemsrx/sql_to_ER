@@ -33,17 +33,28 @@
      * @param {Object} options.G6 - G6 库引用
      */
     function exportSVG(options) {
-        const { 
-            graphRef, 
-            hasGraph, 
-            containerRef, 
-            onError, 
+        const {
+            graphRef,
+            hasGraph,
+            containerRef,
+            onError,
+            onDone,
             patchRelationshipLinkPoints,
-            G6 
+            G6
         } = options;
 
+        // onDone(err, download) —— 成功时 download 是一个实际触发浏览器保存的函数
+        // 交给调用方在"进度完成时"再调用，保证下载与进度一致。
+        const finishErr = (err) => {
+            onError && onError(err);
+            onDone && onDone(err, null);
+        };
+        const finishOk = (download) => {
+            onDone && onDone(null, download);
+        };
+
         if (!graphRef.current || !hasGraph) {
-            onError && onError('请先生成ER图');
+            finishErr('请先生成ER图');
             return;
         }
 
@@ -166,23 +177,25 @@
                     clonedSvg.insertBefore(rect, clonedSvg.firstChild);
 
                     const svgString = new XMLSerializer().serializeToString(clonedSvg);
-                    downloadSVG(svgString, 'er-diagram.svg');
 
                     // 清理临时图形和容器
                     tempGraph.destroy();
                     document.body.removeChild(tempContainer);
+
+                    // 只是"准备好了"，真正的保存动作由调用方在进度完成时再触发
+                    finishOk(() => downloadSVG(svgString, 'er-diagram.svg'));
                 } catch (innerError) {
                     console.error('SVG生成失败:', innerError);
-                    onError && onError('SVG生成失败: ' + innerError.message);
                     tempGraph.destroy();
                     if (tempContainer.parentNode) {
                         document.body.removeChild(tempContainer);
                     }
+                    finishErr('SVG生成失败: ' + innerError.message);
                 }
             }, 1000); // 增加等待时间确保渲染完成
         } catch (error) {
             console.error('导出SVG失败:', error);
-            onError && onError('导出SVG失败: ' + error.message);
+            finishErr('导出SVG失败: ' + error.message);
         }
     }
 
@@ -190,22 +203,50 @@
      * 导出 ER 图为 PNG
      * @param {Object} options - 导出选项
      */
+    function downloadDataURL(dataURL, filename) {
+        const link = document.createElement('a');
+        link.href = dataURL;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
     function exportPNG(options) {
-        const { graphRef, hasGraph, onError } = options;
+        const { graphRef, hasGraph, onError, onDone } = options;
+
+        const finishErr = (err) => {
+            onError && onError(err);
+            onDone && onDone(err, null);
+        };
+        const finishOk = (download) => {
+            onDone && onDone(null, download);
+        };
 
         if (!graphRef.current || !hasGraph) {
-            onError && onError('请先生成ER图');
+            finishErr('请先生成ER图');
             return;
         }
 
         try {
-            graphRef.current.downloadFullImage('er-diagram', 'image/png', {
-                backgroundColor: '#ffffff',
-                padding: 40
-            });
+            // 用 toFullDataURL 拿到 dataURL，然后把真正的"点击下载"延迟到进度完成时再触发
+            graphRef.current.toFullDataURL(
+                (dataURL) => {
+                    if (!dataURL) {
+                        finishErr('导出PNG失败：生成图像失败');
+                        return;
+                    }
+                    finishOk(() => downloadDataURL(dataURL, 'er-diagram.png'));
+                },
+                'image/png',
+                {
+                    backgroundColor: '#ffffff',
+                    padding: 40
+                }
+            );
         } catch (error) {
             console.error('导出PNG失败:', error);
-            onError && onError('导出PNG失败: ' + error.message);
+            finishErr('导出PNG失败: ' + error.message);
         }
     }
 
