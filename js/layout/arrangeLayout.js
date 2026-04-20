@@ -12,6 +12,47 @@
     // 获取动画函数
     const getAnimation = () => exports.LayoutAnimation || {};
 
+    // ---- Spatial grid helpers (near-linear neighbor queries) ----
+    const buildGrid = (items, cellSize) => {
+        const grid = new Map();
+        items.forEach(item => {
+            const cx = Math.floor(item.pos.x / cellSize);
+            const cy = Math.floor(item.pos.y / cellSize);
+            const key = cx + ',' + cy;
+            let bucket = grid.get(key);
+            if (!bucket) { bucket = []; grid.set(key, bucket); }
+            bucket.push(item);
+        });
+        return grid;
+    };
+
+    const forEachNeighbor = (grid, cellSize, item, cb) => {
+        const cx = Math.floor(item.pos.x / cellSize);
+        const cy = Math.floor(item.pos.y / cellSize);
+        for (let ox = -1; ox <= 1; ox++) {
+            for (let oy = -1; oy <= 1; oy++) {
+                const bucket = grid.get((cx + ox) + ',' + (cy + oy));
+                if (!bucket) continue;
+                for (let k = 0; k < bucket.length; k++) cb(bucket[k]);
+            }
+        }
+    };
+
+    // ---- Segment-intersection test for crossing detection ----
+    const segmentsCross = (a1, a2, b1, b2) => {
+        // Proper-intersection test. Shared endpoints count as not crossing.
+        const share = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+        if (share(a1, b1) || share(a1, b2) || share(a2, b1) || share(a2, b2)) return false;
+        const cross = (ox, oy, px, py, qx, qy) =>
+            (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
+        const d1 = cross(b1.x, b1.y, b2.x, b2.y, a1.x, a1.y);
+        const d2 = cross(b1.x, b1.y, b2.x, b2.y, a2.x, a2.y);
+        const d3 = cross(a1.x, a1.y, a2.x, a2.y, b1.x, b1.y);
+        const d4 = cross(a1.x, a1.y, a2.x, a2.y, b2.x, b2.y);
+        return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+               ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+    };
+
     /**
      * 环绕排布布局：让属性均匀围绕实体，同时可移动实体以满足关系距离
      * @param {Object} graph - G6 图形实例
@@ -119,40 +160,59 @@
             systemRadius.set(info.node.getModel().id, ringR + maxSatelliteRadius);
         });
 
-        // 弹簧迭代 + 碰撞检测
+        // 构建双实体关系对(用于弹簧吸引 + 交叉检测)
+        const relationshipPairs = [];
+        relationshipNodes.forEach(relNode => {
+            const set = relationshipConnections.get(relNode.getModel().id);
+            if (!set || set.size !== 2) return;
+            const [entityA, entityB] = Array.from(set.values());
+            relationshipPairs.push({
+                idA: entityA.getModel().id,
+                idB: entityB.getModel().id,
+                relNode
+            });
+        });
+
+        // 邻接表：用于角度均分力
+        const entityNeighbors = new Map();
+        entityNodes.forEach(n => entityNeighbors.set(n.getModel().id, new Set()));
+        relationshipPairs.forEach(pair => {
+            entityNeighbors.get(pair.idA)?.add(pair.idB);
+            entityNeighbors.get(pair.idB)?.add(pair.idA);
+        });
+
+        // 弹簧迭代：吸引只在"太近时推开"，保留用户已拉开的间距；排斥通过网格近邻加速
         const safeGap = 50;
         const entityIds = Array.from(entityPositions.keys());
+        const maxSysR = entityIds.length
+            ? Math.max(...entityIds.map(id => systemRadius.get(id) || 60))
+            : 80;
+        const entityCellSize = Math.max(120, (maxSysR * 2) + safeGap);
 
         for (let iter = 0; iter < 300; iter++) {
             let maxMove = 0;
 
-            // 1. 吸引力：通过关系连接的实体
-            relationshipNodes.forEach(relNode => {
-                const relId = relNode.getModel().id;
-                const connected = relationshipConnections.get(relId);
-                if (!connected || connected.size !== 2) return;
-                const [entityA, entityB] = Array.from(connected.values());
-                const idA = entityA.getModel().id;
-                const idB = entityB.getModel().id;
-                const posA = entityPositions.get(idA);
-                const posB = entityPositions.get(idB);
+            // 1. 约束力：相关实体互相"至少"这么近；已经近到位就不再拉近，避免破坏用户布局
+            relationshipPairs.forEach(pair => {
+                const posA = entityPositions.get(pair.idA);
+                const posB = entityPositions.get(pair.idB);
                 if (!posA || !posB) return;
 
                 const dx = posB.x - posA.x;
                 const dy = posB.y - posA.y;
                 const dist = Math.hypot(dx, dy) || 1;
 
-                const rA = systemRadius.get(idA);
-                const rB = systemRadius.get(idB);
+                const rA = systemRadius.get(pair.idA);
+                const rB = systemRadius.get(pair.idB);
                 const desired = rA + rB + safeGap;
 
-                const diff = desired - dist;
-                if (Math.abs(diff) < 1) return;
+                // 只有重叠时才推开，距离够就不再拉拢
+                if (dist >= desired - 1) return;
 
+                const diff = desired - dist;
                 const nx = dx / dist;
                 const ny = dy / dist;
                 const move = (diff * 0.2) / 2;
-
                 posA.x -= nx * move;
                 posA.y -= ny * move;
                 posB.x += nx * move;
@@ -160,38 +220,147 @@
                 maxMove = Math.max(maxMove, Math.abs(move));
             });
 
-            // 2. 全局斥力：防止任意两个实体重叠
-            for (let i = 0; i < entityIds.length; i++) {
-                for (let j = i + 1; j < entityIds.length; j++) {
-                    const idA = entityIds[i];
-                    const idB = entityIds[j];
-                    const posA = entityPositions.get(idA);
-                    const posB = entityPositions.get(idB);
+            // 2. 全局斥力：网格近邻查找，O(n) 期望
+            const entityItems = entityIds.map(id => ({
+                id,
+                pos: entityPositions.get(id),
+                r: systemRadius.get(id)
+            }));
+            const grid = buildGrid(entityItems, entityCellSize);
 
-                    const dx = posB.x - posA.x;
-                    const dy = posB.y - posA.y;
+            for (let i = 0; i < entityItems.length; i++) {
+                const a = entityItems[i];
+                forEachNeighbor(grid, entityCellSize, a, (b) => {
+                    if (b.id <= a.id) return; // 避免重复处理 & 自身
+                    const dx = b.pos.x - a.pos.x;
+                    const dy = b.pos.y - a.pos.y;
                     const dist = Math.hypot(dx, dy) || 1;
-
-                    const rA = systemRadius.get(idA);
-                    const rB = systemRadius.get(idB);
-                    const minDesc = rA + rB + safeGap;
-
+                    const minDesc = a.r + b.r + safeGap;
                     if (dist < minDesc) {
                         const overlap = minDesc - dist;
                         const nx = dx / dist;
                         const ny = dy / dist;
-                        const move = overlap * 0.5 * 0.5;
-
-                        posA.x -= nx * move;
-                        posA.y -= ny * move;
-                        posB.x += nx * move;
-                        posB.y += ny * move;
-                        maxMove = Math.max(maxMove, move);
+                        const move = overlap * 0.25;
+                        a.pos.x -= nx * move;
+                        a.pos.y -= ny * move;
+                        b.pos.x += nx * move;
+                        b.pos.y += ny * move;
+                        if (move > maxMove) maxMove = move;
                     }
-                }
+                });
             }
 
+            // 3. 角度均分力：仅在严重聚集时施加切向推力，避免成环图 (A-B-C 三角) 因目标
+            //    不可达而持续漂移。Cap 单步弧长以抑制累积误差。
+            entityIds.forEach(centerId => {
+                const neighbors = entityNeighbors.get(centerId);
+                if (!neighbors || neighbors.size < 2) return;
+                const centerPos = entityPositions.get(centerId);
+                if (!centerPos) return;
+
+                const nArr = Array.from(neighbors);
+                const idealStep = (Math.PI * 2) / nArr.length;
+                // 仅在两邻居的夹角 < 理想间隔的一半时才视为严重聚集
+                const activation = idealStep * 0.5;
+
+                for (let i = 0; i < nArr.length; i++) {
+                    const pi = entityPositions.get(nArr[i]);
+                    if (!pi) continue;
+                    const dxi = pi.x - centerPos.x;
+                    const dyi = pi.y - centerPos.y;
+                    const di = Math.hypot(dxi, dyi) || 1;
+                    const ai = Math.atan2(dyi, dxi);
+
+                    for (let j = i + 1; j < nArr.length; j++) {
+                        const pj = entityPositions.get(nArr[j]);
+                        if (!pj) continue;
+                        const dxj = pj.x - centerPos.x;
+                        const dyj = pj.y - centerPos.y;
+                        const dj = Math.hypot(dxj, dyj) || 1;
+                        const aj = Math.atan2(dyj, dxj);
+
+                        let diff = aj - ai;
+                        while (diff > Math.PI) diff -= Math.PI * 2;
+                        while (diff <= -Math.PI) diff += Math.PI * 2;
+
+                        const absDiff = Math.abs(diff);
+                        if (absDiff >= activation) continue;
+
+                        const shortfall = activation - absDiff;
+                        const sign = diff >= 0 ? 1 : -1;
+                        const tix = -dyi / di;
+                        const tiy = dxi / di;
+                        const tjx = -dyj / dj;
+                        const tjy = dxj / dj;
+                        let arc = shortfall * Math.min(di, dj) * 0.02;
+                        if (arc > 2.5) arc = 2.5; // 硬上限：防止漂移累积
+                        pj.x += tjx * arc * sign;
+                        pj.y += tjy * arc * sign;
+                        pi.x -= tix * arc * sign;
+                        pi.y -= tiy * arc * sign;
+                        if (arc > maxMove) maxMove = arc;
+                    }
+                }
+            });
+
             if (maxMove < 0.5) break;
+        }
+
+        // ---- 2-opt 交叉消除：交换实体位置以减少关系边交叉 ----
+        // 逻辑图：每个二元关系视为实体A→实体B的一条段；只关注段对的真相交。
+        const countCrossings = () => {
+            let total = 0;
+            for (let i = 0; i < relationshipPairs.length; i++) {
+                const pi = relationshipPairs[i];
+                const a1 = entityPositions.get(pi.idA);
+                const a2 = entityPositions.get(pi.idB);
+                if (!a1 || !a2) continue;
+                for (let j = i + 1; j < relationshipPairs.length; j++) {
+                    const pj = relationshipPairs[j];
+                    // 共享端点则不算交叉 (正常相交会在关系节点处汇合)
+                    if (pi.idA === pj.idA || pi.idA === pj.idB ||
+                        pi.idB === pj.idA || pi.idB === pj.idB) continue;
+                    const b1 = entityPositions.get(pj.idA);
+                    const b2 = entityPositions.get(pj.idB);
+                    if (!b1 || !b2) continue;
+                    if (segmentsCross(a1, a2, b1, b2)) total++;
+                }
+            }
+            return total;
+        };
+
+        if (relationshipPairs.length >= 2 && entityIds.length >= 2) {
+            let currentCrossings = countCrossings();
+            if (currentCrossings > 0) {
+                const maxSwapPasses = 8;
+                for (let pass = 0; pass < maxSwapPasses && currentCrossings > 0; pass++) {
+                    let improved = false;
+                    for (let i = 0; i < entityIds.length && currentCrossings > 0; i++) {
+                        for (let j = i + 1; j < entityIds.length; j++) {
+                            const idA = entityIds[i];
+                            const idB = entityIds[j];
+                            const pa = entityPositions.get(idA);
+                            const pb = entityPositions.get(idB);
+                            if (!pa || !pb) continue;
+                            // 试交换
+                            const tmpX = pa.x, tmpY = pa.y;
+                            pa.x = pb.x; pa.y = pb.y;
+                            pb.x = tmpX; pb.y = tmpY;
+                            const newCrossings = countCrossings();
+                            if (newCrossings < currentCrossings) {
+                                currentCrossings = newCrossings;
+                                improved = true;
+                                if (currentCrossings === 0) break;
+                            } else {
+                                // 回滚
+                                pb.x = pa.x; pb.y = pa.y;
+                                pa.x = tmpX; pa.y = tmpY;
+                            }
+                        }
+                    }
+                    if (!improved) break;
+                }
+            }
         }
 
         // 调整实体间距
@@ -352,6 +521,9 @@
                     }
                 }
             });
+
+            // 将实体自身目标刷新为最终位置
+            targets.set(model.id, { x: center.x, y: center.y });
         });
 
         // 双实体关系节点
@@ -430,7 +602,7 @@
             });
         });
 
-        // 关系节点额外防重叠修正
+        // 关系节点额外防重叠修正 (网格加速)
         if (relAnchors.size) {
             const relPositions = new Map();
             relAnchors.forEach((anchor, id) => {
@@ -445,36 +617,44 @@
                 entityCollisionRadius.set(mid.id, ring + 20);
             });
 
+            const relIdArr = [];
+            relPositions.forEach((_, id) => relIdArr.push(id));
+            const maxRelR = relIdArr.length
+                ? Math.max(...relIdArr.map(id => relRadii.get(id) || 30))
+                : 30;
+            const relCellSize = Math.max(60, (maxRelR * 2) + 14);
+
             for (let iter = 0; iter < 80; iter++) {
-                relationshipNodes.forEach((relA, idxA) => {
-                    const idA = relA.getModel().id;
-                    const posA = relPositions.get(idA);
-                    const rA = relRadii.get(idA) || 30;
-                    if (!posA) return;
+                let moved = 0;
 
-                    for (let j = idxA + 1; j < relationshipNodes.length; j++) {
-                        const relB = relationshipNodes[j];
-                        const idB = relB.getModel().id;
-                        const posB = relPositions.get(idB);
-                        const rB = relRadii.get(idB) || 30;
-                        if (!posB) continue;
+                const relItems = relIdArr.map(id => ({
+                    id,
+                    pos: relPositions.get(id),
+                    r: relRadii.get(id) || 30
+                }));
+                const relGrid = buildGrid(relItems, relCellSize);
 
-                        const dx = posB.x - posA.x;
-                        const dy = posB.y - posA.y;
+                for (let i = 0; i < relItems.length; i++) {
+                    const a = relItems[i];
+                    forEachNeighbor(relGrid, relCellSize, a, (b) => {
+                        if (b.id <= a.id) return;
+                        const dx = b.pos.x - a.pos.x;
+                        const dy = b.pos.y - a.pos.y;
                         let dist = Math.hypot(dx, dy);
                         if (dist === 0) dist = 0.01;
-                        const minDist = rA + rB + 14;
+                        const minDist = a.r + b.r + 14;
                         if (dist < minDist) {
                             const push = (minDist - dist) / 2;
                             const nx = dx / dist;
                             const ny = dy / dist;
-                            posA.x -= nx * push;
-                            posA.y -= ny * push;
-                            posB.x += nx * push;
-                            posB.y += ny * push;
+                            a.pos.x -= nx * push;
+                            a.pos.y -= ny * push;
+                            b.pos.x += nx * push;
+                            b.pos.y += ny * push;
+                            if (push > moved) moved = push;
                         }
-                    }
-                });
+                    });
+                }
 
                 relPositions.forEach((pos, rid) => {
                     const relNode = graph.findById(rid);
@@ -495,6 +675,7 @@
                             const ny = dy / dist;
                             pos.x += nx * push;
                             pos.y += ny * push;
+                            if (push > moved) moved = push;
                         }
                     });
                 });
@@ -505,6 +686,8 @@
                     pos.x = pos.x * 0.85 + anchor.x * 0.15;
                     pos.y = pos.y * 0.85 + anchor.y * 0.15;
                 });
+
+                if (moved < 0.3) break;
             }
 
             relPositions.forEach((pos, id) => {
@@ -512,30 +695,39 @@
             });
         }
 
-        // 全局防重叠
+        // 全局防重叠 (网格加速)
         const applyGlobalSeparation = () => {
             const allNodes = graph.getNodes();
-            const meta = allNodes.map(n => ({
+            const metaArr = allNodes.map(n => ({
                 id: n.getModel().id,
                 r: getRadius(n)
             }));
-            meta.forEach(m => {
+            metaArr.forEach(m => {
                 if (!targets.has(m.id)) {
                     const model = graph.findById(m.id)?.getModel();
                     targets.set(m.id, { x: model?.x || 0, y: model?.y || 0 });
                 }
             });
 
+            const maxR = metaArr.length ? Math.max(...metaArr.map(m => m.r)) : 30;
+            const cellSize = Math.max(40, maxR * 2 + 8);
+
             for (let iter = 0; iter < 400; iter++) {
                 let maxMove = 0;
-                for (let i = 0; i < meta.length; i++) {
-                    for (let j = i + 1; j < meta.length; j++) {
-                        const a = meta[i], b = meta[j];
-                        const pa = targets.get(a.id);
-                        const pb = targets.get(b.id);
-                        if (!pa || !pb) continue;
-                        const dx = pb.x - pa.x;
-                        const dy = pb.y - pa.y;
+
+                const items = metaArr.map(m => ({
+                    id: m.id,
+                    r: m.r,
+                    pos: targets.get(m.id)
+                }));
+                const grid = buildGrid(items, cellSize);
+
+                for (let i = 0; i < items.length; i++) {
+                    const a = items[i];
+                    forEachNeighbor(grid, cellSize, a, (b) => {
+                        if (b.id <= a.id) return;
+                        const dx = b.pos.x - a.pos.x;
+                        const dy = b.pos.y - a.pos.y;
                         let dist = Math.hypot(dx, dy);
                         if (dist === 0) dist = 0.01;
                         const minDist = a.r + b.r + 8;
@@ -543,13 +735,13 @@
                             const push = (minDist - dist) / 2;
                             const nx = dx / dist;
                             const ny = dy / dist;
-                            pa.x -= nx * push;
-                            pa.y -= ny * push;
-                            pb.x += nx * push;
-                            pb.y += ny * push;
-                            maxMove = Math.max(maxMove, push);
+                            a.pos.x -= nx * push;
+                            a.pos.y -= ny * push;
+                            b.pos.x += nx * push;
+                            b.pos.y += ny * push;
+                            if (push > maxMove) maxMove = push;
                         }
-                    }
+                    });
                 }
                 if (maxMove < 0.3) break;
             }
