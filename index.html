@@ -2163,7 +2163,21 @@ Ref: posts.author_id &gt; users.id</code></pre>
       };
       const langBtn = document.getElementById("langBtn");
       const langLabel = document.getElementById("langLabel");
-      function applyLang(lang) {
+      // 设备语言检测：zh-CN / zh-TW / zh-HK / zh-Hans / zh-Hant 等一律视为中文，
+      // 其余一律英文。localStorage 只在用户点击切换按钮时写入，
+      // 这样设备语言变化后下一次访问能被正确感知。
+      function detectLang() {
+        const saved = localStorage.getItem("sql2er-lang");
+        if (saved === "zh" || saved === "en") return saved;
+        const list =
+          navigator.languages && navigator.languages.length
+            ? navigator.languages
+            : [navigator.language || "en"];
+        return list.some((l) => (l || "").toLowerCase().startsWith("zh"))
+          ? "zh"
+          : "en";
+      }
+      function applyLang(lang, opts) {
         document.documentElement.setAttribute(
           "lang",
           lang === "zh" ? "zh-CN" : "en",
@@ -2178,19 +2192,16 @@ Ref: posts.author_id &gt; users.id</code></pre>
           if (d[k] !== undefined) el.innerHTML = d[k];
         });
         langLabel.textContent = lang === "zh" ? "EN" : "中";
-        localStorage.setItem("sql2er-lang", lang);
+        if (opts && opts.persist) localStorage.setItem("sql2er-lang", lang);
       }
-      applyLang(
-        localStorage.getItem("sql2er-lang") ||
-          (navigator.language.startsWith("zh") ? "zh" : "en"),
-      );
+      applyLang(detectLang());
       langBtn.addEventListener("click", () => {
         const cur = document.documentElement
           .getAttribute("lang")
           .startsWith("zh")
           ? "zh"
           : "en";
-        applyLang(cur === "zh" ? "en" : "zh");
+        applyLang(cur === "zh" ? "en" : "zh", { persist: true });
       });
 
       // ───── TABS ─────
@@ -2226,7 +2237,11 @@ Ref: posts.author_id &gt; users.id</code></pre>
         ).textContent;
         try {
           await navigator.clipboard.writeText(code);
-          const lang = localStorage.getItem("sql2er-lang") || "zh";
+          const lang = document.documentElement
+            .getAttribute("lang")
+            .startsWith("zh")
+            ? "zh"
+            : "en";
           showToast(I18N[lang].toast_copied);
         } catch {
           showToast("Copy failed");
@@ -2410,9 +2425,11 @@ Ref: posts.author > users.id`,
         }
         window.ERBuilder.registerCustomNodes(G6);
 
-        const lang =
-          localStorage.getItem("sql2er-lang") ||
-          (navigator.language.startsWith("zh") ? "zh" : "en");
+        const lang = document.documentElement
+          .getAttribute("lang")
+          .startsWith("zh")
+          ? "zh"
+          : "en";
         const SRC = HERO_SOURCES[lang] || HERO_SOURCES.zh;
 
         let parsed = parseSQLTables(SRC);

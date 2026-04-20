@@ -232,10 +232,17 @@ Ref: Article.Author > User.ID
           html: document.querySelectorAll("[data-i18n-html]"),
         };
 
+        // 设备语言检测：zh-CN / zh-TW / zh-HK / zh-Hans / zh-Hant 等一律视为中文，
+        // 其余一律英文。localStorage 只在用户点击切换按钮后写入，
+        // 这样设备语言变化后下一次访问能被正确感知。
         function detectLang() {
           const saved = localStorage.getItem("sql2er-lang");
           if (saved === "zh" || saved === "en") return saved;
-          return (navigator.language || "en").toLowerCase().startsWith("zh")
+          const list =
+            navigator.languages && navigator.languages.length
+              ? navigator.languages
+              : [navigator.language || "en"];
+          return list.some((l) => (l || "").toLowerCase().startsWith("zh"))
             ? "zh"
             : "en";
         }
@@ -264,7 +271,8 @@ Ref: Article.Author > User.ID
           const initial = opts && opts.initial;
           if (initial) {
             applyHeader(lang);
-            localStorage.setItem("sql2er-lang", lang);
+            // 初始自动检测不写入 localStorage，保留给用户点击切换时使用，
+            // 避免把设备语言锁死在首次访问的那次结果上。
             window.dispatchEvent(
               new CustomEvent("sql2er-lang", {
                 detail: { lang, initial: true },
