@@ -437,7 +437,8 @@ body::before {
    浮动按钮
 ═══════════════════════════════════════ */
 .background-toggle,
-.colorize-toggle {
+.colorize-toggle,
+.attrs-toggle {
   position: absolute;
   left: 16px;
   width: 40px;
@@ -467,27 +468,35 @@ body::before {
   top: 64px;
 }
 
+.attrs-toggle {
+  top: 112px;
+}
+
 .background-toggle:hover,
-.colorize-toggle:hover {
+.colorize-toggle:hover,
+.attrs-toggle:hover {
   transform: scale(1.06);
   border-color: var(--app-accent);
   box-shadow: 0 6px 16px rgba(20, 20, 19, 0.1);
 }
 
 .background-toggle:active,
-.colorize-toggle:active {
+.colorize-toggle:active,
+.attrs-toggle:active {
   transform: scale(0.95);
 }
 
 .background-toggle i,
-.colorize-toggle i {
+.colorize-toggle i,
+.attrs-toggle i {
   font-size: 16px;
   color: var(--app-ink-2);
   transition: color var(--duration-fast) var(--ease-default);
 }
 
 .background-toggle:hover i,
-.colorize-toggle:hover i {
+.colorize-toggle:hover i,
+.attrs-toggle:hover i {
   color: var(--app-accent-warm);
 }
 
@@ -508,6 +517,35 @@ body::before {
 
 .colorize-toggle.active:hover i {
   color: #0284c7;
+}
+
+.attrs-toggle {
+  overflow: hidden;
+}
+
+.attrs-toggle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 2px;
+  background: var(--app-ink-2);
+  border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(-45deg) scaleX(0);
+  transform-origin: center;
+  transition:
+    transform var(--duration-normal) var(--ease-default),
+    background var(--duration-fast) var(--ease-default);
+  pointer-events: none;
+}
+
+.attrs-toggle.active::after {
+  transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
+}
+
+.attrs-toggle:hover::after {
+  background: var(--app-accent-warm);
 }
 
 /* ═══════════════════════════════════════
@@ -734,7 +772,8 @@ body::before {
   }
 
   .background-toggle:hover,
-  .colorize-toggle:hover {
+  .colorize-toggle:hover,
+  .attrs-toggle:hover {
     transform: none;
     border-color: var(--app-border);
     box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
@@ -750,7 +789,8 @@ body::before {
   }
 
   .background-toggle:active,
-  .colorize-toggle:active {
+  .colorize-toggle:active,
+  .attrs-toggle:active {
     transform: scale(1.1);
   }
 
@@ -1347,6 +1387,7 @@ body.is-lang-fading .lang-fade-target {
 .btn:focus-visible,
 .background-toggle:focus-visible,
 .colorize-toggle:focus-visible,
+.attrs-toggle:focus-visible,
 .github-corner:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;

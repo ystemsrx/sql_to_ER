@@ -90,7 +90,7 @@
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER 图预览",
           showComment: "属性显示注释",
-          hideFields: "隐藏字段",
+          hideFields: "隐藏属性",
           editorPlaceholder: "在此处粘贴您的 CREATE TABLE 或 DBML 语句...",
           btnGenerate: "⚡ 生成 ER 图",
           btnGenerateShort: "⚡ 生成",
@@ -109,6 +109,8 @@
           tipHideBg: "隐藏背景",
           tipColorOn: "开启着色",
           tipColorOff: "关闭着色",
+          tipShowAttrs: "显示属性",
+          tipHideAttrs: "隐藏属性",
           errEmpty: "输入为空。",
           errNoTable:
             "未找到有效的 CREATE TABLE 或 Table 定义。请确保您的 SQL 或 DBML 语法正确。",
@@ -146,7 +148,7 @@ Ref: 文章.作者 > 用户.编号
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER Preview",
           showComment: "Show comments",
-          hideFields: "Hide fields",
+          hideFields: "Hide attributes",
           editorPlaceholder: "Paste your CREATE TABLE or DBML statement here...",
           btnGenerate: "⚡ Generate",
           btnGenerateShort: "⚡ Generate",
@@ -165,6 +167,8 @@ Ref: 文章.作者 > 用户.编号
           tipHideBg: "Hide background",
           tipColorOn: "Enable color",
           tipColorOff: "Disable color",
+          tipShowAttrs: "Show attributes",
+          tipHideAttrs: "Hide attributes",
           errEmpty: "Input is empty.",
           errNoTable:
             "No valid CREATE TABLE or Table definition found. Make sure your SQL or DBML syntax is correct.",
@@ -300,6 +304,9 @@ Ref: Article.Author > User.ID
     <!-- Exporter Module -->
     <script src="js/exporter.js"></script>
 
+    <!-- Attribute Layout Module (hide/show + placement algorithm) -->
+    <script src="js/attributeLayout.js"></script>
+
     <!-- Main Application Script -->
     <script type="text/babel">
       window.addEventListener("load", () => {
@@ -312,6 +319,9 @@ Ref: Article.Author > User.ID
 
         // 从 ERBuilder 模块获取函数
         const generateChenModelData = window.ERBuilder.generateChenModelData;
+        const buildAttributeData = window.ERBuilder.buildAttributeData;
+        const estimateAttributeHalfSize =
+          window.ERBuilder.estimateAttributeHalfSize;
         const patchRelationshipLinkPoints =
           window.ERBuilder.patchRelationshipLinkPoints;
 
@@ -347,6 +357,7 @@ Ref: Article.Author > User.ID
           const [loading, setLoading] = useState(false);
           const [hasGraph, setHasGraph] = useState(false);
           const lastInputRef = useRef(""); // 记录上次生成时的输入
+          const tablesDataRef = useRef(null); // 最近一次生成所用的 tables 数据
           const containerRef = useRef(null);
           const graphRef = useRef(null);
 
@@ -547,12 +558,41 @@ Ref: Article.Author > User.ID
             }
           }, [isColored, hasGraph]);
 
-          // 监听 showComment 或 hideFields 变化，重新生成图表
+          // 监听 showComment 变化，重新生成图表（标签内容需要重渲染）
           useEffect(() => {
             if (hasGraph && lastInputRef.current) {
               handleGenerate();
             }
-          }, [showComment, hideFields]);
+          }, [showComment]);
+
+          // 监听 hideFields 变化：隐藏时直接移除属性节点，显示时根据
+          // 当前实体位置计算最优属性位置后再加入，避免重新生成整张图
+          useEffect(() => {
+            if (!hasGraph || !graphRef.current || graphRef.current.destroyed) {
+              return;
+            }
+            if (hideFields) {
+              hideAttributesInGraph();
+            } else {
+              showAttributesInGraph();
+            }
+          }, [hideFields]);
+
+          // 属性节点的隐藏 / 显示以及"加回来时的位置计算"封装在
+          // window.AttributeLayout（js/attributeLayout.js）中。
+          // 这里只保留绑定 React 状态 / ref 的薄包装。
+          const hideAttributesInGraph = () => {
+            window.AttributeLayout.hideAttributes(graphRef.current);
+          };
+          const showAttributesInGraph = () => {
+            window.AttributeLayout.showAttributes({
+              graph: graphRef.current,
+              tables: tablesDataRef.current,
+              labelMode: showComment ? "comment" : "name",
+              isColored,
+              updateStyles: updateGraphStyles,
+            });
+          };
 
           const handleGenerate = () => {
             try {
@@ -587,6 +627,9 @@ Ref: Article.Author > User.ID
                 setLoading(false);
                 return;
               }
+
+              // 缓存表数据，供隐藏/显示属性时无需重新生成图表即可重建属性
+              tablesDataRef.current = tables;
 
               const { nodes, edges } = generateChenModelData(
                 tables,
@@ -1078,12 +1121,6 @@ Ref: Article.Author > User.ID
                         gap: "10px",
                       }}
                     >
-                      <span className="inline-label">{t.hideFields}</span>
-                      <Switch
-                        checked={hideFields}
-                        onChange={setHideFields}
-                        size="small"
-                      />
                       <span className="inline-label">{t.showComment}</span>
                       <Switch
                         checked={showComment}
@@ -1430,6 +1467,13 @@ Ref: Article.Author > User.ID
                         title={isColored ? t.tipColorOff : t.tipColorOn}
                       >
                         <i className="fa-solid fa-palette"></i>
+                      </div>
+                      <div
+                        className={`attrs-toggle ${hideFields ? "active" : ""}`}
+                        onClick={() => setHideFields(!hideFields)}
+                        title={hideFields ? t.tipShowAttrs : t.tipHideAttrs}
+                      >
+                        <i className="fa-solid fa-list-ul"></i>
                       </div>
                       {loading && (
                         <div className="loading-overlay">

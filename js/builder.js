@@ -486,9 +486,78 @@ window.ERBuilder = (function () {
         graph.refresh();
     };
 
+    /**
+     * 仅构建属性节点与实体-属性连边数据
+     * 用于在不重新生成整张图的情况下，向现有图中重新添加属性
+     *
+     * @param {Array} tables - 表数据数组
+     * @param {boolean} isColored - 是否使用彩色样式
+     * @param {string} labelMode - 'name' | 'comment' | 'any'
+     * @returns {{ nodes: Array, edges: Array }}
+     */
+    const buildAttributeData = (tables, isColored = true, labelMode = 'name') => {
+        const nodes = [];
+        const edges = [];
+        tables.forEach((table, tableIndex) => {
+            const entityId = `entity-${table.name}-${tableIndex}`;
+            table.columns.forEach((column, colIndex) => {
+                const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;
+                const isPrimaryKey = table.primaryKeys.includes(column.name) || column.isPrimaryKey;
+                const attrLabel = resolveAttrLabel(column, labelMode);
+
+                nodes.push({
+                    id: attributeId,
+                    type: 'attribute',
+                    label: attrLabel,
+                    keyType: isPrimaryKey ? 'pk' : 'normal',
+                    style: {
+                        fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
+                        stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
+                        lineWidth: isPrimaryKey ? 2 : 1
+                    },
+                    labelCfg: {
+                        style: {
+                            fill: '#000000',
+                            fontWeight: isPrimaryKey ? 'bold' : 'normal'
+                        }
+                    },
+                    nodeType: 'attribute',
+                    parentEntity: entityId
+                });
+
+                edges.push({
+                    id: `edge-${entityId}-${attributeId}-${tableIndex}-${colIndex}`,
+                    source: entityId,
+                    target: attributeId,
+                    style: { stroke: '#000000' },
+                    edgeType: 'entity-attribute'
+                });
+            });
+        });
+        return { nodes, edges };
+    };
+
+    /**
+     * 估算属性节点渲染后的尺寸（与 registerCustomNodes 中 attribute 绘制逻辑保持一致）
+     * @param {string} label - 节点标签
+     * @returns {{ halfW: number, halfH: number }}
+     */
+    const estimateAttributeHalfSize = (label) => {
+        const fontSize = 15;
+        const padding = 16;
+        const minWidth = 60;
+        const minHeight = 40;
+        const textWidth = getTextWidth(label || '', fontSize);
+        const width = Math.max(minWidth, textWidth + padding * 2);
+        const height = Math.max(minHeight, fontSize + 16);
+        return { halfW: width / 2, halfH: height / 2 };
+    };
+
     // 返回公开 API
     return {
         generateChenModelData,
+        buildAttributeData,
+        estimateAttributeHalfSize,
         registerCustomNodes,
         patchRelationshipLinkPoints,
         // 辅助函数也导出，以便需要时使用
