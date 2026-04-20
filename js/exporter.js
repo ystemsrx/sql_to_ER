@@ -203,13 +203,35 @@
      * 导出 ER 图为 PNG
      * @param {Object} options - 导出选项
      */
-    function downloadDataURL(dataURL, filename) {
+    function dataURLToBlob(dataURL) {
+        const commaIdx = dataURL.indexOf(',');
+        const header = dataURL.substring(0, commaIdx);
+        const data = dataURL.substring(commaIdx + 1);
+        const mimeMatch = header.match(/data:([^;]+)/);
+        const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+        const isBase64 = /;base64/i.test(header);
+        let bytes;
+        if (isBase64) {
+            const binary = atob(data);
+            bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        } else {
+            const decoded = decodeURIComponent(data);
+            bytes = new Uint8Array(decoded.length);
+            for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
+        }
+        return new Blob([bytes], { type: mime });
+    }
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = dataURL;
+        link.href = url;
         link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
 
     function exportPNG(options) {
@@ -229,14 +251,23 @@
         }
 
         try {
-            // 用 toFullDataURL 拿到 dataURL，然后把真正的"点击下载"延迟到进度完成时再触发
+            // 用 toFullDataURL 拿到 dataURL，立即转成 Blob（复杂图的 data URL 很大，
+            // 直接把 data: 作为 <a href> 会让浏览器在 click 后还需很长时间解码才开始下载，
+            // 造成"已保存"提示先于真正下载），用 blob URL 能让 click 立即触发保存。
             graphRef.current.toFullDataURL(
                 (dataURL) => {
                     if (!dataURL) {
                         finishErr('导出PNG失败：生成图像失败');
                         return;
                     }
-                    finishOk(() => downloadDataURL(dataURL, 'er-diagram.png'));
+                    let blob;
+                    try {
+                        blob = dataURLToBlob(dataURL);
+                    } catch (convErr) {
+                        finishErr('导出PNG失败：' + convErr.message);
+                        return;
+                    }
+                    finishOk(() => downloadBlob(blob, 'er-diagram.png'));
                 },
                 'image/png',
                 {
