@@ -148,6 +148,7 @@ Ref: posts.author_id > users.id
 > 1. Click **"Smart Layout"** for auto-arrangement — this usually produces a reasonably clean result with only minor tweaks needed.
 > 2. If still messy, click **"Force Alignment"** for a more aggressive alignment pass, then use "Smart Layout" again for an ideal result.
 > 3. In rare cases, **manually** drag the rectangles (entities) to suitable positions (no need to move other elements), then click "Smart Layout".
+> 4. **For dense schemas with many entities / relationships**, click **"Hide Attributes"** (top-left of the canvas) first, arrange the rectangle-and-diamond "skeleton" to your liking, then toggle back to "Show Attributes" — the attribute ellipses are automatically redistributed evenly around each rectangle's current position, so you aren't fighting a forest of attribute ellipses while positioning the skeleton.
 
 <table>
 <tr>
