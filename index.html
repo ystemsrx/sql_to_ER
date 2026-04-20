@@ -2385,7 +2385,12 @@ Ref: posts.author > users.id`,
       };
 
       let heroGraph = null;
-      const heroState = { pinnedId: null, dragging: false };
+      let heroResetLayout = null;
+      const heroState = {
+        pinnedId: null,
+        dragging: false,
+        initialPositions: null,
+      };
 
       function buildHeroGraph() {
         const stage = document.getElementById("erStage");
@@ -2694,6 +2699,18 @@ Ref: posts.author > users.id`,
           if (heroGraph && !heroGraph.destroyed) heroGraph.fitView(20);
           requestAnimationFrame(() => {
             stage.classList.remove("is-building");
+            // 快照初始收敛位置 + 视口矩阵，供「重置布局」按钮平滑还原
+            if (heroGraph && !heroGraph.destroyed) {
+              const snap = new Map();
+              heroGraph.getNodes().forEach((n) => {
+                const m = n.getModel();
+                snap.set(m.id, { x: m.x, y: m.y });
+              });
+              heroState.initialPositions = snap;
+              const rootGroup = heroGraph.get("group");
+              const mat = rootGroup && rootGroup.getMatrix();
+              heroState.initialMatrix = mat ? [...mat] : null;
+            }
           });
         });
 
@@ -2828,6 +2845,86 @@ Ref: posts.author > users.id`,
           settleFrames = 40; // 松手后再跑 ~0.6s 让画面自然停下来
           startSim();
         });
+
+        // 「重置布局」平滑回到初始收敛位置 —— 不销毁重建，只 tween 坐标
+        let resetRaf = null;
+        heroResetLayout = () => {
+          if (
+            !heroGraph ||
+            heroGraph.destroyed ||
+            !heroState.initialPositions
+          )
+            return;
+          // 停掉物理模拟和上一次未结束的 reset 动画
+          if (simRaf) {
+            cancelAnimationFrame(simRaf);
+            simRaf = null;
+          }
+          if (resetRaf) {
+            cancelAnimationFrame(resetRaf);
+            resetRaf = null;
+          }
+          heroState.dragging = false;
+          heroState.pinnedId = null;
+          velocities.clear();
+          settleFrames = 0;
+
+          const nodes = heroGraph.getNodes();
+          const starts = new Map();
+          nodes.forEach((n) => {
+            const m = n.getModel();
+            starts.set(m.id, { x: m.x || 0, y: m.y || 0 });
+          });
+
+          // 视口矩阵也一起 tween：起点为当前矩阵，终点为初始 fit 后的快照
+          const rootGroup = heroGraph.get("group");
+          const startMatrix =
+            rootGroup && rootGroup.getMatrix()
+              ? [...rootGroup.getMatrix()]
+              : null;
+          const endMatrix = heroState.initialMatrix;
+          const canTweenMatrix =
+            startMatrix &&
+            endMatrix &&
+            startMatrix.length === endMatrix.length;
+
+          const DURATION = 520;
+          const t0 = performance.now();
+          const ease = (t) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+
+          const tick = () => {
+            if (!heroGraph || heroGraph.destroyed) {
+              resetRaf = null;
+              return;
+            }
+            const t = Math.min(1, (performance.now() - t0) / DURATION);
+            const k = ease(t);
+            nodes.forEach((n) => {
+              const id = n.getID();
+              const s = starts.get(id);
+              const e = heroState.initialPositions.get(id);
+              if (!s || !e) return;
+              heroGraph.updateItem(
+                n,
+                { x: s.x + (e.x - s.x) * k, y: s.y + (e.y - s.y) * k },
+                false,
+              );
+            });
+            if (canTweenMatrix && rootGroup) {
+              const m = startMatrix.map(
+                (v, i) => v + (endMatrix[i] - v) * k,
+              );
+              rootGroup.setMatrix(m);
+            }
+            heroGraph.paint();
+            if (t < 1) {
+              resetRaf = requestAnimationFrame(tick);
+            } else {
+              resetRaf = null;
+            }
+          };
+          resetRaf = requestAnimationFrame(tick);
+        };
       }
 
       window.addEventListener("load", () => {
@@ -2840,10 +2937,12 @@ Ref: posts.author > users.id`,
         themeBtn.addEventListener("click", () => {
           setTimeout(buildHeroGraph, 60);
         });
-        // 重置按钮：回到初始 force2 收敛态
+        // 重置按钮：平滑回到初始 force2 收敛位置（不销毁重建）
         const resetBtn = document.getElementById("erReset");
         if (resetBtn)
-          resetBtn.addEventListener("click", () => buildHeroGraph());
+          resetBtn.addEventListener("click", () => {
+            if (typeof heroResetLayout === "function") heroResetLayout();
+          });
         // 响应式：显著宽度变化才重建
         const mount = document.getElementById("hero-er");
         let lastW = mount.offsetWidth;
