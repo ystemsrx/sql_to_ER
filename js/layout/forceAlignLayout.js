@@ -1,24 +1,20 @@
 /**
  * Force Align Layout Module
- * Contains the force align layout algorithm:
- * - Ignores ellipses (attributes), aligns main chain horizontally
- * - Recursively distributes branch nodes evenly
+ * - Main chain (longest entity/rel path) placed horizontally
+ * - Off-main branches laid out as real subtrees with leaf-count-proportional
+ *   angular sectors; single-child chains extend colinearly, multi-child nodes
+ *   fan out in a forward semicircle. No post-hoc "fix-up" passes fight each
+ *   other.
  */
 
 (function (exports) {
     'use strict';
 
-    // 获取工具函数和动画函数
     const getUtils = () => exports.LayoutUtils || {};
     const getAnimation = () => exports.LayoutAnimation || {};
 
-    /**
-     * 强制对齐布局：忽略椭圆，主链水平，支线递归均分
-     * @param {Object} graph - G6 图形实例
-     * @param {number} containerWidth - 容器宽度
-     */
     const forceAlignLayout = (graph, containerWidth) => {
-        const { deterministicHash, normalizeAngle } = getUtils();
+        const { normalizeAngle, deterministicHash } = getUtils();
         const { smoothFitView, animateNodesToTargets } = getAnimation();
 
         if (!graph || graph.destroyed) return;
@@ -33,15 +29,16 @@
         allNodes.forEach(n => {
             const m = n.getModel();
             nodeMap.set(m.id, n);
-            if (isCore(m.nodeType)) {
-                coreNodes.push(n);
-            } else if (m.nodeType === 'attribute') {
-                attributeNodes.push(n);
-            }
+            if (isCore(m.nodeType)) coreNodes.push(n);
+            else if (m.nodeType === 'attribute') attributeNodes.push(n);
         });
         if (!coreNodes.length) return;
 
-        // 实体 -> 属性列表
+        const typeOf = (id) => nodeMap.get(id)?.getModel().nodeType;
+        const isEnt = (id) => typeOf(id) === 'entity';
+        const isRel = (id) => typeOf(id) === 'relationship';
+
+        // 属性归属
         const entityAttrs = new Map();
         attributeNodes.forEach(attr => {
             const pid = attr.getModel().parentEntity;
@@ -49,32 +46,25 @@
             if (!entityAttrs.has(pid)) entityAttrs.set(pid, []);
             entityAttrs.get(pid).push(attr);
         });
-        const sideHint = new Map();
 
         const getRadius = (node) => {
             const b = node.getBBox();
             return Math.sqrt(b.width * b.width + b.height * b.height) / 2;
         };
 
-        // 仅矩形/菱形的邻接表
+        // 核心邻接（矩形↔菱形）
         const coreAdj = new Map();
         graph.getEdges().forEach(edge => {
             const { source, target } = edge.getModel();
-            const sNode = nodeMap.get(source);
-            const tNode = nodeMap.get(target);
-            if (!sNode || !tNode) return;
-            const sType = sNode.getModel().nodeType;
-            const tType = tNode.getModel().nodeType;
-            if (isCore(sType) && isCore(tType)) {
-                if (!coreAdj.has(source)) coreAdj.set(source, new Set());
-                if (!coreAdj.has(target)) coreAdj.set(target, new Set());
-                coreAdj.get(source).add(target);
-                coreAdj.get(target).add(source);
-            }
+            if (!isCore(typeOf(source)) || !isCore(typeOf(target))) return;
+            if (!coreAdj.has(source)) coreAdj.set(source, new Set());
+            if (!coreAdj.has(target)) coreAdj.set(target, new Set());
+            coreAdj.get(source).add(target);
+            coreAdj.get(target).add(source);
         });
         if (!coreAdj.size) return;
 
-        // 划分核心组件
+        // 连通分量
         const visited = new Set();
         const components = [];
         coreNodes.forEach(n => {
@@ -86,9 +76,7 @@
             while (stack.length) {
                 const cur = stack.pop();
                 comp.push(cur);
-                const neighbors = coreAdj.get(cur);
-                if (!neighbors) continue;
-                neighbors.forEach(nb => {
+                (coreAdj.get(cur) || []).forEach(nb => {
                     if (!visited.has(nb)) {
                         visited.add(nb);
                         stack.push(nb);
@@ -105,9 +93,7 @@
             dist.set(start, 0);
             while (queue.length) {
                 const cur = queue.shift();
-                const neighbors = coreAdj.get(cur);
-                if (!neighbors) continue;
-                neighbors.forEach(nb => {
+                (coreAdj.get(cur) || []).forEach(nb => {
                     if (!allowed.has(nb) || dist.has(nb)) return;
                     dist.set(nb, dist.get(cur) + 1);
                     prev.set(nb, cur);
@@ -115,16 +101,13 @@
                 });
             }
             let farthest = start;
-            dist.forEach((d, id) => {
-                if (d > dist.get(farthest)) farthest = id;
-            });
-            return { farthest, dist, prev };
+            dist.forEach((d, id) => { if (d > dist.get(farthest)) farthest = id; });
+            return { farthest, prev };
         };
 
         const findLongestPath = (ids) => {
             const allowed = new Set(ids);
-            const first = ids[0];
-            const { farthest: endA } = bfsFarthest(first, allowed);
+            const { farthest: endA } = bfsFarthest(ids[0], allowed);
             const { farthest: endB, prev } = bfsFarthest(endA, allowed);
             const path = [];
             let cur = endB;
@@ -132,311 +115,260 @@
                 path.unshift(cur);
                 cur = prev.get(cur);
             }
-            return path.length ? path : [first];
+            return path.length ? path : [ids[0]];
         };
 
+        // ------- 主链每个分量的布局 -------
         const layoutComponent = (ids) => {
             const targets = new Map();
-            const radiiCache = new Map();
-            ids.forEach(id => radiiCache.set(id, getRadius(nodeMap.get(id))));
-            const maxRadius = Math.max(...radiiCache.values());
-            const chainSpacing = Math.max(200, maxRadius * 2 + 40);
-            const mainPathSet = new Set();
-            let altSide = 1;
+            const radii = new Map();
+            ids.forEach(id => radii.set(id, getRadius(nodeMap.get(id))));
+            const maxR = Math.max(...radii.values());
+            const GAP = 48;
+            const chainSpacing = Math.max(200, maxR * 2 + GAP);
 
             const mainPath = findLongestPath(ids);
+            const mainPathSet = new Set(mainPath);
+
             const startX = -((mainPath.length - 1) * chainSpacing) / 2;
             mainPath.forEach((id, idx) => {
                 targets.set(id, { x: startX + idx * chainSpacing, y: 0 });
-                mainPathSet.add(id);
-                const isEntity = nodeMap.get(id)?.getModel().nodeType === 'entity';
-                if (isEntity) sideHint.set(id, 0);
             });
 
-            // 预先给所有非主链节点划分分支组件并确定侧向
-            const nonMain = ids.filter(id => !mainPathSet.has(id));
-            const branchVisited = new Set();
-            nonMain.forEach(id => {
-                if (branchVisited.has(id)) return;
-                const stack = [id];
-                const comp = [];
-                branchVisited.add(id);
-                while (stack.length) {
-                    const cur = stack.pop();
-                    comp.push(cur);
-                    (coreAdj.get(cur) || []).forEach(nb => {
-                        if (branchVisited.has(nb) || mainPathSet.has(nb)) return;
-                        branchVisited.add(nb);
-                        stack.push(nb);
-                    });
-                }
-                if (!comp.length) return;
+            // placed 追踪已放置的核心节点（含主链）
+            const placed = new Set(mainPath);
 
-                const anchors = new Set();
-                comp.forEach(nid => {
-                    (coreAdj.get(nid) || []).forEach(nb => {
-                        if (mainPathSet.has(nb)) anchors.add(nb);
-                    });
+            // 构造"从某个已放置节点出发、向外扩展的子树"
+            // 返回 { id, type, children: [...] }，child 的根类型一定和当前节点交替
+            const buildRelSubtree = (relId, parentEntityId) => {
+                placed.add(relId);
+                const node = { id: relId, type: 'rel', children: [] };
+                const ents = Array.from(coreAdj.get(relId) || [])
+                    .filter(id => isEnt(id) && id !== parentEntityId && !placed.has(id))
+                    .sort(); // 稳定顺序
+                ents.forEach(eid => {
+                    placed.add(eid);
+                    node.children.push(buildEntityNode(eid));
                 });
-
-                let compSign = 0;
-                comp.some(nid => {
-                    const s = sideHint.get(nid);
-                    if (s) {
-                        compSign = s;
-                        return true;
-                    }
-                    return false;
-                });
-                if (compSign === 0) {
-                    Array.from(anchors).some(aid => {
-                        const s = sideHint.get(aid);
-                        if (s) {
-                            compSign = s;
-                            return true;
-                        }
-                        return false;
-                    });
-                }
-                if (compSign === 0) {
-                    compSign = altSide;
-                    altSide = -altSide;
-                }
-                comp.forEach(nid => sideHint.set(nid, compSign));
-            });
-
-            const queue = mainPath.filter(id => nodeMap.get(id)?.getModel().nodeType === 'entity');
-
-            const computeExtraAngles = (anchors, extraCount, preferredSign = 0) => {
-                if (extraCount <= 0) return [];
-
-                if (preferredSign !== 0) {
-                    const halfStart = preferredSign > 0 ? 0 : Math.PI;
-                    const halfEnd = halfStart + Math.PI;
-                    const anchorInHalf = anchors
-                        .map(normalizeAngle)
-                        .filter(a => a >= halfStart && a < halfEnd)
-                        .sort((a, b) => a - b);
-
-                    const points = [halfStart, ...anchorInHalf, halfEnd];
-                    const arcs = [];
-                    for (let i = 0; i < points.length - 1; i++) {
-                        const start = points[i];
-                        const length = points[i + 1] - points[i];
-                        arcs.push({ start, length, extras: 0, fraction: 0 });
-                    }
-
-                    const totalLen = arcs.reduce((sum, a) => sum + a.length, 0) || Math.PI;
-                    let remaining = extraCount;
-                    arcs.forEach(arc => {
-                        const ideal = (arc.length / totalLen) * extraCount;
-                        arc.extras = Math.floor(ideal);
-                        arc.fraction = ideal - arc.extras;
-                        remaining -= arc.extras;
-                    });
-
-                    arcs.sort((a, b) => b.fraction - a.fraction);
-                    for (let i = 0; i < remaining; i++) {
-                        arcs[i % arcs.length].extras += 1;
-                    }
-                    arcs.sort((a, b) => a.start - b.start);
-
-                    const result = [];
-                    arcs.forEach(arc => {
-                        if (arc.length <= 1e-6 || arc.extras <= 0) return;
-                        for (let k = 1; k <= arc.extras; k++) {
-                            const ratio = k / (arc.extras + 1);
-                            result.push(normalizeAngle(arc.start + arc.length * ratio));
-                        }
-                    });
-
-                    if (!result.length) {
-                        const step = Math.PI / (extraCount + 1);
-                        for (let i = 0; i < extraCount; i++) {
-                            result.push(normalizeAngle(halfStart + step * (i + 1)));
-                        }
-                    }
-                    return result.sort((a, b) => a - b);
-                }
-
-                if (!anchors.length) {
-                    const step = (Math.PI * 2) / extraCount;
-                    return new Array(extraCount).fill(0).map((_, i) => normalizeAngle(step * i));
-                }
-
-                const sortedAnchors = anchors.slice().sort((a, b) => a - b);
-                const extended = sortedAnchors.concat([sortedAnchors[0] + Math.PI * 2]);
-
-                const arcs = [];
-                for (let i = 0; i < sortedAnchors.length; i++) {
-                    const start = extended[i];
-                    const length = extended[i + 1] - extended[i];
-                    arcs.push({ start, length, extras: 0, fraction: 0 });
-                }
-
-                const totalLen = arcs.reduce((sum, a) => sum + a.length, 0);
-                let remaining = extraCount;
-                arcs.forEach(arc => {
-                    const ideal = (arc.length / totalLen) * extraCount;
-                    arc.extras = Math.floor(ideal);
-                    arc.fraction = ideal - arc.extras;
-                    remaining -= arc.extras;
-                });
-
-                arcs.sort((a, b) => b.fraction - a.fraction);
-                for (let i = 0; i < remaining; i++) {
-                    arcs[i % arcs.length].extras += 1;
-                }
-                arcs.sort((a, b) => a.start - b.start);
-
-                const result = [];
-                arcs.forEach(arc => {
-                    for (let k = 1; k <= arc.extras; k++) {
-                        const ratio = k / (arc.extras + 1);
-                        result.push(normalizeAngle(arc.start + arc.length * ratio));
-                    }
-                });
-
-                return result.sort((a, b) => a - b);
+                return node;
             };
 
-            while (queue.length) {
-                const eid = queue.shift();
-                const entityNode = nodeMap.get(eid);
-                const entityPos = targets.get(eid);
-                if (!entityNode || !entityPos) continue;
-                const entityRadius = radiiCache.get(eid);
-                const preferredSign = sideHint.get(eid) || 0;
-                let nextAltSign = preferredSign === 0 ? 1 : preferredSign;
-
-                const relNeighbors = Array.from(coreAdj.get(eid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'relationship');
-                if (!relNeighbors.length) continue;
-
-                const anchorRels = relNeighbors.filter(rid => targets.has(rid));
-                const unplacedRels = relNeighbors.filter(rid => !targets.has(rid));
-                const anchorAngles = anchorRels.map(rid => {
-                    const rPos = targets.get(rid);
-                    return normalizeAngle(Math.atan2(rPos.y - entityPos.y, rPos.x - entityPos.x));
-                });
-
-                const unplacedInfo = unplacedRels.map(rid => {
-                    const others = Array.from(coreAdj.get(rid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'entity' && id !== eid);
-                    return { rid, others };
-                });
-
-                const relAdj = new Map();
-                unplacedInfo.forEach(({ rid }) => relAdj.set(rid, new Set()));
-                for (let i = 0; i < unplacedInfo.length; i++) {
-                    for (let j = i + 1; j < unplacedInfo.length; j++) {
-                        const a = unplacedInfo[i];
-                        const b = unplacedInfo[j];
-                        const shared = a.others.some(x => b.others.includes(x));
-                        const cross = shared ? true : a.others.some(x => b.others.some(y => (coreAdj.get(x) || new Set()).has(y)));
-                        if (shared || cross) {
-                            relAdj.get(a.rid).add(b.rid);
-                            relAdj.get(b.rid).add(a.rid);
-                        }
+            const buildEntityNode = (entityId) => {
+                const node = { id: entityId, type: 'entity', children: [] };
+                const rels = Array.from(coreAdj.get(entityId) || [])
+                    .filter(id => isRel(id) && !placed.has(id))
+                    .sort();
+                rels.forEach(rid => {
+                    // 只在有未放置实体邻居时加入为树子节点；否则交给"弦"阶段处理
+                    const relEnts = Array.from(coreAdj.get(rid) || []).filter(isEnt);
+                    const hasUnplacedEnt = relEnts.some(e => e !== entityId && !placed.has(e));
+                    const isUnary = relEnts.length === 1; // 自关联等
+                    if (hasUnplacedEnt || isUnary) {
+                        node.children.push(buildRelSubtree(rid, entityId));
                     }
+                });
+                return node;
+            };
+
+            const countLeaves = (node) => {
+                if (!node.children.length) return 1;
+                return node.children.reduce((s, c) => s + countLeaves(c), 0);
+            };
+
+            // 子树"宽度"估算：每片叶子需要约 (2*maxR + GAP) 的横向空间
+            const unitWidth = maxR * 1.6 + GAP;
+            const approxWidth = (n) => Math.max(1, countLeaves(n)) * unitWidth;
+
+            // 递归放置：node 自身放在以 parentPos 为圆心、angle 方向上，
+            // 距离至少为 minDist（由父节点按子树宽度反算），否则用默认近距。
+            // sectorSize 是留给 node 及其子孙横向展开的角度上限。
+            const placeNode = (node, parentPos, parentR, angle, sectorSize, minDist) => {
+                const myR = radii.get(node.id);
+                const defaultDist = parentR + myR + GAP;
+                const dist = Math.max(defaultDist, minDist || 0);
+                const pos = {
+                    x: parentPos.x + Math.cos(angle) * dist,
+                    y: parentPos.y + Math.sin(angle) * dist
+                };
+                targets.set(node.id, pos);
+                if (!node.children.length) return;
+
+                const forwardLimit = Math.PI * 5 / 6;
+                const effective = Math.min(sectorSize, forwardLimit);
+
+                if (node.children.length === 1) {
+                    // 单孩子：严格共线向外
+                    placeNode(node.children[0], pos, myR, angle, effective, 0);
+                    return;
                 }
 
-                const compVisited = new Set();
-                const relComponents = [];
-                unplacedRels.forEach(rid => {
-                    if (compVisited.has(rid)) return;
-                    const stack = [rid];
-                    const comp = [];
-                    compVisited.add(rid);
-                    while (stack.length) {
-                        const cur = stack.pop();
-                        comp.push(cur);
-                        (relAdj.get(cur) || []).forEach(nb => {
-                            if (!compVisited.has(nb)) {
-                                compVisited.add(nb);
-                                stack.push(nb);
-                            }
-                        });
+                const totalLeaves = node.children.reduce((s, c) => s + countLeaves(c), 0);
+                const kids = node.children.map(c => {
+                    const leaves = countLeaves(c);
+                    return { node: c, leaves, sector: effective * (leaves / totalLeaves) };
+                });
+                // 让每个孩子的弧长(dist * sector)能容纳其子树宽度
+                const needed = Math.max(
+                    ...kids.map(k => approxWidth(k.node) / Math.max(k.sector, 0.05))
+                );
+
+                let cur = angle - effective / 2;
+                kids.forEach(k => {
+                    const cAngle = cur + k.sector / 2;
+                    placeNode(k.node, pos, myR, cAngle, k.sector, needed);
+                    cur += k.sector;
+                });
+            };
+
+            // 为一批子树（都挂在 root 上）分配"上下两半圆"的扇区并放置
+            const placeSubtreesAroundRoot = (rootId, subtrees) => {
+                if (!subtrees.length) return;
+                const rootPos = targets.get(rootId);
+                const rootR = radii.get(rootId);
+
+                // 叶子数均衡地分到上（y<0）/下（y>0）两半
+                const annotated = subtrees
+                    .map(st => ({ st, leaves: countLeaves(st) }))
+                    .sort((a, b) => b.leaves - a.leaves);
+
+                const upper = []; let upLeaves = 0;
+                const lower = []; let loLeaves = 0;
+                annotated.forEach(({ st, leaves }) => {
+                    if (upLeaves <= loLeaves) { upper.push(st); upLeaves += leaves; }
+                    else { lower.push(st); loLeaves += leaves; }
+                });
+
+                // 半圆中心角：下 = π/2（canvas y 正向 = 下）、上 = 3π/2（y 负向 = 上）
+                // 留一点 padding 避让主链方向（0, π）
+                const placeHalf = (sts, center) => {
+                    if (!sts.length) return;
+                    const totalSpan = Math.PI * 5 / 6;  // 150°，给链轴留出 15° 空隙
+                    const total = sts.reduce((s, x) => s + countLeaves(x), 0);
+                    // 根据最宽子树 / 其扇形反算第一层最小径向距离
+                    const needed = Math.max(
+                        ...sts.map(st => {
+                            const leaves = countLeaves(st);
+                            const span = totalSpan * (leaves / total);
+                            return approxWidth(st) / Math.max(span, 0.05);
+                        })
+                    );
+                    let cur = center - totalSpan / 2;
+                    sts.forEach(st => {
+                        const leaves = countLeaves(st);
+                        const span = totalSpan * (leaves / total);
+                        const a = cur + span / 2;
+                        placeNode(st, rootPos, rootR, a, span, needed);
+                        cur += span;
+                    });
+                };
+
+                placeHalf(upper, 3 * Math.PI / 2);
+                placeHalf(lower, Math.PI / 2);
+            };
+
+            // Pass A：每个主链实体的分支
+            mainPath.filter(isEnt).forEach(eid => {
+                const branchRels = Array.from(coreAdj.get(eid) || [])
+                    .filter(r => isRel(r) && !placed.has(r))
+                    .sort();
+                if (!branchRels.length) return;
+                const subtrees = [];
+                branchRels.forEach(rid => {
+                    // 同样要求有未放置实体邻居（或一元关系）
+                    const relEnts = Array.from(coreAdj.get(rid) || []).filter(isEnt);
+                    const hasUnplacedEnt = relEnts.some(e => e !== eid && !placed.has(e));
+                    const isUnary = relEnts.length === 1;
+                    if (hasUnplacedEnt || isUnary) {
+                        subtrees.push(buildRelSubtree(rid, eid));
                     }
-                    relComponents.push(comp);
                 });
+                placeSubtreesAroundRoot(eid, subtrees);
+            });
 
-                const anchorAnglesWithSign = anchorRels.map(rid => {
-                    const ang = anchorAngles[anchorRels.indexOf(rid)];
-                    const sign = sideHint.get(rid) || Math.sign(Math.sin(ang)) || 0;
-                    return { ang, sign };
+            // Pass B：主链关系（如三元关系）上挂着的非主链实体
+            mainPath.filter(isRel).forEach(rid => {
+                const extraEnts = Array.from(coreAdj.get(rid) || [])
+                    .filter(e => isEnt(e) && !placed.has(e))
+                    .sort();
+                if (!extraEnts.length) return;
+                const subtrees = extraEnts.map(eid => {
+                    placed.add(eid);
+                    return buildEntityNode(eid);
                 });
+                placeSubtreesAroundRoot(rid, subtrees);
+            });
 
-                relComponents.forEach((comp, compIdx) => {
-                    let compSign = 0;
-                    comp.some(rid => {
-                        const relSign = sideHint.get(rid);
-                        if (relSign) {
-                            compSign = relSign;
-                            return true;
-                        }
-                        const others = unplacedInfo.find(i => i.rid === rid)?.others || [];
-                        const entSign = others.map(id => sideHint.get(id)).find(s => s);
-                        if (entSign) {
-                            compSign = entSign;
-                            return true;
-                        }
-                        return false;
-                    });
-                    if (compSign === 0) {
-                        compSign = nextAltSign;
-                        nextAltSign = -nextAltSign;
-                    }
-
-                    const anchorsForSide = anchorAnglesWithSign
-                        .filter(a => compSign > 0 ? a.sign >= 0 : a.sign <= 0)
-                        .map(a => a.ang);
-
-                    const angles = computeExtraAngles(anchorsForSide.length ? anchorsForSide : anchorAngles, comp.length, compSign);
-                    const sortedComp = comp.slice().sort((a, b) => a.localeCompare(b));
-                    sortedComp.forEach((rid, idx) => {
-                        const relRadius = radiiCache.get(rid);
-                        const angle = angles[idx % angles.length] ?? normalizeAngle((Math.PI * (compSign > 0 ? 0.5 : 1.5)) + (idx * 0.2));
-                        const dist = entityRadius + relRadius + 40;
-                        targets.set(rid, {
-                            x: entityPos.x + Math.cos(angle) * dist,
-                            y: entityPos.y + Math.sin(angle) * dist
-                        });
-                        const sign = Math.sign(Math.sin(angle)) || compSign || (preferredSign || 1);
-                        if (!sideHint.has(rid)) sideHint.set(rid, sign);
-                    });
-                });
-
-                relNeighbors.forEach(rid => {
-                    const relPos = targets.get(rid);
-                    if (!relPos) return;
-                    const relRadius = radiiCache.get(rid);
-                    const angle = Math.atan2(relPos.y - entityPos.y, relPos.x - entityPos.x);
-                    const neighbors = Array.from(coreAdj.get(rid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'entity' && id !== eid);
-                    neighbors.forEach(otherId => {
-                        if (targets.has(otherId)) return;
-                        const otherNode = nodeMap.get(otherId);
-                        const otherRadius = radiiCache.get(otherId);
-                        const dist = entityRadius + relRadius + otherRadius + 80;
-                        targets.set(otherId, {
-                            x: entityPos.x + Math.cos(angle) * dist,
-                            y: entityPos.y + Math.sin(angle) * dist
-                        });
-                        const sign = Math.sign(Math.sin(angle)) || sideHint.get(rid) || sideHint.get(eid) || 1;
-                        if (!sideHint.has(otherId)) sideHint.set(otherId, sign);
-                        queue.push(otherId);
-                    });
-                });
-            }
-
+            // Pass C：与主链完全不相连但在同一分量内的残余（通常因为"弦" relationship
+            // 本身未挂实体，但其他路径应已覆盖）。保险起见再扫一遍。
             ids.forEach(id => {
-                if (!targets.has(id)) {
-                    const model = nodeMap.get(id)?.getModel();
-                    targets.set(id, { x: model?.x || 0, y: model?.y || 0 });
+                if (placed.has(id)) return;
+                if (!isEnt(id)) return;
+                placed.add(id);
+                const subtree = buildEntityNode(id);
+                // 找一个已放置的邻居做锚；没有就放在原点附近
+                const anchorId = Array.from(coreAdj.get(id) || []).find(x => placed.has(x));
+                if (anchorId) {
+                    const aPos = targets.get(anchorId);
+                    const aR = radii.get(anchorId);
+                    placeNode(subtree, aPos, aR, Math.PI / 2, Math.PI * 2 / 3, 0);
+                } else {
+                    targets.set(id, { x: 0, y: 0 });
+                    placeNode(subtree, { x: 0, y: 0 }, 0, Math.PI / 2, Math.PI * 2 / 3, 0);
                 }
             });
 
+            // Pass D：弦 —— 两端实体都已放置的关系菱形
+            ids.forEach(id => {
+                if (placed.has(id)) return;
+                if (!isRel(id)) return;
+                const ents = Array.from(coreAdj.get(id) || []).filter(isEnt);
+                const placedEnts = ents.filter(e => targets.has(e));
+                if (!placedEnts.length) return;
+                const myR = radii.get(id);
+
+                if (placedEnts.length === 1) {
+                    const p = targets.get(placedEnts[0]);
+                    const r = radii.get(placedEnts[0]);
+                    // 自关联：放在实体正下方一点
+                    targets.set(id, { x: p.x, y: p.y + r + myR + GAP });
+                } else {
+                    // 中点 + 垂直偏移（避免落到主链轴上）
+                    let mx = 0, my = 0;
+                    placedEnts.forEach(e => {
+                        const p = targets.get(e);
+                        mx += p.x; my += p.y;
+                    });
+                    mx /= placedEnts.length;
+                    my /= placedEnts.length;
+
+                    // 主方向（从第一个端点到第二个端点）
+                    const p1 = targets.get(placedEnts[0]);
+                    const p2 = targets.get(placedEnts[1]);
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    // 垂直向量，偏向已经较少占用的一侧（简单：用 id 决定性哈希）
+                    let perpX = -dy / len, perpY = dx / len;
+                    const flip = (deterministicHash(id) % 2) === 0 ? 1 : -1;
+                    perpX *= flip; perpY *= flip;
+                    const off = Math.max(myR + 60, len * 0.22);
+                    targets.set(id, { x: mx + perpX * off, y: my + perpY * off });
+                }
+                placed.add(id);
+            });
+
+            // 兜底
+            ids.forEach(id => {
+                if (!targets.has(id)) {
+                    const m = nodeMap.get(id)?.getModel();
+                    targets.set(id, { x: m?.x || 0, y: m?.y || 0 });
+                }
+            });
+
+            // bounds
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
             targets.forEach((pos, id) => {
-                const r = radiiCache.get(id);
+                const r = radii.get(id) || 30;
                 minX = Math.min(minX, pos.x - r);
                 maxX = Math.max(maxX, pos.x + r);
                 minY = Math.min(minY, pos.y - r);
@@ -448,7 +380,7 @@
 
         const componentLayouts = components.map(layoutComponent);
 
-        // 平铺组件
+        // ------- 多分量平铺 -------
         const globalTargets = new Map();
         const componentGap = 240;
         let cursorX = componentGap;
@@ -460,224 +392,96 @@
             const { minX, maxX, minY, maxY } = layout.bounds;
             const width = (maxX - minX) + componentGap;
             const height = (maxY - minY) + componentGap;
-
             if (cursorX + width > containerWidth - componentGap / 2) {
                 cursorX = componentGap;
                 cursorY += rowHeight + componentGap;
                 rowHeight = 0;
             }
-
             const offsetX = cursorX - minX;
             const offsetY = cursorY - minY;
-
             layout.targets.forEach((pos, id) => {
                 globalTargets.set(id, { x: pos.x + offsetX, y: pos.y + offsetY });
             });
             layout.mainPathSet.forEach(id => mainChainIds.add(id));
-
             cursorX += width;
             rowHeight = Math.max(rowHeight, height);
         });
 
-        // 记录主线初始位置
+        // 记录主链位置（作为固定锚点，后续不许被 overlap 解析挪走）
         const mainAnchorPos = new Map();
         mainChainIds.forEach(id => {
             const p = globalTargets.get(id);
             if (p) mainAnchorPos.set(id, { ...p });
         });
 
-        // 对每个实体，将同侧关系均分半圆
-        const evenSideSpacing = () => {
-            const entityIds = coreNodes.filter(n => n.getModel().nodeType === 'entity').map(n => n.getModel().id);
-            entityIds.forEach(eid => {
-                const entityPos = globalTargets.get(eid);
-                if (!entityPos) return;
-                const entityRadius = getRadius(nodeMap.get(eid));
-                const relNeighbors = Array.from(coreAdj.get(eid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'relationship');
-                if (!relNeighbors.length) return;
-
-                const up = [];
-                const down = [];
-                relNeighbors.forEach(rid => {
-                    const pos = globalTargets.get(rid);
-                    const known = sideHint.get(rid);
-                    const sign = known || (pos ? Math.sign(pos.y - entityPos.y) : 0) || 1;
-                    if (sign >= 0) up.push(rid); else down.push(rid);
-                });
-
-                const place = (list, sign) => {
-                    if (!list.length) return;
-                    const jitter = ((deterministicHash(`${eid}-${sign}`) % 1000) / 1000) * 0.35 - 0.175;
-                    const start = (sign > 0 ? 0 : Math.PI) + jitter;
-                    const step = Math.PI / (list.length + 1);
-                    const maxRelR = Math.max(...list.map(rid => getRadius(nodeMap.get(rid))));
-                    const radius = entityRadius + maxRelR + 40;
-                    const sorted = list.slice().sort((a, b) => a.localeCompare(b));
-                    sorted.forEach((rid, idx) => {
-                        const ang = start + step * (idx + 1);
-                        globalTargets.set(rid, {
-                            x: entityPos.x + Math.cos(ang) * radius,
-                            y: entityPos.y + Math.sin(ang) * radius
-                        });
-                        sideHint.set(rid, sign);
-                    });
-                };
-
-                place(up.filter(id => !mainChainIds.has(id)), 1);
-                place(down.filter(id => !mainChainIds.has(id)), -1);
-            });
-        };
-
-        evenSideSpacing();
-
-        // 保持分支顺序
-        const projectedEntities = new Set();
-        const reprojectBranches = () => {
-            const entityIds = coreNodes.filter(n => n.getModel().nodeType === 'entity').map(n => n.getModel().id);
-            entityIds.forEach(eid => {
-                const ePos = globalTargets.get(eid);
-                if (!ePos) return;
-                const eRad = getRadius(nodeMap.get(eid));
-                const relNeighbors = Array.from(coreAdj.get(eid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'relationship');
-                relNeighbors.forEach(rid => {
-                    const rPos = globalTargets.get(rid);
-                    if (!rPos) return;
-                    if (mainChainIds.has(rid)) return;
-                    const rRad = getRadius(nodeMap.get(rid));
-                    const ang = Math.atan2(rPos.y - ePos.y, rPos.x - ePos.x);
-
-                    const neighbors = Array.from(coreAdj.get(rid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'entity' && id !== eid);
-                    neighbors.forEach(oid => {
-                        if (mainChainIds.has(oid)) return;
-                        const oNode = nodeMap.get(oid);
-                        if (!oNode) return;
-                        const oRad = getRadius(oNode);
-                        const dist = eRad + rRad + oRad + 80;
-                        const existing = globalTargets.get(oid);
-                        const newPos = {
-                            x: ePos.x + Math.cos(ang) * dist,
-                            y: ePos.y + Math.sin(ang) * dist
-                        };
-                        if (!existing || projectedEntities.has(oid)) {
-                            globalTargets.set(oid, newPos);
-                        } else {
-                            const curDist = Math.hypot(existing.x - ePos.x, existing.y - ePos.y);
-                            if (dist > curDist) {
-                                globalTargets.set(oid, newPos);
-                            }
-                        }
-                        projectedEntities.add(oid);
-                        const sign = Math.sign(Math.sin(ang)) || sideHint.get(rid) || sideHint.get(eid) || 1;
-                        sideHint.set(oid, sign);
-                    });
-                });
-            });
-        };
-
-        reprojectBranches();
-
-        // 强制本地直线
-        const enforceLocalTriplets = () => {
-            coreNodes.forEach(relNode => {
-                const rm = relNode.getModel();
-                if (rm.nodeType !== 'relationship') return;
-                const entNeighbors = Array.from(coreAdj.get(rm.id) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'entity');
-                if (entNeighbors.length !== 2) return;
-                const [e1, e2] = entNeighbors;
-                if (mainChainIds.has(e1) && mainChainIds.has(e2) && mainChainIds.has(rm.id)) return;
-                const pR = globalTargets.get(rm.id);
-                const p1 = globalTargets.get(e1);
-                const p2 = globalTargets.get(e2);
-                if (!pR || !p1 || !p2) return;
-
-                const d1 = Math.hypot(pR.x - p1.x, pR.y - p1.y);
-                const d2 = Math.hypot(pR.x - p2.x, pR.y - p2.y);
-                const anchor = d1 <= d2 ? p1 : p2;
-                const moveTarget = d1 <= d2 ? e2 : e1;
-                if (mainChainIds.has(moveTarget)) return;
-
-                const dx = pR.x - anchor.x;
-                const dy = pR.y - anchor.y;
-                const len = Math.hypot(dx, dy) || 1;
-                const ux = dx / len;
-                const uy = dy / len;
-                const movePos = globalTargets.get(moveTarget);
-                const moveRad = getRadius(nodeMap.get(moveTarget));
-                const newPos = {
-                    x: pR.x + ux * (moveRad + getRadius(relNode) + 20),
-                    y: pR.y + uy * (moveRad + getRadius(relNode) + 20)
-                };
-                globalTargets.set(moveTarget, newPos);
-            });
-        };
-
-        enforceLocalTriplets();
-
-        // 让非主线的两端关系菱形落在两实体中点
-        const adjustRelationshipMidpoints = () => {
-            coreNodes.forEach(relNode => {
-                const rm = relNode.getModel();
-                if (rm.nodeType !== 'relationship') return;
-                if (mainChainIds.has(rm.id)) return;
-                const entNeighbors = Array.from(coreAdj.get(rm.id) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'entity');
-                if (entNeighbors.length !== 2) return;
-                const [e1, e2] = entNeighbors;
-                const p1 = globalTargets.get(e1);
-                const p2 = globalTargets.get(e2);
-                if (!p1 || !p2) return;
-                const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-                if (!dist) return;
-                const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-                const rRel = getRadius(relNode);
-                const r1 = getRadius(nodeMap.get(e1));
-                const r2 = getRadius(nodeMap.get(e2));
-                const minSpan = r1 + r2 + rRel * 2 + 40;
-                if (dist < minSpan) return;
-                globalTargets.set(rm.id, mid);
-            });
-        };
-
-        adjustRelationshipMidpoints();
-
-        // 末尾再放椭圆
+        // ------- 属性椭圆围绕放置 -------
         entityAttrs.forEach((attrs, eid) => {
             const center = globalTargets.get(eid);
             if (!center || !attrs.length) return;
-            const entityNode = nodeMap.get(eid);
-            const entityR = getRadius(entityNode);
+            const entityR = getRadius(nodeMap.get(eid));
             const attrR = Math.max(...attrs.map(getRadius));
-            const baseRing = entityR + attrR + 8;
-            const relNeighbors = Array.from(coreAdj.get(eid) || []).filter(id => nodeMap.get(id)?.getModel().nodeType === 'relationship');
+            const ring = entityR + attrR + 8;
+            const relNeighbors = Array.from(coreAdj.get(eid) || []).filter(isRel);
             const relAngles = relNeighbors.map(rid => {
                 const rp = globalTargets.get(rid);
-                return rp ? normalizeAngle(Math.atan2(rp.y - center.y, rp.x - center.x)) : 0;
-            });
-            const step = (Math.PI * 2) / attrs.length;
-            const sortedAttrs = attrs.slice().sort((a, b) => a.getModel().id.localeCompare(b.getModel().id));
-            sortedAttrs.forEach((attrNode, idx) => {
-                const seed = deterministicHash(attrNode.getModel().id, idx) % 1000 / 1000;
-                let angle = normalizeAngle(step * idx + step * 0.35 + (seed - 0.5) * 0.2);
-                const threshold = 0.12;
-                for (let t = 0; t < attrs.length; t++) {
-                    const candidate = normalizeAngle(angle + t * (step / (attrs.length + 1)));
-                    const tooClose = relAngles.some(ra => {
-                        const diff = Math.abs(candidate - ra);
-                        const mind = Math.min(diff, Math.PI * 2 - diff);
-                        return mind < threshold;
-                    });
-                    if (!tooClose) {
-                        angle = candidate;
-                        break;
-                    }
+                return rp ? normalizeAngle(Math.atan2(rp.y - center.y, rp.x - center.x)) : null;
+            }).filter(a => a !== null);
+
+            // 把 [0, 2π) 按关系角度切成弧段，按弧长按比例分配属性数
+            const sortedRels = relAngles.slice().sort((a, b) => a - b);
+            const arcs = [];
+            if (!sortedRels.length) {
+                arcs.push({ start: 0, length: Math.PI * 2, count: 0 });
+            } else {
+                const pad = 0.25; // 关系两侧的最小让位（弧度）
+                for (let i = 0; i < sortedRels.length; i++) {
+                    const a = sortedRels[i];
+                    const b = sortedRels[(i + 1) % sortedRels.length] + (i === sortedRels.length - 1 ? Math.PI * 2 : 0);
+                    const rawStart = a + pad;
+                    const rawEnd = b - pad;
+                    const len = rawEnd - rawStart;
+                    if (len > 0.05) arcs.push({ start: rawStart, length: len, count: 0 });
                 }
-                globalTargets.set(attrNode.getModel().id, {
-                    x: center.x + Math.cos(angle) * baseRing,
-                    y: center.y + Math.sin(angle) * baseRing
-                });
+                if (!arcs.length) arcs.push({ start: 0, length: Math.PI * 2, count: 0 });
+            }
+
+            const totalLen = arcs.reduce((s, a) => s + a.length, 0);
+            const sortedAttrs = attrs.slice().sort((a, b) => a.getModel().id.localeCompare(b.getModel().id));
+            const n = sortedAttrs.length;
+            let remaining = n;
+            arcs.forEach(arc => {
+                arc.count = Math.floor((arc.length / totalLen) * n);
+                remaining -= arc.count;
             });
+            // 按弧长倒序把剩余份额分给最长的弧
+            const bySize = arcs.slice().sort((a, b) => b.length - a.length);
+            for (let i = 0; i < remaining; i++) bySize[i % bySize.length].count += 1;
+
+            let attrIdx = 0;
+            arcs.forEach(arc => {
+                for (let k = 1; k <= arc.count; k++) {
+                    const ratio = k / (arc.count + 1);
+                    const angle = normalizeAngle(arc.start + arc.length * ratio);
+                    const attrNode = sortedAttrs[attrIdx++];
+                    globalTargets.set(attrNode.getModel().id, {
+                        x: center.x + Math.cos(angle) * ring,
+                        y: center.y + Math.sin(angle) * ring
+                    });
+                }
+            });
+            // 兜底
+            while (attrIdx < n) {
+                const attrNode = sortedAttrs[attrIdx];
+                const angle = (attrIdx / n) * Math.PI * 2;
+                globalTargets.set(attrNode.getModel().id, {
+                    x: center.x + Math.cos(angle) * ring,
+                    y: center.y + Math.sin(angle) * ring
+                });
+                attrIdx++;
+            }
         });
 
-        // 确保每个节点都有目标
+        // 所有节点兜底
         allNodes.forEach(n => {
             const m = n.getModel();
             if (!globalTargets.has(m.id)) {
@@ -685,11 +489,11 @@
             }
         });
 
-        // 矩形/菱形全局防重叠
+        // ------- 矩形/菱形防重叠（主链保持不动）-------
         const resolveCoreOverlaps = () => {
             const coreIds = coreNodes.map(n => n.getModel().id);
             const meta = coreIds.map(id => ({ id, r: getRadius(nodeMap.get(id)) }));
-            for (let iter = 0; iter < 120; iter++) {
+            for (let iter = 0; iter < 160; iter++) {
                 let moved = 0;
                 for (let i = 0; i < meta.length; i++) {
                     for (let j = i + 1; j < meta.length; j++) {
@@ -701,17 +505,16 @@
                         const dy = pb.y - pa.y;
                         let dist = Math.hypot(dx, dy);
                         if (dist === 0) dist = 0.01;
-                        const minDist = a.r + b.r + 14;
+                        const minDist = a.r + b.r + 16;
                         if (dist < minDist) {
                             const overlap = (minDist - dist);
-                            const pushA = mainChainIds.has(a.id) ? 0 : overlap / (mainChainIds.has(b.id) ? 1 : 2);
-                            const pushB = mainChainIds.has(b.id) ? 0 : overlap / (mainChainIds.has(a.id) ? 1 : 2);
-                            const nx = dx / dist;
-                            const ny = dy / dist;
-                            pa.x -= nx * pushA;
-                            pa.y -= ny * pushA;
-                            pb.x += nx * pushB;
-                            pb.y += ny * pushB;
+                            const aLocked = mainChainIds.has(a.id);
+                            const bLocked = mainChainIds.has(b.id);
+                            const pushA = aLocked ? 0 : overlap / (bLocked ? 1 : 2);
+                            const pushB = bLocked ? 0 : overlap / (aLocked ? 1 : 2);
+                            const nx = dx / dist, ny = dy / dist;
+                            pa.x -= nx * pushA; pa.y -= ny * pushA;
+                            pb.x += nx * pushB; pb.y += ny * pushB;
                             moved = Math.max(moved, Math.max(pushA, pushB));
                         }
                     }
@@ -719,10 +522,9 @@
                 if (moved < 0.5) break;
             }
         };
-
         resolveCoreOverlaps();
 
-        // 恢复主线固定位置
+        // 恢复主链（resolveCoreOverlaps 内其实已经锁定，这里双保险）
         mainAnchorPos.forEach((pos, id) => {
             globalTargets.set(id, { ...pos });
         });
@@ -733,14 +535,7 @@
         });
     };
 
-    // 初始化 LayoutForceAlign 命名空间
-    if (!exports.LayoutForceAlign) {
-        exports.LayoutForceAlign = {};
-    }
-
-    // 导出函数
-    Object.assign(exports.LayoutForceAlign, {
-        forceAlignLayout
-    });
+    if (!exports.LayoutForceAlign) exports.LayoutForceAlign = {};
+    Object.assign(exports.LayoutForceAlign, { forceAlignLayout });
 
 })(window);
