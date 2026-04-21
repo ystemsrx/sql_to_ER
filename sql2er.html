@@ -4,34 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SQL/DBML2ER</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/antd@5.19.1/dist/reset.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/antd@5.19.1/dist/antd.min.css"
-    />
+    <link rel="stylesheet" href="./vendor/css/antd-reset.css" />
 
     <!-- Anthropic 风格：先字体，后 base -->
     <link rel="stylesheet" href="./assets/fonts/fonts.css" />
     <link rel="stylesheet" href="./assets/base.css" />
 
-    <!-- 中文字体（霞鹜文楷）-->
-    <link rel="preconnect" href="https://cdn.jsdmirror.com" />
-    <link
-      href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-webfont@1.7.0/style.css"
-      rel="stylesheet"
-    />
-
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
-    />
+    <link rel="stylesheet" href="./vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="./vendor/codemirror/codemirror.min.css" />
     <link rel="stylesheet" href="css/style.css" />
   </head>
 
@@ -314,18 +294,18 @@ Ref: Article.Author > User.ID
     </script>
 
     <!-- Dependencies -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/dayjs@1.11.10/dayjs.min.js"></script>
-    <script src="https://unpkg.com/antd@5.19.1/dist/antd.min.js"></script>
-    <script src="https://unpkg.com/@antv/g6@4.8.24/dist/g6.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/display/placeholder.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+    <script src="./vendor/js/react.production.min.js"></script>
+    <script src="./vendor/js/react-dom.production.min.js"></script>
+    <script src="./vendor/js/babel.min.js"></script>
+    <script src="./vendor/js/dayjs.min.js"></script>
+    <script src="./vendor/js/antd.min.js"></script>
+    <script src="./vendor/js/g6.min.js"></script>
+    <script src="./vendor/codemirror/codemirror.min.js"></script>
+    <script src="./vendor/codemirror/mode/sql/sql.min.js"></script>
+    <script src="./vendor/codemirror/mode/javascript/javascript.min.js"></script>
+    <script src="./vendor/codemirror/addon/display/placeholder.min.js"></script>
+    <script src="./vendor/codemirror/addon/edit/matchbrackets.min.js"></script>
+    <script src="./vendor/codemirror/addon/edit/closebrackets.min.js"></script>
 
     <!-- Parser Modules -->
     <script src="js/parser-sql.js"></script>

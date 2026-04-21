@@ -47,11 +47,9 @@
    * 中文字体在后，作为 CJK 字符的渲染字体
    */
   --font-display-cn:
-    "Lora", "DM Serif Display", "LXGW WenKai", "Songti SC", "STSong", "SimSun",
-    serif;
+    "Lora", "DM Serif Display", "Songti SC", "STSong", "SimSun", serif;
   --font-body-cn:
-    "Lora", "DM Serif Text", "LXGW WenKai", "Songti SC", "STSong", "SimSun",
-    serif;
+    "Lora", "DM Serif Text", "Songti SC", "STSong", "SimSun", serif;
   --font-heading-cn:
     "Poppins", "DM Sans", "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
     "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
