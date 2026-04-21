@@ -65,7 +65,8 @@ cd sql_to_ER
 2. Paste your **SQL `CREATE TABLE`** statements or **DBML** code into the input area
 3. Click the **"Generate ER Diagram"** button
 4. If you are not happy with node positions, **drag nodes** to adjust; **double-click** a node to edit its content
-5. For complex diagrams, drag each rectangle (entity) roughly to the desired position, then click **"Smart Optimization"** to auto-arrange the layout
+5. On the canvas, use the **scroll wheel** for smooth zoom; hold **Ctrl + scroll wheel** to smoothly rotate the diagram around its center (node shapes and label orientation stay upright)
+6. For complex diagrams, drag each rectangle (entity) roughly to the desired position, then click **"Smart Optimization"** to auto-arrange the layout
 
 ---
 
@@ -148,7 +149,7 @@ Ref: posts.author_id > users.id
 > 1. Click **"Smart Layout"** for auto-arrangement — this usually produces a reasonably clean result with only minor tweaks needed.
 > 2. If still messy, click **"Force Alignment"** for a more aggressive alignment pass, then use "Smart Layout" again for an ideal result.
 > 3. In rare cases, **manually** drag the rectangles (entities) to suitable positions (no need to move other elements), then click "Smart Layout".
-> 4. **For dense schemas with many entities / relationships**, click **"Hide Attributes"** (top-left of the canvas) first, arrange the rectangle-and-diamond "skeleton" to your liking, then toggle back to "Show Attributes" — the attribute ellipses are automatically redistributed evenly around each rectangle's current position, so you aren't fighting a forest of attribute ellipses while positioning the skeleton.
+> 4. **When there are many entities / relationships**, click **"Hide Attributes"** in the top-left of the canvas first, arrange the rectangles (entities) and diamonds (relationships) skeleton into the desired positions, then toggle back to "Show Attributes" — the attributes will automatically redistribute evenly around each rectangle's current position, so they won't get in the way while you drag.
 
 <table>
 <tr>
