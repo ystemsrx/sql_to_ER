@@ -153,8 +153,8 @@
         c.width = w;
         c.height = h;
         const ctx = c.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, w, h);
+        // 不再填白底：导出透明 PNG，让卡片自己的暖色背景透上来。
+        // 旧快照里已经烤进去的白底会保留，直到这条记录被重新生成。
         ctx.drawImage(img, 0, 0, w, h);
         try {
           resolve(c.toDataURL('image/png'));

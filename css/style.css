@@ -130,10 +130,10 @@ body::before {
 }
 
 .header-hint {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  gap: 8px;
   font-family: var(--app-font) !important;
   font-size: var(--text-xs) !important;
   font-weight: var(--weight-medium);
@@ -144,12 +144,27 @@ body::before {
   line-height: 1 !important;
 }
 
-.header-hint::before,
-.header-hint::after {
+.header-hint-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* 不主动断行 —— 否则英文那行被 .header(max-width:860px) 收窄后会被
+     拆成两段；溢出由 align-items:center 自然两侧扩展 */
+  white-space: nowrap;
+}
+
+/* 装饰短横线只挂在第一行的左右两端 */
+.header-hint-row:first-child::before,
+.header-hint-row:first-child::after {
   content: "";
   width: 22px;
   height: 1px;
   background: var(--app-border-strong);
+}
+
+.header-hint-row--secondary {
+  color: var(--app-ink-3);
+  opacity: 0.85;
 }
 
 /* ═══════════════════════════════════════
@@ -828,6 +843,11 @@ body::before {
     font-size: 0.96rem;
   }
 
+  /* 移动端窄屏：让长行可以折回，避免横向溢出屏幕 */
+  .header-hint-row {
+    white-space: normal;
+  }
+
   .main-content {
     gap: 20px;
   }
@@ -1415,136 +1435,163 @@ body.is-lang-fading .lang-fade-target {
 
 /* ═══════════════════════════════════════
    生成历史（History Overlay）
-   设计：浅色玻璃磨砂层，把后面的页面 backdrop-filter 模糊。
-   不用 background-color 占满，是为了让模糊真正发生 —— 完全不透明的颜色会
-   覆盖掉模糊源；这里给一层半透明白色作为染色层即可。
+   暖色玻璃磨砂层 + 3D 透视卡片轨道。
+   - 拖拽 / 滚轮 / 吸附等动效逻辑由 JS 直接写入 .history-card 的 inline
+     transform / opacity / zIndex；这里禁止给 .history-card 的 transform
+     加 transition，否则会和 rAF 循环打架。
+   - JS 还会在每张卡上写 --shift（0~1，焦点卡为 1），下面用它驱动
+     覆盖层透明度和操作按钮的渐显。
 ═══════════════════════════════════════ */
 .history-overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(248, 250, 252, 0.55);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  color: #0f172a;
+  background: color-mix(in srgb, var(--app-bg) 68%, transparent);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  color: var(--app-ink);
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity var(--duration-slow) var(--ease-default);
 }
 .history-overlay.is-open {
   opacity: 1;
   pointer-events: auto;
 }
+/* pointer-events 不会向子元素级联：父级 none 时，子元素显式 auto（如按钮、
+   .history-card-actions）仍能收到点击。面板关闭时把所有后代一并屏蔽，
+   否则恢复/删除按钮所在的位置在面板隐藏后还是可点。 */
+.history-overlay:not(.is-open) * {
+  pointer-events: none !important;
+}
+/* 左下暖橙晕染 + 右上浅沙色，营造温暖深度而非冷调 AI 感 */
 .history-overlay::before {
   content: "";
   position: absolute;
-  top: 50%;
-  left: 0;
-  width: 36%;
-  height: 55%;
-  background: rgba(56, 189, 248, 0.18);
-  filter: blur(120px);
-  border-radius: 50%;
-  transform: translateY(-50%);
+  inset: auto auto -18% -10%;
+  width: 55%;
+  height: 70%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(217, 119, 87, 0.18) 0%,
+    transparent 65%
+  );
+  filter: blur(40px);
   pointer-events: none;
 }
 .history-overlay::after {
   content: "";
   position: absolute;
-  top: 50%;
-  right: 40px;
-  width: 28%;
-  height: 38%;
-  background: rgba(217, 70, 239, 0.14);
-  filter: blur(120px);
-  border-radius: 50%;
-  transform: translateY(-50%);
+  inset: -10% -12% auto auto;
+  width: 48%;
+  height: 58%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(196, 185, 154, 0.24) 0%,
+    transparent 70%
+  );
+  filter: blur(40px);
   pointer-events: none;
 }
 
+/* ── Header ───────────────────────────────── */
 .history-header {
   position: absolute;
-  top: 28px;
-  left: 32px;
+  top: clamp(24px, 3vw, 36px);
+  left: clamp(24px, 3vw, 40px);
   z-index: 5;
   pointer-events: none;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: #0f172a;
-  font-family: "Poppins", "PingFang SC", sans-serif;
+  align-items: baseline;
+  gap: 14px;
+  font-family: var(--app-font-display);
+  font-weight: var(--weight-regular);
+  font-size: clamp(1.5rem, 2vw, 1.85rem);
+  line-height: var(--leading-cn-tight);
+  letter-spacing: -0.015em;
+  color: var(--app-ink);
 }
 .history-header i {
-  color: #0ea5e9;
-  font-size: 22px;
+  position: relative;
+  top: 2px;
+  font-size: 0.78em;
+  color: var(--app-accent-warm);
 }
 .history-header .history-count {
-  margin-left: 6px;
-  font-weight: 300;
-  color: #64748b;
-  font-size: 18px;
+  font-family: var(--app-font);
+  font-weight: var(--weight-light);
+  font-size: 0.72em;
+  letter-spacing: 0.04em;
+  color: var(--app-ink-2);
 }
 
+/* ── Close ───────────────────────────────── */
 .history-close {
   position: absolute;
-  top: 24px;
-  right: 28px;
+  top: clamp(20px, 2.4vw, 28px);
+  right: clamp(20px, 2.4vw, 32px);
   z-index: 5;
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-bg-overlay) 85%, transparent);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  color: #0f172a;
+  color: var(--app-ink);
   display: grid;
   place-items: center;
   cursor: pointer;
   transition:
-    transform 160ms cubic-bezier(0.4, 0, 0.2, 1),
-    background 160ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 160ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform var(--duration-fast) var(--ease-default),
+    background var(--duration-normal) var(--ease-default),
+    border-color var(--duration-normal) var(--ease-default),
+    color var(--duration-normal) var(--ease-default);
 }
 .history-close:hover {
   transform: scale(1.06);
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(15, 23, 42, 0.22);
+  background: var(--app-bg-overlay);
+  border-color: var(--app-accent);
+  color: var(--app-accent-warm);
 }
 .history-close:active {
   transform: scale(0.95);
 }
+.history-close:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 3px;
+}
 
+/* ── Hint pill ───────────────────────────────── */
 .history-hint {
   position: absolute;
-  bottom: 36px;
+  bottom: clamp(28px, 4vw, 44px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 10px 22px;
-  border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-bg-overlay) 88%, transparent);
   -webkit-backdrop-filter: blur(10px);
-  color: #475569;
-  font-size: 13px;
+  backdrop-filter: blur(10px);
+  color: var(--app-ink-2);
+  font-family: var(--app-font);
+  font-size: var(--text-cn-sm);
+  letter-spacing: 0.01em;
   pointer-events: none;
-  transition: opacity 600ms cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+  transition: opacity 600ms var(--ease-default);
+  box-shadow: 0 8px 24px rgba(20, 20, 19, 0.06);
 }
 .history-hint i {
-  color: #0ea5e9;
+  color: var(--app-accent);
   animation: history-bounce 1.4s ease-in-out infinite;
 }
 @keyframes history-bounce {
@@ -1557,23 +1604,54 @@ body.is-lang-fading .lang-fade-target {
   }
 }
 
+/* ── Empty state ───────────────────────────────── */
 .history-empty {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  color: #475569;
-  font-size: 16px;
-  letter-spacing: 0.01em;
   pointer-events: none;
+  text-align: center;
 }
-.history-empty .history-empty-icon {
-  font-size: 56px;
-  display: block;
-  margin-bottom: 18px;
-  color: #94a3b8;
+.history-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-10);
+  max-width: 360px;
+}
+.history-empty-icon-wrap {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-bg-overlay));
+  border: 1px solid color-mix(in srgb, var(--app-accent) 28%, transparent);
+  margin-bottom: var(--space-2);
+  box-shadow: 0 8px 24px rgba(217, 119, 87, 0.12);
+}
+.history-empty-icon-wrap i {
+  font-size: 30px;
+  color: var(--app-accent-warm);
+}
+.history-empty-title {
+  font-family: var(--app-font-display);
+  font-weight: var(--weight-regular);
+  font-size: var(--text-xl);
+  line-height: var(--leading-cn-snug);
+  letter-spacing: -0.01em;
+  color: var(--app-ink);
+}
+.history-empty-hint {
+  font-family: var(--app-font);
+  font-size: var(--text-cn-sm);
+  line-height: var(--leading-cn-normal);
+  color: var(--app-ink-2);
 }
 
+/* ── Track + cards ───────────────────────────────── */
 .history-track {
   position: absolute;
   inset: 0;
@@ -1586,21 +1664,22 @@ body.is-lang-fading .lang-fade-target {
   cursor: grabbing;
 }
 
+/* JS 直接写 transform / opacity / zIndex；这里只过渡 box-shadow */
 .history-card {
   position: absolute;
   left: 50%;
   top: 50%;
   width: 320px;
   height: 420px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  background: #ffffff;
+  background: var(--app-bg-overlay);
   box-shadow:
-    0 30px 60px -16px rgba(15, 23, 42, 0.28),
-    0 0 0 1px rgba(15, 23, 42, 0.06);
+    0 30px 60px -16px rgba(20, 20, 19, 0.32),
+    0 8px 16px -8px rgba(20, 20, 19, 0.18);
   transform-style: preserve-3d;
   will-change: transform;
-  transition: box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow var(--duration-slow) var(--ease-default);
 }
 @media (max-width: 768px) {
   .history-card {
@@ -1611,62 +1690,65 @@ body.is-lang-fading .lang-fade-target {
 
 .history-card-thumb {
   position: absolute;
-  inset: 0;
-  background-color: #ffffff;
+  /* 给顶部留一点呼吸空间，缩略图整体上靠：底部交给 meta / shade */
+  inset: 18px 16px 38% 16px;
+  background-color: var(--app-bg-overlay);
   background-size: contain;
-  background-position: center;
+  background-position: center top;
   background-repeat: no-repeat;
   pointer-events: none;
 }
 .history-card-thumb.is-empty {
-  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  background: linear-gradient(
+    135deg,
+    var(--app-bg-raised) 0%,
+    color-mix(in srgb, var(--color-accent-sand) 22%, var(--app-bg-raised)) 100%
+  );
   display: grid;
   place-items: center;
-  color: #94a3b8;
+  color: var(--app-ink-3);
   font-size: 36px;
 }
 
-/* 非焦点卡：盖一层浅灰让背景里其它卡稍微"沉"下去；
+/* 非焦点卡：盖一层暖米色让背景里其它卡稍微"沉"下去；
    焦点卡 shift→1，覆盖层透明度趋近 0，缩略图更清晰 */
 .history-card-track-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(248, 250, 252, 0.55);
+  background: color-mix(in srgb, var(--app-bg) 55%, transparent);
   pointer-events: none;
-  opacity: calc(0.6 - var(--shift, 0) * 0.6);
+  opacity: calc(0.55 - var(--shift, 0) * 0.55);
 }
-/* 底部柔和白色渐变，给 meta 文字一个可读区域而不遮挡缩略图 */
+/* 底部暖白渐变，给 meta 文字一个可读区域而不遮挡缩略图 */
 .history-card-shade {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to top,
-    rgba(255, 255, 255, 0.96) 0%,
-    rgba(255, 255, 255, 0.7) 28%,
-    rgba(255, 255, 255, 0) 55%
+    var(--app-bg-overlay) 0%,
+    color-mix(in srgb, var(--app-bg-overlay) 70%, transparent) 30%,
+    transparent 58%
   );
   pointer-events: none;
 }
 
 .history-card-meta {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: auto 0 0 0;
   z-index: 2;
   padding: 20px 22px 22px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   pointer-events: none;
-  font-family: "Poppins", "PingFang SC", sans-serif;
+  font-family: var(--app-font);
 }
 .history-card-eyebrow {
   font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  font-weight: 700;
-  color: #0284c7;
+  font-weight: var(--weight-semibold);
+  color: var(--app-accent-warm);
 }
 .history-card-tags {
   display: flex;
@@ -1676,12 +1758,11 @@ body.is-lang-fading .lang-fade-target {
 .history-card-tags span {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: rgba(14, 165, 233, 0.1);
-  border: 1px solid rgba(14, 165, 233, 0.25);
-  color: #0369a1;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--app-bg-raised) 80%, transparent);
+  border: 1px solid var(--app-border);
+  color: var(--app-ink-2);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
@@ -1689,7 +1770,7 @@ body.is-lang-fading .lang-fade-target {
   margin-top: 4px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   pointer-events: auto;
   opacity: var(--shift, 0);
   transform: translateY(calc((1 - var(--shift, 0)) * 16px));
@@ -1698,21 +1779,28 @@ body.is-lang-fading .lang-fade-target {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  border: 1px solid #0f172a;
-  background: #0f172a;
-  color: #ffffff;
+  padding: 9px 18px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--app-accent);
+  background: var(--app-accent);
+  color: #fff;
+  font-family: var(--app-font);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.01em;
   cursor: pointer;
   transition:
-    transform 160ms cubic-bezier(0.4, 0, 0.2, 1),
-    background 160ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform var(--duration-fast) var(--ease-default),
+    background var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-normal) var(--ease-default);
+  box-shadow: 0 6px 16px rgba(217, 119, 87, 0.28);
 }
 .history-card-restore:hover {
   transform: translateY(-1px);
-  background: #1e293b;
+  background: var(--app-accent-warm);
+  border-color: var(--app-accent-warm);
+  box-shadow: 0 10px 22px rgba(201, 100, 66, 0.32);
 }
 .history-card-restore:active {
   transform: translateY(0) scale(0.97);
@@ -1721,28 +1809,34 @@ body.is-lang-fading .lang-fade-target {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.14);
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--app-border);
   background: transparent;
-  color: #64748b;
+  color: var(--app-ink-2);
+  font-family: var(--app-font);
   font-size: 12px;
   cursor: pointer;
   transition:
-    color 160ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 160ms cubic-bezier(0.4, 0, 0.2, 1),
-    background 160ms cubic-bezier(0.4, 0, 0.2, 1);
+    color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    background var(--duration-fast) var(--ease-default);
 }
 .history-card-delete:hover {
-  color: #b91c1c;
-  border-color: rgba(185, 28, 28, 0.32);
-  background: rgba(254, 226, 226, 0.6);
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+}
+.history-card-restore:focus-visible,
+.history-card-delete:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
 }
 
 .history-card-frame {
   position: absolute;
   inset: 0;
-  border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--app-ink) 8%, transparent);
   pointer-events: none;
 }

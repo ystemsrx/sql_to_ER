@@ -24,11 +24,17 @@
 
     /**
      * 基于当前图形构建一份独立、完整的导出用 SVG 字符串。
-     * 生成过程与 exportSVG 完全一致（临时 SVG graph + 菱形补丁 + viewBox + 白底）。
+     * 生成过程与 exportSVG 完全一致（临时 SVG graph + 菱形补丁 + viewBox + 底色）。
+     *
+     * options.backgroundFill：底色矩形颜色（默认 #ffffff）。
+     * 用户下载用的 SVG/PNG 应保持白底；历史快照传入暖米白让 SVG 缩略图
+     * 能和米色卡片无缝融合。
+     *
      * 回调 cb(err, { svgString, width, height })
      */
     function buildExportSVG(options, cb) {
         const { graphRef, containerRef, patchRelationshipLinkPoints, G6 } = options;
+        const backgroundFill = options.backgroundFill || '#ffffff';
         try {
             const data = graphRef.current.save();
 
@@ -98,7 +104,7 @@
                     rect.setAttribute('y', viewBoxY);
                     rect.setAttribute('width', viewBoxWidth);
                     rect.setAttribute('height', viewBoxHeight);
-                    rect.setAttribute('fill', '#ffffff');
+                    rect.setAttribute('fill', backgroundFill);
                     clonedSvg.insertBefore(rect, clonedSvg.firstChild);
 
                     const svgString = new XMLSerializer().serializeToString(clonedSvg);

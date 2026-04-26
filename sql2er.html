@@ -73,9 +73,13 @@
         <p data-i18n="subtitle">
           把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图
         </p>
-        <p class="header-hint" data-i18n="hint">
-          双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布 · Ctrl+Z 撤销 /
-          Ctrl+Y 重做
+        <p class="header-hint" data-i18n-html="hint">
+          <span class="header-hint-row"
+            >双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布</span
+          >
+          <span class="header-hint-row header-hint-row--secondary"
+            >Ctrl+Z 撤销 / Ctrl+Y 重做</span
+          >
         </p>
       </div>
 
@@ -88,7 +92,7 @@
           eyebrow: "Chen Model · Entity-Relationship",
           title: "SQL / DBML 转 <em>ER 图</em> 生成器",
           subtitle: "把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图",
-          hint: "双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布 · Ctrl+Z 撤销 / Ctrl+Y 重做",
+          hint: '<span class="header-hint-row">双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布</span><span class="header-hint-row header-hint-row--secondary">Ctrl+Z 撤销 / Ctrl+Y 重做</span>',
           pageTitle: "SQL/DBML2ER",
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER 图预览",
@@ -160,7 +164,7 @@ Ref: 文章.作者 > 用户.编号
           title: "Turn SQL / DBML into an <em>ER Diagram</em>",
           subtitle:
             "Render CREATE TABLE statements or DBML as a Chen-model entity-relationship diagram",
-          hint: "Double-click to edit · Scroll to zoom · Ctrl+Scroll to rotate · Drag to arrange · Ctrl+Z undo / Ctrl+Y redo",
+          hint: '<span class="header-hint-row">Double-click to edit · Scroll to zoom · Ctrl+Scroll to rotate · Drag to arrange</span><span class="header-hint-row header-hint-row--secondary">Ctrl+Z undo / Ctrl+Y redo</span>',
           pageTitle: "SQL/DBML2ER",
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER Preview",
@@ -426,6 +430,10 @@ Ref: Article.Author > User.ID
           });
           const [hintVisible, setHintVisible] = useState(true);
           const [focusIdx, setFocusIdx] = useState(0);
+          // { [snap.id]: number }，背景图 Y 方向偏移百分比（0 = 顶，50 = 视觉居中）
+          // 数据驱动：图越扁，缩略图被 contain 缩到的高度越小，下方留白越多，
+          // 完全靠顶看起来"飘"。把空白按比例分给上方，瘦高图直接 0%（本身就铺满）。
+          const [thumbY, setThumbY] = useState({});
 
           // 列表变化或重新打开时，重置滚动到第 0 张
           useEffect(() => {
@@ -436,6 +444,46 @@ Ref: Article.Author > User.ID
             s.shiftValues = items.map(() => 0);
             setFocusIdx(0);
             setHintVisible(true);
+          }, [open, items.length]);
+
+          // 测量每张快照的宽高比，算出该张缩略图应有的 Y 偏移
+          useEffect(() => {
+            if (!open) return;
+            let cancelled = false;
+            // 卡片尺寸需与 .history-card 的 CSS 保持一致
+            const isMobile = window.innerWidth < 768;
+            const cardW = isMobile ? 260 : 320;
+            const cardH = isMobile ? 360 : 420;
+            // .history-card-thumb 的 inset: 18px 16px 38% 16px
+            const thumbW = cardW - 32;
+            const thumbH = cardH - 18 - cardH * 0.38;
+            const containerRatio = thumbW / thumbH;
+
+            items.forEach((snap) => {
+              if (!snap || !snap.thumbnail) return;
+              const img = new Image();
+              img.onload = () => {
+                if (cancelled) return;
+                const iw = img.naturalWidth;
+                const ih = img.naturalHeight;
+                if (!iw || !ih) return;
+                const imageRatio = iw / ih;
+                // imageRatio <= containerRatio → 图相对更高，contain 后会铺满
+                // 容器高度，Y 偏移没有意义；只对更扁的图做下移
+                const emptyFrac = Math.max(0, 1 - containerRatio / imageRatio);
+                // 系数 55 让中等扁的图（如 16:9）偏下大约 1/4，
+                // 极扁的图（≥3:1）顶到 50% 即视觉居中，不再继续下沉
+                const y = Math.min(50, emptyFrac * 55);
+                setThumbY((prev) => {
+                  if (Math.abs((prev[snap.id] || 0) - y) < 0.5) return prev;
+                  return { ...prev, [snap.id]: y };
+                });
+              };
+              img.src = snap.thumbnail;
+            });
+            return () => {
+              cancelled = true;
+            };
           }, [open, items.length]);
 
           useEffect(() => {
@@ -667,18 +715,12 @@ Ref: Article.Author > User.ID
 
               {items.length === 0 ? (
                 <div className="history-empty">
-                  <div style={{ textAlign: "center" }}>
-                    <i className="fa-solid fa-clock-rotate-left history-empty-icon"></i>
-                    <div style={{ fontSize: 18, color: "#0f172a" }}>
-                      {t.historyEmpty}
+                  <div className="history-empty-card">
+                    <div className="history-empty-icon-wrap">
+                      <i className="fa-solid fa-clock-rotate-left"></i>
                     </div>
-                    <div
-                      style={{
-                        marginTop: 8,
-                        fontSize: 13,
-                        color: "#64748b",
-                      }}
-                    >
+                    <div className="history-empty-title">{t.historyEmpty}</div>
+                    <div className="history-empty-hint">
                       {t.historyEmptyHint}
                     </div>
                   </div>
@@ -715,6 +757,7 @@ Ref: Article.Author > User.ID
                               className="history-card-thumb"
                               style={{
                                 backgroundImage: `url(${snap.thumbnail})`,
+                                backgroundPosition: `center ${thumbY[snap.id] || 0}%`,
                               }}
                             />
                           ) : (
@@ -1074,6 +1117,9 @@ Ref: Article.Author > User.ID
                     containerRef,
                     patchRelationshipLinkPoints,
                     G6: window.G6,
+                    // 与 --color-bg-overlay 一致；让 SVG 底色矩形和暖色卡片融在一起。
+                    // 用户下载 SVG/PNG 走另一条 buildExportSVG 调用，仍是默认白底。
+                    backgroundFill: "#fdfcf8",
                   },
                   (err, result) => {
                     if (err || !result || !result.svgString) {
@@ -1108,6 +1154,18 @@ Ref: Article.Author > User.ID
             new Promise((resolve) => {
               const graph = graphRef.current;
               if (!graph || graph.destroyed || !window.Snapshots) {
+                resolve();
+                return;
+              }
+              // 输入框还停留在示例（中/英文均算）时不写入历史 ——
+              // 否则首次打开页面什么都没改也会有一条快照。
+              const trimmedInput = String(
+                (meta && meta.inputText) || "",
+              ).trim();
+              if (
+                trimmedInput === I18N.zh.sample.trim() ||
+                trimmedInput === I18N.en.sample.trim()
+              ) {
                 resolve();
                 return;
               }
@@ -1309,7 +1367,7 @@ Ref: Article.Author > User.ID
                 width: containerRef.current.offsetWidth,
                 height: containerRef.current.offsetHeight,
                 renderer: "canvas",
-                background: "#ffffff", // 设置白色背景，确保复制图片时背景为白色
+                background: "#ffffff",
                 modes: {
                   default: [
                     "drag-node", // 1. 先判断拖节点
