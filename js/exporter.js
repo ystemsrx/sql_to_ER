@@ -412,7 +412,9 @@
         exportSVG: exportSVG,
         exportPNG: exportPNG,
         exportDrawio: exportDrawio,
-        downloadSVG: downloadSVG
+        downloadSVG: downloadSVG,
+        // 暴露给生成历史用：以矢量 SVG 字符串形式拍快照缩略图
+        buildExportSVG: buildExportSVG
     };
 
 })(window);
