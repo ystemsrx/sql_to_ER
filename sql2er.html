@@ -1178,6 +1178,27 @@ Ref: Article.Author > User.ID
               const thumbPromise = captureSvgThumbnail();
               thumbPromise.then((thumb) => {
                 const writeWith = (existing) => {
+                  // 数据没变化时跳过写入：恢复 / 打开历史面板都会触发一次
+                  // persistSnapshot，若原封不动也刷新 updatedAt，会让历史排序
+                  // 反复"乱跳"，用户感觉是 bug。
+                  if (
+                    existing &&
+                    existing.isColored === !!meta.isColored &&
+                    existing.showComment === !!meta.showComment &&
+                    existing.hideFields === !!meta.hideFields &&
+                    Array.isArray(existing.nodes) &&
+                    existing.nodes.length === nodes.length &&
+                    existing.nodes.every(
+                      (p, i) =>
+                        p.id === nodes[i].id &&
+                        p.x === nodes[i].x &&
+                        p.y === nodes[i].y &&
+                        p.label === nodes[i].label,
+                    )
+                  ) {
+                    resolve();
+                    return;
+                  }
                   window.Snapshots.put({
                     id: meta.id,
                     inputText: meta.inputText,
@@ -2102,6 +2123,17 @@ Ref: Article.Author > User.ID
             };
             window.addEventListener("keydown", onKey);
             return () => window.removeEventListener("keydown", onKey);
+          }, [historyOpen]);
+
+          // 历史面板开着时给 body 加标记，CSS 据此把右上角的语言胶囊隐去
+          // —— 它的 z-index 比覆盖层高，否则会浮在卡片轨道之上。
+          useEffect(() => {
+            if (historyOpen) {
+              document.body.classList.add("history-open");
+            } else {
+              document.body.classList.remove("history-open");
+            }
+            return () => document.body.classList.remove("history-open");
           }, [historyOpen]);
 
           // 时间戳格式化（按当前语言显示本地化的"几秒前 / 时间戳"）

@@ -1001,8 +1001,16 @@ body::before {
   border-radius: 999px;
   box-shadow: 0 2px 10px rgba(20, 20, 19, 0.06);
   transition:
+    opacity var(--duration-slow) var(--ease-default),
     border-color var(--duration-normal) var(--ease-default),
     box-shadow var(--duration-normal) var(--ease-default);
+}
+
+/* 历史面板打开时淡出语言胶囊 —— 它 z-index:9999 比覆盖层高，
+   不隐藏会一直浮在 3D 卡片之上 */
+body.history-open .lang-switch {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .lang-switch:hover {
