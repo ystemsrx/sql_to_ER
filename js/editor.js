@@ -154,8 +154,12 @@
      * 为 G6 图形实例设置节点双击编辑功能
      * @param {Object} graph - G6 图形实例
      * @param {HTMLElement} container - 图形容器元素
+     * @param {Object} [options] - 可选参数
+     * @param {Function} [options.onBeforeChange] - 在节点标签即将被修改前调用，
+     *        用于上层把当前状态压入撤销栈。仅在 label 实际变化时触发。
      */
-    function setupNodeDoubleClickEdit(graph, container) {
+    function setupNodeDoubleClickEdit(graph, container, options) {
+        const onBeforeChange = options && options.onBeforeChange;
         let editingNode = null;
         let editInput = null;
 
@@ -244,10 +248,15 @@
                 const newLabel = editInput.value.trim();
                 const model = editingNode.getModel();
 
-                // 更新节点标签
-                graph.updateItem(editingNode, {
-                    label: newLabel
-                });
+                if (newLabel !== model.label) {
+                    if (typeof onBeforeChange === 'function') {
+                        try { onBeforeChange(); } catch (e) { /* 忽略上层异常 */ }
+                    }
+                    // 更新节点标签
+                    graph.updateItem(editingNode, {
+                        label: newLabel
+                    });
+                }
 
                 // 如果是属性节点，可能需要更新相关的数据结构
                 if (model.type === 'attribute') {

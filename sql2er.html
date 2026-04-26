@@ -74,7 +74,7 @@
           把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图
         </p>
         <p class="header-hint" data-i18n="hint">
-          双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布
+          双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布 · Ctrl+Z 撤销 / Ctrl+Y 重做
         </p>
       </div>
 
@@ -87,7 +87,7 @@
           eyebrow: "Chen Model · Entity-Relationship",
           title: "SQL / DBML 转 <em>ER 图</em> 生成器",
           subtitle: "把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图",
-          hint: "双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布",
+          hint: "双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布 · Ctrl+Z 撤销 / Ctrl+Y 重做",
           pageTitle: "SQL/DBML2ER",
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER 图预览",
@@ -146,7 +146,7 @@ Ref: 文章.作者 > 用户.编号
           title: "Turn SQL / DBML into an <em>ER Diagram</em>",
           subtitle:
             "Render CREATE TABLE statements or DBML as a Chen-model entity-relationship diagram",
-          hint: "Double-click to edit · Scroll to zoom · Ctrl+Scroll to rotate · Drag to arrange",
+          hint: "Double-click to edit · Scroll to zoom · Ctrl+Scroll to rotate · Drag to arrange · Ctrl+Z undo / Ctrl+Y redo",
           pageTitle: "SQL/DBML2ER",
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER Preview",
@@ -326,6 +326,9 @@ Ref: Article.Author > User.ID
     <!-- Attribute Layout Module (hide/show + placement algorithm) -->
     <script src="js/attributeLayout.js"></script>
 
+    <!-- History Module (Ctrl+Z / Ctrl+Y 撤销/重做) -->
+    <script src="js/history.js"></script>
+
     <!-- Main Application Script -->
     <script type="text/babel">
       window.addEventListener("load", () => {
@@ -379,6 +382,8 @@ Ref: Article.Author > User.ID
           const tablesDataRef = useRef(null); // 最近一次生成所用的 tables 数据
           const containerRef = useRef(null);
           const graphRef = useRef(null);
+          // 撤销/重做管理器：每次重新生成图后清空历史
+          const historyRef = useRef(window.History.createManager());
 
           // 更新图表样式
           const updateGraphStyles = (graphInstance, colored) => {
@@ -601,9 +606,12 @@ Ref: Article.Author > User.ID
           // window.AttributeLayout（js/attributeLayout.js）中。
           // 这里只保留绑定 React 状态 / ref 的薄包装。
           const hideAttributesInGraph = () => {
+            // 节点集合发生增删，旧快照中的属性 ID 不再存在，清空历史
+            historyRef.current.reset();
             window.AttributeLayout.hideAttributes(graphRef.current);
           };
           const showAttributesInGraph = () => {
+            historyRef.current.reset();
             window.AttributeLayout.showAttributes({
               graph: graphRef.current,
               tables: tablesDataRef.current,
@@ -672,6 +680,8 @@ Ref: Article.Author > User.ID
                 graphRef.current.destroy(); // 再销毁图形
                 graphRef.current = null; // 重置引用
               }
+              // 重新生成图意味着节点集合可能完全不同，旧的快照不再适用
+              historyRef.current.reset();
 
               // Create G6 graph
               const graph = new G6.Graph({
@@ -812,9 +822,13 @@ Ref: Article.Author > User.ID
               });
 
               // 设置节点双击编辑功能（使用 Editor 模块）
+              // 标签即将改变前先把当前状态推入撤销栈
               window.Editor.setupNodeDoubleClickEdit(
                 graph,
                 containerRef.current,
+                {
+                  onBeforeChange: () => historyRef.current.record(graph),
+                },
               );
 
               // 自定义拖拽逻辑：拖动实体时带动相关属性一起移动
@@ -825,6 +839,9 @@ Ref: Article.Author > User.ID
               graph.on("node:dragstart", (e) => {
                 const node = e.item;
                 const nodeModel = node.getModel();
+
+                // 在任何节点开始被拖动前记录一次快照（用于撤销）
+                historyRef.current.record(graph);
 
                 // 只处理实体节点的拖拽
                 if (nodeModel.type === "entity") {
@@ -1120,6 +1137,46 @@ Ref: Article.Author > User.ID
             return () => window.removeEventListener("resize", handleResize);
           }, []);
 
+          // 全局快捷键：Ctrl/Cmd+Z 撤销，Ctrl/Cmd+Y 或 Ctrl/Cmd+Shift+Z 重做。
+          // 在 CodeMirror、原生 input/textarea、双击编辑框内不拦截（让原生撤销生效）。
+          useEffect(() => {
+            const isEditableTarget = (el) => {
+              if (!el) return false;
+              const tag = el.tagName;
+              if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+                return true;
+              }
+              if (el.isContentEditable) return true;
+              if (el.closest && el.closest(".CodeMirror")) return true;
+              return false;
+            };
+
+            const onKeyDown = (e) => {
+              const mod = e.ctrlKey || e.metaKey;
+              if (!mod) return;
+              const key = e.key.toLowerCase();
+              if (key !== "z" && key !== "y") return;
+              if (isEditableTarget(e.target)) return;
+
+              const graph = graphRef.current;
+              if (!graph || graph.destroyed) return;
+
+              const isRedo =
+                key === "y" || (key === "z" && e.shiftKey);
+
+              e.preventDefault();
+              const onFinish = () => {
+                // 动画结束后修正菱形连线端点（位置已就绪）
+                try { patchRelationshipLinkPoints(graph); } catch (_) {}
+              };
+              const action = isRedo ? "redo" : "undo";
+              historyRef.current[action](graph, { onFinish });
+            };
+
+            window.addEventListener("keydown", onKeyDown);
+            return () => window.removeEventListener("keydown", onKeyDown);
+          }, []);
+
           // 自定义滚轮平滑缩放 / Ctrl+滚轮平滑旋转
           // - 仅改变节点位置，不旋转节点本身的形状/文字朝向
           // - 每格累积固定增量，用 rAF 做缓动动画，避免跳变
@@ -1142,6 +1199,12 @@ Ref: Article.Author > User.ID
             let zoomPivot = null;
 
             let rafId = null;
+
+            // 旋转可能由若干 wheel 事件组成；把"一连串旋转"折成一次撤销步。
+            // burst 在最后一次 wheel 后 ROT_BURST_GAP_MS 内视为同一次操作。
+            let rotBurstActive = false;
+            let rotBurstTimer = null;
+            const ROT_BURST_GAP_MS = 600;
 
             const computeRotPivot = (graph) => {
               const nodes = graph.getNodes();
@@ -1232,6 +1295,16 @@ Ref: Article.Author > User.ID
                 if (graph.getNodes().length === 0) return;
                 if (!rotPivot) rotPivot = computeRotPivot(graph);
                 if (!rotPivot) return;
+                // 在一次旋转 burst 的最开始拍一次快照（用于撤销整段旋转）
+                if (!rotBurstActive) {
+                  historyRef.current.record(graph);
+                  rotBurstActive = true;
+                }
+                if (rotBurstTimer !== null) clearTimeout(rotBurstTimer);
+                rotBurstTimer = setTimeout(() => {
+                  rotBurstActive = false;
+                  rotBurstTimer = null;
+                }, ROT_BURST_GAP_MS);
                 pendingAngle += (e.deltaY > 0 ? 1 : -1) * ROT_STEP;
               } else {
                 // 使用当前鼠标位置作为缩放锚点；连续滚动覆盖锚点到最新鼠标位置
@@ -1261,6 +1334,7 @@ Ref: Article.Author > User.ID
                 capture: true,
               });
               if (rafId !== null) cancelAnimationFrame(rafId);
+              if (rotBurstTimer !== null) clearTimeout(rotBurstTimer);
             };
           }, []);
 
@@ -1272,6 +1346,7 @@ Ref: Article.Author > User.ID
           // 强制对齐：忽略椭圆，主链水平，支线递归均分
           const handleForceAlign = () => {
             if (!graphRef.current || graphRef.current.destroyed) return;
+            historyRef.current.record(graphRef.current);
             const containerWidth = containerRef.current?.offsetWidth || 1200;
             forceAlignLayout(graphRef.current, containerWidth);
           };
@@ -1279,6 +1354,7 @@ Ref: Article.Author > User.ID
           // 环绕排布：让属性均匀围绕实体，同时可移动实体以满足关系距离
           const handleArrangeLayout = () => {
             if (!graphRef.current || graphRef.current.destroyed) return;
+            historyRef.current.record(graphRef.current);
             arrangeLayout(graphRef.current);
           };
 
