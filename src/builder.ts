@@ -296,10 +296,17 @@ interface G6Like {
   registerEdge(name: string, def: Record<string, unknown>, extend?: string): void;
 }
 
+// 幂等保护：HMR / 热重载或上层模块多次调用时，G6.registerNode 会覆盖
+// 已注册定义并打印警告。用模块级标记保证只注册一次。
+let customNodesRegistered = false;
+
 /**
  * 注册 G6 自定义节点 —— 必须在 G6 加载后调用
+ * 幂等：同一份 G6 实例下重复调用安全。
  */
 const registerCustomNodes = (G6: G6Like): void => {
+  if (customNodesRegistered) return;
+  customNodesRegistered = true;
   // 注册实体节点（矩形）
   G6.registerNode('entity', {
     draw(cfg, group) {
