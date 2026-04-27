@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { parseDBML } from "../parser/dbml";
 import { parseSQLTables } from "../parser/sql";
 
 describe("parseSQLTables", () => {
@@ -22,6 +21,7 @@ describe("parseSQLTables", () => {
       "amount",
     ]);
     expect(result.tables[0].primaryKeys).toContain("id");
+    expect(result.tables[0].columns[0].comment).toBe("order id");
     expect(result.relationships).toEqual([
       { from: "orders", to: "users", label: "user_id" },
     ]);
@@ -68,29 +68,76 @@ describe("parseSQLTables", () => {
       { from: "note", to: "note", label: "parent_id" },
     ]);
   });
-});
 
-describe("parseDBML", () => {
-  it("parses tables, aliases, inline refs, and top-level refs", () => {
-    const result = parseDBML(`
-      Table users as U {
-        id int [pk]
-        country_id int [ref: > countries.id]
-      }
-
-      Table countries {
-        id int [pk]
-      }
-
-      Ref: users.id > countries.id
+  it("ignores non-CREATE-TABLE statements (CREATE INDEX, ALTER, comments)", () => {
+    const result = parseSQLTables(`
+      -- prelude
+      CREATE INDEX idx_users_email ON users (email);
+      ALTER TABLE users ADD COLUMN nickname VARCHAR(50);
+      /* block
+         comment */
+      CREATE TABLE t (id INT PRIMARY KEY);
     `);
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0].name).toBe("t");
+  });
 
-    expect(result.tables).toHaveLength(2);
-    expect(result.tables[0].alias).toBe("U");
-    expect(result.tables[0].primaryKeys).toEqual(["id"]);
-    expect(result.relationships).toEqual([
-      { from: "users", to: "countries", label: "country_id" },
-      { from: "users", to: "countries", label: "id" },
+  it("handles a composite PRIMARY KEY constraint", () => {
+    const result = parseSQLTables(`
+      CREATE TABLE enrollment (
+        student_id INT NOT NULL,
+        course_id INT NOT NULL,
+        PRIMARY KEY (student_id, course_id)
+      );
+    `);
+    expect(result.tables[0].primaryKeys).toEqual(["student_id", "course_id"]);
+  });
+
+  it("supports CREATE TEMPORARY TABLE and trims trailing options", () => {
+    const result = parseSQLTables(`
+      CREATE TEMPORARY TABLE tmp_users (
+        id INT PRIMARY KEY,
+        name VARCHAR(50)
+      );
+    `);
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0].name).toBe("tmp_users");
+  });
+
+  it("preserves Chinese identifiers", () => {
+    const result = parseSQLTables(`
+      CREATE TABLE 用户 (
+        编号 INT PRIMARY KEY,
+        姓名 VARCHAR(50)
+      );
+    `);
+    expect(result.tables[0].name).toBe("用户");
+    expect(result.tables[0].columns.map((c) => c.name)).toEqual([
+      "编号",
+      "姓名",
+    ]);
+  });
+
+  it("returns an empty result for blank input", () => {
+    expect(parseSQLTables("")).toEqual({ tables: [], relationships: [] });
+    expect(parseSQLTables("   \n  -- only comments\n")).toEqual({
+      tables: [],
+      relationships: [],
+    });
+  });
+
+  it("ignores UNIQUE / KEY / INDEX clauses but keeps regular columns", () => {
+    const result = parseSQLTables(`
+      CREATE TABLE t (
+        id INT PRIMARY KEY,
+        email VARCHAR(255),
+        UNIQUE KEY uq_email (email),
+        INDEX idx_email (email)
+      );
+    `);
+    expect(result.tables[0].columns.map((c) => c.name)).toEqual([
+      "id",
+      "email",
     ]);
   });
 });
