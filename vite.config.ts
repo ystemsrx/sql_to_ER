@@ -36,6 +36,9 @@ export default defineConfig({
           ) {
             return "vendor-editor";
           }
+          if (id.includes("node_modules/prismjs")) {
+            return "vendor-prism";
+          }
         },
       },
     },

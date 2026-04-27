@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { I18N } from "./i18n";
 import type { SnapshotRecord } from "./types";
+import {
+  ArrowsLeftRightIcon,
+  ClockRotateLeftIcon,
+  DiagramProjectIcon,
+  RotateLeftIcon,
+  TrashIcon,
+} from "./components/icons";
 
 type Translation = (typeof I18N)[keyof typeof I18N];
 
@@ -299,7 +306,7 @@ export const HistoryOverlay = ({
   return (
     <div className={`history-overlay${open ? " is-open" : ""}`}>
       <div className="history-header">
-        <i className="fa-solid fa-clock-rotate-left"></i>
+        <ClockRotateLeftIcon />
         <span>{t.historyTitle}</span>
         {items.length > 0 && (
           <span className="history-count">· {items.length}</span>
@@ -331,7 +338,7 @@ export const HistoryOverlay = ({
         <div className="history-empty">
           <div className="history-empty-card">
             <div className="history-empty-icon-wrap">
-              <i className="fa-solid fa-clock-rotate-left"></i>
+              <ClockRotateLeftIcon />
             </div>
             <div className="history-empty-title">{t.historyEmpty}</div>
             <div className="history-empty-hint">{t.historyEmptyHint}</div>
@@ -373,7 +380,7 @@ export const HistoryOverlay = ({
                     />
                   ) : (
                     <div className="history-card-thumb is-empty">
-                      <i className="fa-solid fa-diagram-project"></i>
+                      <DiagramProjectIcon />
                     </div>
                   )}
                   <div className="history-card-track-overlay" />
@@ -396,7 +403,7 @@ export const HistoryOverlay = ({
                           onRestore(snap);
                         }}
                       >
-                        <i className="fa-solid fa-rotate-left"></i>
+                        <RotateLeftIcon />
                         {t.historyRestore}
                       </button>
                       <button
@@ -407,7 +414,7 @@ export const HistoryOverlay = ({
                           onDelete(snap.id);
                         }}
                       >
-                        <i className="fa-solid fa-trash"></i>
+                        <TrashIcon />
                         {t.historyDelete}
                       </button>
                     </div>
@@ -421,7 +428,7 @@ export const HistoryOverlay = ({
             className="history-hint"
             style={{ opacity: hintVisible ? 1 : 0 }}
           >
-            <i className="fa-solid fa-arrows-left-right"></i>
+            <ArrowsLeftRightIcon />
             <span>{t.historyHint}</span>
           </div>
         </>

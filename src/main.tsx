@@ -2,7 +2,6 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "../assets/fonts/fonts.css";
 import "../assets/base.css";
-import "../vendor/fontawesome/css/all.min.css";
 import "../css/style.css";
 import App from "./App";
 import { setupLanguageSwitch } from "./language";

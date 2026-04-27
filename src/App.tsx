@@ -6,6 +6,13 @@ import { detectLang } from "./language";
 import { patchRelationshipLinkPoints, registerCustomNodes } from "./builder";
 import { CodeEditor } from "./editor";
 import { SwitchControl } from "./components/SwitchControl";
+import {
+  ClockRotateLeftIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  ListUlIcon,
+  PaletteIcon,
+} from "./components/icons";
 import * as Exporter from "./exporter";
 import * as Snapshots from "./snapshots";
 import type { SnapshotRecord } from "./types";
@@ -594,30 +601,28 @@ const App = () => {
                   onClick={handleToggleBackground}
                   title={showBackground ? t.tipHideBg : t.tipShowBg}
                 >
-                  <i
-                    className={`fa-solid ${showBackground ? "fa-eye" : "fa-eye-slash"}`}
-                  ></i>
+                  {showBackground ? <EyeIcon /> : <EyeSlashIcon />}
                 </div>
                 <div
                   className={`colorize-toggle ${isColored ? "active" : ""}`}
                   onClick={() => setIsColored(!isColored)}
                   title={isColored ? t.tipColorOff : t.tipColorOn}
                 >
-                  <i className="fa-solid fa-palette"></i>
+                  <PaletteIcon />
                 </div>
                 <div
                   className={`attrs-toggle ${hideFields ? "active" : ""}`}
                   onClick={() => setHideFields(!hideFields)}
                   title={hideFields ? t.tipShowAttrs : t.tipHideAttrs}
                 >
-                  <i className="fa-solid fa-list-ul"></i>
+                  <ListUlIcon />
                 </div>
                 <div
                   className="history-toggle"
                   onClick={openHistory}
                   title={t.tipHistory}
                 >
-                  <i className="fa-solid fa-clock-rotate-left"></i>
+                  <ClockRotateLeftIcon />
                 </div>
                 {loading && (
                   <div className="loading-overlay">
