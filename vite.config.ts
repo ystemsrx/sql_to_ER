@@ -1,7 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+// Pages 部署到 https://<user>.github.io/sql_to_ER/，资源路径需要带前缀。
+// CI 通过 BASE_PATH=/sql_to_ER/ 注入；本地开发保持 "/".
+const base = process.env.BASE_PATH || "/";
+
 export default defineConfig({
+  base,
   plugins: [react()],
   build: {
     // G6 4.x pulls a large @antv graph-rendering stack. It is split into

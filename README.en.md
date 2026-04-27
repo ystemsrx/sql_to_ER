@@ -35,29 +35,30 @@ The easiest way — just open the **online version**, no installation needed:
 
 🔗 **[ER Diagram Generator](https://ystemsrx.github.io/sql_to_ER/sql2er.html)**
 
-Or run it locally for development:
+Or run it locally for development. This project uses [pnpm](https://pnpm.io/) (the version is pinned via the `packageManager` field — `corepack enable` lets Corepack pick it up automatically):
 
 ```bash
 git clone https://github.com/ystemsrx/sql_to_ER.git
 cd sql_to_ER
-npm install
-npm run dev
+corepack enable        # one-time, enables Corepack to manage the pnpm version
+pnpm install
+pnpm dev
 ```
 
 > [!WARNING]
 > **Do not open `sql2er.html` by double-clicking it, and do not run `npx serve .` against the source directory.** This project uses Vite + TypeScript; `.ts/.tsx` files and npm dependencies must be compiled and resolved by Vite. For development, run:
 >
 > ```bash
-> npm run dev
+> pnpm dev
 > ```
 >
-> Then visit the Vite URL, for example `http://localhost:5173/sql2er.html`. If you want to use a static server, run `npm run build` first and serve the `dist/` directory.
+> Then visit the Vite URL, for example `http://localhost:5173/sql2er.html`. If you want to use a static server, run `pnpm build` first and serve the `dist/` directory.
 
 ---
 
 ## 📖 Usage
 
-1. Open `sql2er.html` via `npm run dev` (see Quick Start above, or just use the online demo)
+1. Open `sql2er.html` via `pnpm dev` (see Quick Start above, or just use the online demo)
 2. Paste your **SQL `CREATE TABLE`** statements or **DBML** code into the input area
 3. Click the **"Generate ER Diagram"** button
 4. If you are not happy with node positions, **drag nodes** to adjust; **double-click** a node to edit its content

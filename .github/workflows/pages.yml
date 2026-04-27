@@ -1,0 +1,72 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Pages 是单环境，旧的部署作业取消即可，避免乱序覆盖
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build for Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # GitHub Pages 项目站点路径 = /<repo>/，否则 dist/ 里 /assets/.. 的绝对路径全部 404。
+      # repo 名取自 GITHUB_REPOSITORY (owner/name)，避免硬编码到仓库改名时翻车。
+      - name: Resolve base path
+        id: base
+        run: echo "value=/${GITHUB_REPOSITORY##*/}/" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: pnpm build
+        env:
+          BASE_PATH: ${{ steps.base.outputs.value }}
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4
