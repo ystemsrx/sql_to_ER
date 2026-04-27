@@ -19,7 +19,7 @@ import { createManager as createHistoryManager } from "../history";
 import * as Exporter from "../exporter";
 import * as Snapshots from "../snapshots";
 import * as AttributeLayout from "../attributeLayout";
-import type { GraphLike, ParsedTable, SnapshotRecord } from "../types";
+import type { ERNodeModel, GraphLike, ParsedTable, SnapshotRecord } from "../types";
 import type { HistoryManager } from "../history";
 
 type Translation = (typeof I18N)[keyof typeof I18N];
@@ -53,15 +53,25 @@ export interface UseGraphOptions {
 }
 
 // 更新图表样式 —— 黑白/彩色样式批量切换
-const updateGraphStyles = (graphInstance: any, colored: boolean) => {
+const updateGraphStyles = (
+  graphInstance: GraphLike | null,
+  colored: boolean,
+) => {
   if (!graphInstance || graphInstance.destroyed) return;
 
   graphInstance.setAutoPaint(false);
 
   const nodes = graphInstance.getNodes();
-  nodes.forEach((node: any) => {
+  nodes.forEach((node) => {
     const model = node.getModel();
-    const styles: any = {};
+    // styles 是给 G6 updateItem 的"上层 props"，字段名/类型很灵活，
+    // 这里就是装填样式属性的字典，保留宽松类型。
+    interface StylesUpdate {
+      style?: Record<string, unknown>;
+      labelCfg?: { style?: Record<string, unknown> };
+      [key: string]: unknown;
+    }
+    const styles: StylesUpdate = {};
 
     if (colored) {
       if (model.nodeType === "entity") {
@@ -181,7 +191,7 @@ const updateGraphStyles = (graphInstance: any, colored: boolean) => {
   });
 
   const edges = graphInstance.getEdges();
-  edges.forEach((edge: any) => {
+  edges.forEach((edge) => {
     graphInstance.updateItem(edge, {
       style: {
         stroke: "#000000",
@@ -249,18 +259,13 @@ export function useGraph(opts: UseGraphOptions) {
   // 调用方紧接着 destroy 掉旧图，这条流水线已经持有数据副本，不会丢内容。
   const captureSvgThumbnail = (): Promise<string | null> =>
     new Promise((resolve) => {
-      const graph = graphRef.current as any;
-      if (
-        !graph ||
-        graph.destroyed ||
-        !Exporter ||
-        typeof (Exporter as any).buildExportSVG !== "function"
-      ) {
+      const graph = graphRef.current;
+      if (!graph || graph.destroyed) {
         resolve(null);
         return;
       }
       try {
-        (Exporter as any).buildExportSVG(
+        Exporter.buildExportSVG(
           {
             graphRef,
             containerRef,
@@ -270,7 +275,7 @@ export function useGraph(opts: UseGraphOptions) {
             // 用户下载 SVG/PNG 走另一条 buildExportSVG 调用，仍是默认白底。
             backgroundFill: "#fdfcf8",
           },
-          (err: unknown, result: { svgString?: string } | null) => {
+          (err, result) => {
             if (err || !result || !result.svgString) {
               resolve(null);
               return;
@@ -434,7 +439,7 @@ export function useGraph(opts: UseGraphOptions) {
       );
 
       if (positionMap) {
-        nodes.forEach((n: any) => {
+        nodes.forEach((n: ERNodeModel) => {
           const p = positionMap.get(n.id);
           if (p) {
             if (typeof p.x === "number") n.x = p.x;
@@ -455,8 +460,8 @@ export function useGraph(opts: UseGraphOptions) {
 
       // Clear previous graph completely
       if (graphRef.current) {
-        (graphRef.current as any).clear();
-        (graphRef.current as any).destroy();
+        graphRef.current.clear?.();
+        graphRef.current.destroy?.();
         graphRef.current = null;
       }
       // 重新生成图意味着节点集合可能完全不同，旧的快照不再适用
@@ -665,9 +670,10 @@ export function useGraph(opts: UseGraphOptions) {
           dragStartPositions.clear();
         }
       });
-    } catch (e: any) {
+    } catch (e) {
       console.error("SQL Parsing error:", e);
-      setError(`${cur.t.errParse}: ${e.message}${cur.t.errParseHint}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`${cur.t.errParse}: ${msg}${cur.t.errParseHint}`);
     } finally {
       setLoading(false);
     }
@@ -677,17 +683,21 @@ export function useGraph(opts: UseGraphOptions) {
   // 这里只保留绑定 React 状态 / ref 的薄包装。
   const hideAttributesInGraph = () => {
     historyRef.current.reset();
-    AttributeLayout.hideAttributes(graphRef.current as any);
+    AttributeLayout.hideAttributes(
+      graphRef.current as unknown as Parameters<
+        typeof AttributeLayout.hideAttributes
+      >[0],
+    );
   };
   const showAttributesInGraph = () => {
     historyRef.current.reset();
     AttributeLayout.showAttributes({
-      graph: graphRef.current as any,
-      tables: tablesDataRef.current as any,
+      graph: graphRef.current as unknown as AttributeLayout.ShowAttributesOptions["graph"],
+      tables: tablesDataRef.current,
       labelMode: stateRef.current.showComment ? "comment" : "name",
       isColored: stateRef.current.isColored,
       updateStyles: updateGraphStyles,
-    } as any);
+    });
   };
 
   // 监听着色状态变化
@@ -725,9 +735,7 @@ export function useGraph(opts: UseGraphOptions) {
   useEffect(() => {
     handleGenerate();
     return () => {
-      if (graphRef.current) {
-        (graphRef.current as any).destroy();
-      }
+      graphRef.current?.destroy?.();
     };
   }, []);
 
@@ -735,7 +743,7 @@ export function useGraph(opts: UseGraphOptions) {
   useEffect(() => {
     const handleResize = () => {
       if (graphRef.current && containerRef.current) {
-        (graphRef.current as any).changeSize(
+        graphRef.current.changeSize?.(
           containerRef.current.offsetWidth,
           containerRef.current.offsetHeight,
         );

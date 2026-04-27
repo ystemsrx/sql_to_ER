@@ -22,7 +22,7 @@ import {
   estimateAttributeHalfSize,
   patchRelationshipLinkPoints,
 } from "./builder";
-import type { ChenModelData, ERNodeModel, GraphLike } from "./types";
+import type { ChenModelData, ERNodeModel, GraphLike, ParsedTable } from "./types";
 
 interface LayoutNodeRecord {
   id: string;
@@ -529,14 +529,22 @@ type AttrNode = ERNodeModel & {
 
   // ---------- 图操作封装 ----------
 
-  export const hideAttributes = (graph) => {
+  // 本模块用到的少量 G6 方法不在共享 GraphLike 上，这里就近补齐
+  interface MutableGraph extends GraphLike {
+    removeItem(item: unknown): void;
+    addItem(type: "node" | "edge", model: Record<string, unknown>): void;
+  }
+
+  export const hideAttributes = (graph: MutableGraph | null | undefined) => {
     if (!graph || graph.destroyed) return;
     graph.setAutoPaint(false);
     const attrNodes = graph
       .getNodes()
-      .filter((n) => n.getModel().nodeType === "attribute")
+      .filter((n) => (n.getModel() as ERNodeModel).nodeType === "attribute")
       .slice();
-    const attrIds = new Set(attrNodes.map((n) => n.getModel().id));
+    const attrIds = new Set(
+      attrNodes.map((n) => (n.getModel() as ERNodeModel).id),
+    );
     const edgesToRemove = graph
       .getEdges()
       .filter((e) => {
@@ -550,25 +558,34 @@ type AttrNode = ERNodeModel & {
     graph.setAutoPaint(true);
   };
 
+  export interface ShowAttributesOptions {
+    graph: MutableGraph | null | undefined;
+    tables: ParsedTable[] | null | undefined;
+    labelMode: "name" | "comment" | "any";
+    isColored: boolean;
+    updateStyles?: (graph: GraphLike, isColored: boolean) => void;
+  }
+
   export const showAttributes = ({
     graph,
     tables,
     labelMode,
     isColored,
     updateStyles,
-  }) => {
+  }: ShowAttributesOptions) => {
     if (!graph || graph.destroyed || !tables) return;
 
     const { nodes: attrNodes, edges: attrEdges } = buildAttributeData(
       tables,
       isColored,
       labelMode,
-    );
+    ) as ChenModelData;
 
     // 过滤掉：对应实体不存在、或节点/边已存在的情况
-    const validAttrs = [];
-    const validEdges = [];
-    attrNodes.forEach((n) => {
+    const validAttrs: AttrNode[] = [];
+    const validEdges: ChenModelData["edges"] = [];
+    attrNodes.forEach((raw) => {
+      const n = raw as AttrNode;
       if (!graph.findById(n.parentEntity)) return;
       if (graph.findById(n.id)) return;
       validAttrs.push(n);
@@ -576,7 +593,7 @@ type AttrNode = ERNodeModel & {
     const validIds = new Set(validAttrs.map((n) => n.id));
     attrEdges.forEach((e) => {
       if (!validIds.has(e.target)) return;
-      if (graph.findById(e.id)) return;
+      if (e.id && graph.findById(e.id)) return;
       validEdges.push(e);
     });
 
@@ -586,8 +603,12 @@ type AttrNode = ERNodeModel & {
     computeAttributePositions(graph, validAttrs);
 
     graph.setAutoPaint(false);
-    validAttrs.forEach((n) => graph.addItem("node", n));
-    validEdges.forEach((e) => graph.addItem("edge", e));
+    validAttrs.forEach((n) =>
+      graph.addItem("node", n as unknown as Record<string, unknown>),
+    );
+    validEdges.forEach((e) =>
+      graph.addItem("edge", e as unknown as Record<string, unknown>),
+    );
     graph.paint();
     graph.setAutoPaint(true);
 

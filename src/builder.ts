@@ -1,21 +1,23 @@
 /**
  * ER Builder Module
- * 
+ *
  * 包含 Chen 模型 ER 图的数据生成逻辑和 G6 自定义节点注册
  * - generateChenModelData: 生成节点/边数据
  * - G6 自定义节点: entity (矩形), attribute (椭圆), relationship (菱形)
  * - patchRelationshipLinkPoints: 修正菱形节点连线
  */
+import type {
+    AttributeLabelMode,
+    ChenModelData,
+    EREdgeModel,
+    ERNodeModel,
+    GraphLike,
+    GraphNodeLike,
+    ParsedColumn,
+    ParsedRelationship,
+    ParsedTable,
+} from "./types";
 
-    /**
-     * Generate Chen Model ER diagram data
-     * 将数据库表和关系转换为 G6 可用的节点和边数据
-     * 
-     * @param {Array} tables - 表数据数组
-     * @param {Array} relationships - 关系数据数组
-     * @param {boolean} isColored - 是否使用彩色样式
-     * @returns {Object} - { nodes, edges }
-     */
     /**
      * 根据 labelMode 计算属性节点应显示的标签
      * labelMode: 'name' | 'comment' | 'any'
@@ -23,7 +25,7 @@
      *   'comment' - 只显示注释（若注释为空则回退到字段名）
      *   'any'     - 显示注释，若无注释则显示字段名
      */
-    const resolveAttrLabel = (column, labelMode) => {
+    const resolveAttrLabel = (column: ParsedColumn, labelMode: AttributeLabelMode | string): string => {
         const name = column.name || '';
         const comment = column.comment || '';
         if (labelMode === 'name') return name;
@@ -32,10 +34,16 @@
         return comment || name;
     };
 
-    const generateChenModelData = (tables, relationships, isColored = true, labelMode = 'name', hideFields = false) => {
-        const nodes = [];
-        const edges = [];
-        const entityMap = new Map(); // 用于存储表名到实体ID的映射
+    const generateChenModelData = (
+        tables: ParsedTable[],
+        relationships: ParsedRelationship[],
+        isColored: boolean = true,
+        labelMode: AttributeLabelMode | string = 'name',
+        hideFields: boolean = false,
+    ): ChenModelData => {
+        const nodes: ERNodeModel[] = [];
+        const edges: EREdgeModel[] = [];
+        const entityMap = new Map<string, string>(); // 用于存储表名到实体ID的映射
 
         // Create entity nodes (rectangles) - 不设置固定位置，让布局算法处理
         tables.forEach((table, tableIndex) => {
@@ -233,7 +241,7 @@
      * @param {number} fontSize - 字体大小
      * @returns {number} - 文本宽度
      */
-    const getTextWidth = (text, fontSize) => {
+    const getTextWidth = (text: string, fontSize: number): number => {
         let width = 0;
         for (let char of text) {
             // 中文字符宽度约等于字体大小，英文字符约为字体大小的0.6倍
@@ -246,12 +254,20 @@
         return width;
     };
 
+    interface DiamondLinkContext {
+        getBBox(): {
+            centerX: number;
+            centerY: number;
+            width: number;
+            height: number;
+        };
+    }
+    interface Point2D { x: number; y: number; }
+
     /**
      * 菱形节点边界计算函数（供 getLinkPoint 使用）
-     * @param {Object} point - 目标点坐标 { x, y }
-     * @returns {Object} - 边界交点坐标 { x, y }
      */
-    const calculateDiamondLinkPoint = function (point) {
+    const calculateDiamondLinkPoint = function (this: DiamondLinkContext, point: Point2D): Point2D {
         const bbox = this.getBBox();
         const centerX = bbox.centerX;
         const centerY = bbox.centerY;
@@ -273,12 +289,17 @@
         };
     };
 
+    // G6 4.x 自定义节点 / 边的内部对象（cfg、group、shape、node）
+    // 没有现成可靠的公开类型，这里在闭包内沿用 any，外部签名仍是强类型。
+    interface G6Like {
+        registerNode(name: string, def: Record<string, unknown>): void;
+        registerEdge(name: string, def: Record<string, unknown>, extend?: string): void;
+    }
+
     /**
-     * 注册 G6 自定义节点
-     * 必须在 G6 加载后调用
-     * @param {Object} G6 - G6 库实例
+     * 注册 G6 自定义节点 —— 必须在 G6 加载后调用
      */
-    const registerCustomNodes = (G6) => {
+    const registerCustomNodes = (G6: G6Like): void => {
         // 注册实体节点（矩形）
         G6.registerNode('entity', {
             draw(cfg, group) {
@@ -528,36 +549,35 @@
 
     /**
      * 让菱形连线落在真实边界上（而非外接矩形）
-     * @param {Object} graph - G6 图实例
      */
-    const patchRelationshipLinkPoints = (graph) => {
+    const patchRelationshipLinkPoints = (graph: GraphLike): void => {
         const nodes = graph.getNodes();
-        nodes.forEach((n) => {
+        nodes.forEach((n: GraphNodeLike) => {
             const model = n.getModel();
             if (model.nodeType !== 'relationship') return;
             // 覆盖当前节点实例的 getLinkPoint，让所有连接重新计算到菱形边
-            n.getLinkPoint = calculateDiamondLinkPoint;
+            (n as GraphNodeLike & { getLinkPoint?: typeof calculateDiamondLinkPoint }).getLinkPoint =
+                calculateDiamondLinkPoint;
         });
 
         // 强制边刷新使用新的连线点
         graph.getEdges().forEach((edge) => {
             graph.updateItem(edge, {});
         });
-        graph.refresh();
+        if (graph.refresh) graph.refresh();
     };
 
     /**
      * 仅构建属性节点与实体-属性连边数据
      * 用于在不重新生成整张图的情况下，向现有图中重新添加属性
-     *
-     * @param {Array} tables - 表数据数组
-     * @param {boolean} isColored - 是否使用彩色样式
-     * @param {string} labelMode - 'name' | 'comment' | 'any'
-     * @returns {{ nodes: Array, edges: Array }}
      */
-    const buildAttributeData = (tables, isColored = true, labelMode = 'name') => {
-        const nodes = [];
-        const edges = [];
+    const buildAttributeData = (
+        tables: ParsedTable[],
+        isColored: boolean = true,
+        labelMode: AttributeLabelMode | string = 'name',
+    ): ChenModelData => {
+        const nodes: ERNodeModel[] = [];
+        const edges: EREdgeModel[] = [];
         tables.forEach((table, tableIndex) => {
             const entityId = `entity-${table.name}-${tableIndex}`;
             table.columns.forEach((column, colIndex) => {
@@ -599,10 +619,8 @@
 
     /**
      * 估算属性节点渲染后的尺寸（与 registerCustomNodes 中 attribute 绘制逻辑保持一致）
-     * @param {string} label - 节点标签
-     * @returns {{ halfW: number, halfH: number }}
      */
-    const estimateAttributeHalfSize = (label) => {
+    const estimateAttributeHalfSize = (label: string | undefined | null): { halfW: number; halfH: number } => {
         const fontSize = 15;
         const padding = 16;
         const minWidth = 60;

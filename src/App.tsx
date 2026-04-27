@@ -96,7 +96,7 @@ const App = () => {
       onDone(new Error("no-graph"));
       return;
     }
-    (Exporter as any).exportSVG({
+    Exporter.exportSVG({
       graphRef,
       hasGraph,
       containerRef,
@@ -112,7 +112,7 @@ const App = () => {
       onDone(new Error("no-graph"));
       return;
     }
-    (Exporter as any).exportPNG({
+    Exporter.exportPNG({
       graphRef,
       hasGraph,
       containerRef,
@@ -128,7 +128,7 @@ const App = () => {
       onDone(new Error("no-graph"));
       return;
     }
-    (Exporter as any).exportDrawio({
+    Exporter.exportDrawio({
       graphRef,
       hasGraph,
       onError: setError,
