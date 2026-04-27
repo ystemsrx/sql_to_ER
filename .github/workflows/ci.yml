@@ -23,14 +23,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # pnpm 必须先于 setup-node，否则 setup-node 的 cache: pnpm 找不到可执行文件
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: pnpm
@@ -52,7 +52,7 @@ jobs:
           BASE_PATH: /sql_to_ER/
 
       - name: Upload dist as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ github.run_id }}
           path: dist
