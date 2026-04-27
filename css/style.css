@@ -114,6 +114,16 @@ body::before {
   margin: 0 0 var(--space-4) 0;
 }
 
+/* 桌面宽屏上不让标题被 .header 的 860px 框限制换行：
+   英文版 "Turn SQL / DBML into an ER Diagram" 在 clamp 上限字号下
+   约 940px 宽，会被截成两行。把宽屏上的 h1 单行渲染，靠 text-align:center
+   让它在 .app-container 内自然居中即可；窄屏走默认的 normal wrap。 */
+@media (min-width: 769px) {
+  .header h1 {
+    white-space: nowrap;
+  }
+}
+
 .header h1 em {
   font-style: normal;
   color: var(--app-accent-warm);
