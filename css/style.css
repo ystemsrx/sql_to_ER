@@ -1561,9 +1561,12 @@ body.is-lang-fading .lang-fade-target {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: color-mix(in srgb, var(--app-bg) 68%, transparent);
-  backdrop-filter: blur(28px) saturate(140%);
-  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  /* 之前 68% 过于通透，编辑器/画布会"穿"到面板里来，焦点很难锁住历史卡。
+     拉到 96% 之后接近不透明的暖色磨砂层，既有"漂浮在内容之上"的层级感，
+     又保留薄薄一层透色让背后的页面可被感知；blur 降到 20px 即可。 */
+  background: color-mix(in srgb, var(--app-bg) 96%, transparent);
+  backdrop-filter: blur(20px) saturate(135%);
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
   color: var(--app-ink);
   overflow: hidden;
   user-select: none;
@@ -1592,7 +1595,7 @@ body.is-lang-fading .lang-fade-target {
   height: 70%;
   background: radial-gradient(
     ellipse at center,
-    rgba(217, 119, 87, 0.18) 0%,
+    rgba(217, 119, 87, 0.26) 0%,
     transparent 65%
   );
   filter: blur(40px);
@@ -1606,7 +1609,7 @@ body.is-lang-fading .lang-fade-target {
   height: 58%;
   background: radial-gradient(
     ellipse at center,
-    rgba(196, 185, 154, 0.24) 0%,
+    rgba(196, 185, 154, 0.34) 0%,
     transparent 70%
   );
   filter: blur(40px);
@@ -1654,10 +1657,11 @@ body.is-lang-fading .lang-fade-target {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 1px solid var(--app-border);
-  background: color-mix(in srgb, var(--app-bg-overlay) 85%, transparent);
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-bg-overlay);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.08);
   color: var(--app-ink);
   display: grid;
   place-items: center;
@@ -1694,8 +1698,8 @@ body.is-lang-fading .lang-fade-target {
   gap: 10px;
   padding: 10px 22px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--app-border);
-  background: color-mix(in srgb, var(--app-bg-overlay) 88%, transparent);
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-bg-overlay);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   color: var(--app-ink-2);
@@ -1704,7 +1708,7 @@ body.is-lang-fading .lang-fade-target {
   letter-spacing: 0.01em;
   pointer-events: none;
   transition: opacity 600ms var(--ease-default);
-  box-shadow: 0 8px 24px rgba(20, 20, 19, 0.06);
+  box-shadow: 0 10px 28px rgba(20, 20, 19, 0.10);
 }
 .history-hint > svg {
   color: var(--app-accent);
