@@ -366,7 +366,7 @@ export function exportPNG(options: ExportPNGOptions): void {
 // 选择直接从 G6 图的"当前状态"抽取节点/边，而不是复用 SVG 导出通路，因为 drawio 需要
 // 结构化的 mxCell（带 vertex/edge/source/target/geometry），而不是扁平 SVG 元素。
 
-function escapeXml(s: unknown): string {
+export function escapeXml(s: unknown): string {
     return String(s == null ? "" : s)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -449,7 +449,7 @@ function makeDiagramId(): string {
  * 基于当前 G6 图（位置/标签/样式）生成 drawio .drawio (mxfile) XML 字符串。
  * 走节点当前 bbox，保证用户在页面上拖动/布局后的位置会原样带进 drawio。
  */
-function buildDrawioXML(graph: GraphLike): string {
+export function buildDrawioXML(graph: GraphLike): string {
     const nodes = graph.getNodes();
     const edges = graph.getEdges();
 
