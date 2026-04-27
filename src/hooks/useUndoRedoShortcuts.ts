@@ -14,7 +14,7 @@ const isEditableTarget = (el: EventTarget | null): boolean => {
   const tag = el.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (el.isContentEditable) return true;
-  if (el.closest && el.closest(".CodeMirror")) return true;
+  if (el.closest && el.closest(".cm-editor")) return true;
   return false;
 };
 

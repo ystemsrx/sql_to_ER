@@ -67,6 +67,10 @@ export const HistoryOverlay = ({
   });
   const [hintVisible, setHintVisible] = useState(true);
   const [focusIdx, setFocusIdx] = useState(0);
+  // rAF 循环依赖 [open, items.length] 注册，闭包里看到的 focusIdx 永远是注册时的旧值。
+  // 用 ref 镜像最新焦点，避免每帧都派发 setFocusIdx(同一值) 让 React 反复调度。
+  const focusIdxRef = useRef(0);
+  focusIdxRef.current = focusIdx;
   // { [snap.id]: number }，背景图 Y 方向偏移百分比（0 = 顶，50 = 视觉居中）
   // 数据驱动：图越扁，缩略图被 contain 缩到的高度越小，下方留白越多，
   // 完全靠顶看起来"飘"。把空白按比例分给上方，瘦高图直接 0%（本身就铺满）。
@@ -208,7 +212,10 @@ export const HistoryOverlay = ({
       s.currentScroll += (s.targetScroll - s.currentScroll) * 0.08;
 
       const focusedIndex = Math.round(s.targetScroll);
-      if (focusedIndex !== focusIdx) setFocusIdx(focusedIndex);
+      if (focusedIndex !== focusIdxRef.current) {
+        focusIdxRef.current = focusedIndex;
+        setFocusIdx(focusedIndex);
+      }
 
       for (let i = 0; i < total; i++) {
         const rel = i - s.currentScroll;

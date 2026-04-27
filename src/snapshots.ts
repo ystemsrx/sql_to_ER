@@ -27,7 +27,10 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+  // 失败的 open 不能粘在 dbPromise 上：IndexedDB 可能因临时错误（隐私模式切换、
+  // 配额抖动）首次失败后续可用，缓存 rejected promise 会让后续每次调用都直接拿到
+  // 同一个失败结果，必须刷新页面才能恢复。捕获后清掉缓存让下次调用重试。
+  const p = new Promise<IDBDatabase>((resolve, reject) => {
     if (!('indexedDB' in window)) {
       reject(new Error('IndexedDB unavailable'));
       return;
@@ -42,6 +45,10 @@ function openDB(): Promise<IDBDatabase> {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  });
+  dbPromise = p.catch((err) => {
+    if (dbPromise === p) dbPromise = null;
+    throw err;
   });
   return dbPromise;
 }
