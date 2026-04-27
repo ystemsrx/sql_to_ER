@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@antv/g6':
-        specifier: 4.8.23
-        version: 4.8.23
+        specifier: 4.8.25
+        version: 4.8.25
       '@codemirror/lang-sql':
         specifier: ^6.10.0
         version: 6.10.0
@@ -93,23 +93,24 @@ packages:
   '@antv/g-webgpu@0.7.2':
     resolution: {integrity: sha512-kw+oYGsdvj5qeUfy5DPb/jztZBV+2fmqBd3Vv8NlKatfBmv8AirYX/CCW74AUSdWm99rEiLyxFB1VdRZ6b/wnQ==}
 
-  '@antv/g6-core@0.8.23':
-    resolution: {integrity: sha512-JWdnba5Bx4/hLhbIQeyvdgh68SDYZisveukuBifxLKODCNJNKTopmWf1w6tU+RxAT2k5ByXkTGWQE1IkIL8O+Q==}
-
   '@antv/g6-core@0.8.24':
     resolution: {integrity: sha512-rgI3dArAD8uoSz2+skS4ctN4x/Of33ivTIKaEYYvClxgkLZWVz9zvocy+5AWcVPBHZsAXkZcdh9zndIoWY/33A==}
 
-  '@antv/g6-element@0.8.23':
-    resolution: {integrity: sha512-KdJOiu4D7UExsYjKOJUcd7YCD/gCfxqHOlS01zkyOqsaindWVLdshBAZWXc2zgzVwHS/fadxwUI+DcllsRkH0g==}
+  '@antv/g6-element@0.8.25':
+    resolution: {integrity: sha512-bPsI+dS9rdp80O/XyV0iy6QiusyOgO/diCIsGQuLHs6rBqjLtDA5yu9JDo49mPA3JblJV0MYjbgL8Exou7Ecqw==}
+    peerDependencies:
+      '@antv/g6': 4.8.25
 
-  '@antv/g6-pc@0.8.23':
-    resolution: {integrity: sha512-8H5n1U8T4pyBcoaEKB8g4TRKycHtONSA+qOeFMq7XIDh1DCn0tUF1uLvwj096Zp+/bUXtAfaRvg+n1KKyCVZ0w==}
+  '@antv/g6-pc@0.8.25':
+    resolution: {integrity: sha512-HZ2QyDbgsUQpQBFqrA8Zcvm/rAKN4n3I7XEeWCODZgyhQ8kz2f3qdzrRXDPmMyclexi0JF9DarCs8a2rzhV5YA==}
 
-  '@antv/g6-plugin@0.8.23':
-    resolution: {integrity: sha512-DwhSuUc0a0foIM4nrhXR/+ooZafkVve0IEErldhsygKWLDSz/c9HRLON66OEdzQX7Ed1uE0SMcBUsIDe+wPQrw==}
+  '@antv/g6-plugin@0.8.25':
+    resolution: {integrity: sha512-TAincRgNzrZNGBt1TvzfQV0Ob6OO3+WCcTrCZb4PzRoOessAiMsNm0S7x+7NFm30DJVC8Ud2M7M2V9DjhVd8Wg==}
+    peerDependencies:
+      '@antv/g6': 4.8.25
 
-  '@antv/g6@4.8.23':
-    resolution: {integrity: sha512-tsnJzlZCiOKvwAULGom6ppARutRmoAgV1wZzkOmDRm8ZdokUkpEYfb3faV6802VMs82DLP0zZ0KavapoK1q8hQ==}
+  '@antv/g6@4.8.25':
+    resolution: {integrity: sha512-8mdTnN9QMVNQZtlXmftL8fvRsa4L+GajK58Zp51wyrGLFyjeop8R0QSkCALW45DWP2TaQeZAPtjhQUU/wf5hIg==}
 
   '@antv/graphlib@1.2.0':
     resolution: {integrity: sha512-hhJOMThec51nU4Fe5p/viLlNIL71uDEgYFzKPajWjr2715SFG1HAgiP6AVylIeqBcAZ04u3Lw7usjl/TuI5RuQ==}
@@ -1044,19 +1045,6 @@ snapshots:
       gl-vec2: 1.3.0
       lodash: 4.18.1
 
-  '@antv/g6-core@0.8.23':
-    dependencies:
-      '@antv/algorithm': 0.1.26
-      '@antv/dom-util': 2.0.4
-      '@antv/event-emitter': 0.1.3
-      '@antv/g-base': 0.5.16
-      '@antv/g-math': 0.1.9
-      '@antv/matrix-util': 3.1.0-beta.3
-      '@antv/path-util': 2.0.15
-      '@antv/util': 2.0.17
-      ml-matrix: 6.12.2
-      tslib: 2.8.1
-
   '@antv/g6-core@0.8.24':
     dependencies:
       '@antv/algorithm': 0.1.26
@@ -1070,13 +1058,15 @@ snapshots:
       ml-matrix: 6.12.2
       tslib: 2.8.1
 
-  '@antv/g6-element@0.8.23':
+  '@antv/g6-element@0.8.25(@antv/g6@4.8.25)':
     dependencies:
       '@antv/g-base': 0.5.16
-      '@antv/g6-core': 0.8.23
+      '@antv/g6': 4.8.25
+      '@antv/g6-core': 0.8.24
       '@antv/util': 2.0.17
+      tslib: 2.8.1
 
-  '@antv/g6-pc@0.8.23':
+  '@antv/g6-pc@0.8.25(@antv/g6@4.8.25)':
     dependencies:
       '@ant-design/colors': 4.0.5
       '@antv/algorithm': 0.1.26
@@ -1087,8 +1077,8 @@ snapshots:
       '@antv/g-math': 0.1.9
       '@antv/g-svg': 0.5.7
       '@antv/g6-core': 0.8.24
-      '@antv/g6-element': 0.8.23
-      '@antv/g6-plugin': 0.8.23
+      '@antv/g6-element': 0.8.25(@antv/g6@4.8.25)
+      '@antv/g6-plugin': 0.8.25(@antv/g6@4.8.25)
       '@antv/hierarchy': 0.6.14
       '@antv/layout': 0.3.25(dagre@0.8.5)
       '@antv/matrix-util': 3.1.0-beta.3
@@ -1099,24 +1089,28 @@ snapshots:
       dagre: 0.8.5
       insert-css: 2.0.0
       ml-matrix: 6.12.2
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - '@antv/g6'
 
-  '@antv/g6-plugin@0.8.23':
+  '@antv/g6-plugin@0.8.25(@antv/g6@4.8.25)':
     dependencies:
       '@antv/dom-util': 2.0.4
       '@antv/g-base': 0.5.16
       '@antv/g-canvas': 0.5.17
       '@antv/g-svg': 0.5.7
-      '@antv/g6-core': 0.8.23
-      '@antv/g6-element': 0.8.23
+      '@antv/g6': 4.8.25
+      '@antv/g6-core': 0.8.24
+      '@antv/g6-element': 0.8.25(@antv/g6@4.8.25)
       '@antv/matrix-util': 3.1.0-beta.3
       '@antv/path-util': 2.0.15
       '@antv/scale': 0.3.18
       '@antv/util': 2.0.17
       insert-css: 2.0.0
 
-  '@antv/g6@4.8.23':
+  '@antv/g6@4.8.25':
     dependencies:
-      '@antv/g6-pc': 0.8.23
+      '@antv/g6-pc': 0.8.25(@antv/g6@4.8.25)
 
   '@antv/graphlib@1.2.0': {}
 
