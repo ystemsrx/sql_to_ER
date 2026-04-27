@@ -1655,7 +1655,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           <div class="step">
             <div class="step-num">i.</div>
             <h4 data-i18n="s1_t">打开生成器</h4>
-            <p data-i18n="s1_d">在线使用或本地跑一个 HTTP server。</p>
+            <p data-i18n="s1_d">在线使用，或本地运行 Vite 开发服务器。</p>
           </div>
           <div class="step">
             <div class="step-num">ii.</div>
@@ -1682,10 +1682,10 @@ Ref: posts.author_id &gt; users.id</code></pre>
         <div class="callout scroll-reveal">
           <strong><span data-i18n="warn_t">本地运行提示：</span></strong>
           <span data-i18n="warn_d"
-            >不能直接双击 sql2er.html 打开 —— file:// 会拦截本地资源。请执行
+            >不能直接双击 sql2er.html，也不能直接 serve 源码目录。请执行
           </span>
-          <code>python -m http.server 8000</code>
-          <span data-i18n="warn_d2">，再访问 localhost:8000/sql2er.html。</span>
+          <code>npm run dev</code>
+          <span data-i18n="warn_d2">，再访问 Vite 输出的 /sql2er.html 地址。</span>
         </div>
       </div>
     </section>
@@ -1853,11 +1853,10 @@ Ref: posts.author_id &gt; users.id</code></pre>
             <div class="faq-wrap">
               <div class="faq-body">
                 <p data-i18n-html="a3_html">
-                  这是浏览器的 file:// 安全限制。用
-                  <code>python -m http.server 8000</code> 起个本地
-                  server，然后访问
-                  <code>http://localhost:8000/sql2er.html</code>。VS Code Live
-                  Server 也可以。
+                  源码需要 Vite 编译 TypeScript 和解析 npm 依赖。请执行
+                  <code>npm install && npm run dev</code>，然后访问 Vite 输出的
+                  <code>/sql2er.html</code> 地址。静态部署请先
+                  <code>npm run build</code>，再服务 <code>dist/</code>。
                 </p>
               </div>
             </div>
@@ -1955,19 +1954,15 @@ Ref: posts.author_id &gt; users.id</code></pre>
       </svg>
       <span id="toastText">已复制</span>
     </div>
+    <script type="module">
+      import "./vendor/prism/prism.min.js";
+      import "./vendor/prism/components/prism-sql.min.js";
+      import G6 from "@antv/g6";
+      import { parseSQLTables } from "./src/parser/sql";
+      import { parseDBML } from "./src/parser/dbml";
+      import * as ERBuilder from "./src/builder";
+      import * as Layout from "./src/layout";
 
-    <!-- Prism -->
-    <script src="./vendor/prism/prism.min.js"></script>
-    <script src="./vendor/prism/components/prism-sql.min.js"></script>
-
-    <!-- G6 + 项目 JS（用于 Hero 的真实 ER 图）-->
-    <script src="./vendor/js/g6.min.js"></script>
-    <script src="js/parser-sql.js"></script>
-    <script src="js/parser-dbml.js"></script>
-    <script src="js/builder.js"></script>
-    <script src="js/layout.js"></script>
-
-    <script>
       // ───── YEAR ─────
       document.getElementById("year").textContent = new Date().getFullYear();
 
@@ -2030,7 +2025,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           h_eyebrow: "使用步骤",
           h_title: "从粘贴到完成，<em>五步</em>以内",
           s1_t: "打开生成器",
-          s1_d: "在线使用或本地跑一个 HTTP server。",
+          s1_d: "在线使用，或本地运行 Vite 开发服务器。",
           s2_t: "粘贴代码",
           s2_d: "SQL 或 DBML 都行，编辑器带语法高亮。",
           s3_t: "生成图",
@@ -2041,8 +2036,8 @@ Ref: posts.author_id &gt; users.id</code></pre>
           s5_d: "复杂图形一键整理，几秒排整齐。",
           warn_t: "本地运行提示：",
           warn_d:
-            "不能直接双击 sql2er.html 打开 —— file:// 会拦截本地资源。请执行 ",
-          warn_d2: "，再访问 localhost:8000/sql2er.html。",
+            "不能直接双击 sql2er.html，也不能直接 serve 源码目录。请执行 ",
+          warn_d2: "，再访问 Vite 输出的 /sql2er.html 地址。",
           c_eyebrow: "图形语义",
           c_title: "Chen 模型<em>四件套</em>",
           c1_t: "矩形 · 实体",
@@ -2063,7 +2058,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           a2: "为了自动化，工具默认用外键字段名作为菱形的标签，用表名 / 列名作为实体 / 属性。学术作业请双击图形改名，或改源 SQL 再重新生成。",
           q3: "我双击 sql2er.html 打不开？",
           a3_html:
-            "这是浏览器的 file:// 安全限制。用 <code>python -m http.server 8000</code> 起个本地 server，然后访问 <code>http://localhost:8000/sql2er.html</code>。VS Code Live Server 也可以。",
+            "源码需要 Vite 编译 TypeScript 和解析 npm 依赖。请执行 <code>npm install && npm run dev</code>，然后访问 Vite 输出的 <code>/sql2er.html</code> 地址。静态部署请先 <code>npm run build</code>，再服务 <code>dist/</code>。",
           q4: "支持哪些 SQL 方言？",
           a4: "解析以 PostgreSQL 方言为主，同时兼容常见的 MySQL / SQLite CREATE TABLE 语法。外键无论写在列里还是尾部约束里都能识别。",
           cta_title: "准备好把 SQL <em>变成图</em>了吗？",
@@ -2105,7 +2100,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           h_eyebrow: "How it works",
           h_title: "From paste to polish, in <em>five steps</em>",
           s1_t: "Open the tool",
-          s1_d: "Use the hosted version, or run a local HTTP server.",
+          s1_d: "Use the hosted version, or run the Vite dev server locally.",
           s2_t: "Paste code",
           s2_d: "SQL or DBML, both work. Syntax highlighted.",
           s3_t: "Generate",
@@ -2116,8 +2111,8 @@ Ref: posts.author_id &gt; users.id</code></pre>
           s5_d: "One click to auto-arrange complex diagrams.",
           warn_t: "Running locally:",
           warn_d:
-            "Do NOT double-click sql2er.html — file:// blocks assets. Run ",
-          warn_d2: ", then visit localhost:8000/sql2er.html.",
+            "Do NOT double-click sql2er.html or serve the source directory directly. Run ",
+          warn_d2: ", then visit Vite's /sql2er.html URL.",
           c_eyebrow: "Shape semantics",
           c_title: "The Chen <em>four-piece set</em>",
           c1_t: "Rectangle · Entity",
@@ -2138,7 +2133,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           a2: "For automation, relationship diamonds default to the foreign-key column name, and entities/attributes use raw table/column names. Double-click any shape to rename.",
           q3: "sql2er.html does not open when I double-click.",
           a3_html:
-            "Browser file:// restriction. Run <code>python -m http.server 8000</code> and visit <code>http://localhost:8000/sql2er.html</code>. VS Code Live Server works too.",
+            "The source needs Vite to compile TypeScript and resolve npm dependencies. Run <code>npm install && npm run dev</code>, then visit Vite's <code>/sql2er.html</code> URL. For static hosting, run <code>npm run build</code> first and serve <code>dist/</code>.",
           q4: "Which SQL dialects are supported?",
           a4: "Mainly PostgreSQL, also accepts common MySQL / SQLite CREATE TABLE syntax. Foreign keys work inline or as trailing constraints.",
           cta_title: "Ready to turn SQL <em>into diagrams</em>?",
@@ -2399,18 +2394,17 @@ Ref: posts.author > users.id`,
         const mount = document.getElementById("hero-er");
         // 构建期间瞬时隐藏，防止用户看到未 fit 的大图一闪
         stage.classList.add("is-building");
-        const G6 = window.G6;
         if (
           !G6 ||
-          !window.ERBuilder ||
-          !window.Layout ||
+          !ERBuilder ||
+          !Layout ||
           typeof parseSQLTables !== "function" ||
           typeof parseDBML !== "function"
         ) {
           stage.classList.add("is-failed");
           return;
         }
-        window.ERBuilder.registerCustomNodes(G6);
+        ERBuilder.registerCustomNodes(G6);
 
         const lang = document.documentElement
           .getAttribute("lang")
@@ -2427,13 +2421,13 @@ Ref: posts.author > users.id`,
           return;
         }
 
-        const { nodes, edges } = window.ERBuilder.generateChenModelData(
+        const { nodes, edges } = ERBuilder.generateChenModelData(
           tables,
           relationships,
           true,
           "name",
         );
-        window.Layout.applyInitialComponentPositions(nodes, edges, mount, 0);
+        Layout.applyInitialComponentPositions(nodes, edges, mount, 0);
 
         if (heroGraph && !heroGraph.destroyed) {
           heroGraph.destroy();
@@ -2493,7 +2487,7 @@ Ref: posts.author > users.id`,
               // fitView 不放这里——放在 buildHeroGraph 最后统一调，避免被后续
               // applyWarmTheme / patchRelationshipLinkPoints / paint 盖掉。
               if (heroGraph && !heroGraph.destroyed) {
-                window.Layout.spreadDisconnectedComponents(heroGraph, () => {});
+                Layout.spreadDisconnectedComponents(heroGraph, () => {});
               }
             },
           },
@@ -2690,7 +2684,7 @@ Ref: posts.author > users.id`,
 
         // 先 patch 菱形连线再上色；patchRelationshipLinkPoints 里的 graph.refresh()
         // 如果触发重绘，也会把 draw() 里的 '#000' 刷回来，所以颜色覆盖必须放最后。
-        window.ERBuilder.patchRelationshipLinkPoints(graph);
+        ERBuilder.patchRelationshipLinkPoints(graph);
         applyWarmTheme();
         // 再兜底一次：保证 text fill 是最终态
         repaintNodeText();

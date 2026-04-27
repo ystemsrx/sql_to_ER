@@ -35,33 +35,29 @@ The easiest way — just open the **online version**, no installation needed:
 
 🔗 **[ER Diagram Generator](https://ystemsrx.github.io/sql_to_ER/sql2er.html)**
 
-Or run it locally:
+Or run it locally for development:
 
 ```bash
 git clone https://github.com/ystemsrx/sql_to_ER.git
 cd sql_to_ER
+npm install
+npm run dev
 ```
 
 > [!WARNING]
-> **Do not open `sql2er.html` by double-clicking it.** Due to browser security restrictions on the `file://` protocol, CSS / JS resources will fail to load and the page will render blank or error out. Start a local HTTP server instead:
+> **Do not open `sql2er.html` by double-clicking it, and do not run `npx serve .` against the source directory.** This project uses Vite + TypeScript; `.ts/.tsx` files and npm dependencies must be compiled and resolved by Vite. For development, run:
 >
 > ```bash
-> # Option 1: Python 3 (recommended, no extra install)
-> python -m http.server 8000
->
-> # Option 2: Node.js
-> npx serve .
->
-> # Option 3: VS Code "Live Server" extension
+> npm run dev
 > ```
 >
-> Then visit `http://localhost:8000/sql2er.html` in your browser.
+> Then visit the Vite URL, for example `http://localhost:5173/sql2er.html`. If you want to use a static server, run `npm run build` first and serve the `dist/` directory.
 
 ---
 
 ## 📖 Usage
 
-1. Serve `sql2er.html` via a local HTTP server (see Quick Start above, or just use the online demo)
+1. Open `sql2er.html` via `npm run dev` (see Quick Start above, or just use the online demo)
 2. Paste your **SQL `CREATE TABLE`** statements or **DBML** code into the input area
 3. Click the **"Generate ER Diagram"** button
 4. If you are not happy with node positions, **drag nodes** to adjust; **double-click** a node to edit its content
