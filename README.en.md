@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🗂️ SQL / DBML → ER Diagram Generator
+# 🗂️ The best SQL to ER Diagram Generator
 
-**Elegant online tool to convert SQL table creation statements into ER diagrams**
+**Elegant online tool to convert SQL / DBML into ER diagrams**
 
 [English](README.en.md) · **Simplified Chinese**
 

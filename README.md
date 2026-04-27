@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🗂️ SQL / DBML → ER 图生成器
+# 🗂️ 最好的 SQL 转 ER 图生成器
 
-**优雅的在线 SQL 建表语句转 ER 图工具**
+**优雅的在线 SQL / DBML 转 ER 图工具**
 
 [English](README.en.md) · **简体中文**
 
