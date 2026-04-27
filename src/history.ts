@@ -16,142 +16,142 @@
 import { animateNodesToTargets } from "./layout/animation";
 import type { GraphLike, NodeSnapshot } from "./types";
 
-  const MAX_HISTORY = 100;
-  const EMPTY_SNAPSHOT: NodeSnapshot[] = [];
+const MAX_HISTORY = 100;
+const EMPTY_SNAPSHOT: NodeSnapshot[] = [];
 
-  export interface HistoryApplyOptions {
-    animate?: boolean;
-    onFinish?: () => void;
-  }
+export interface HistoryApplyOptions {
+  animate?: boolean;
+  onFinish?: () => void;
+}
 
-  export interface HistoryManager {
-    record(graph: GraphLike): void;
-    undo(graph: GraphLike, options?: HistoryApplyOptions): boolean;
-    redo(graph: GraphLike, options?: HistoryApplyOptions): boolean;
-    reset(): void;
-    canUndo(): boolean;
-    canRedo(): boolean;
-  }
+export interface HistoryManager {
+  record(graph: GraphLike): void;
+  undo(graph: GraphLike, options?: HistoryApplyOptions): boolean;
+  redo(graph: GraphLike, options?: HistoryApplyOptions): boolean;
+  reset(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
+}
 
-  function snapshot(graph: GraphLike): NodeSnapshot[] | null {
-    if (!graph || graph.destroyed) return null;
-    return graph.getNodes().map((node) => {
-      const m = node.getModel();
-      return { id: m.id, x: m.x, y: m.y, label: m.label };
-    });
-  }
+function snapshot(graph: GraphLike): NodeSnapshot[] | null {
+  if (!graph || graph.destroyed) return null;
+  return graph.getNodes().map((node) => {
+    const m = node.getModel();
+    return { id: m.id, x: m.x, y: m.y, label: m.label };
+  });
+}
 
-  function snapshotsEqual(a: NodeSnapshot[] | null, b: NodeSnapshot[] | null) {
-    if (!a || !b || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      const x = a[i];
-      const y = b[i];
-      if (x.id !== y.id || x.x !== y.x || x.y !== y.y || x.label !== y.label) {
-        return false;
-      }
+function snapshotsEqual(a: NodeSnapshot[] | null, b: NodeSnapshot[] | null) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.id !== y.id || x.x !== y.x || x.y !== y.y || x.label !== y.label) {
+      return false;
     }
-    return true;
+  }
+  return true;
+}
+
+// 撤销/重做时位置以补间动画的形式过渡到目标，标签变更则立即生效
+// （标签是文字内容，不适合做插值）。动画时长保持 280ms，足够看到方向但不拖沓。
+const ANIM_DURATION_MS = 280;
+
+function applySnapshot(
+  graph: GraphLike,
+  snap: NodeSnapshot[] | undefined,
+  options?: HistoryApplyOptions,
+) {
+  if (!graph || graph.destroyed || !snap) return;
+  const opts = options || {};
+  const animate = opts.animate !== false;
+  const onFinish = typeof opts.onFinish === 'function' ? opts.onFinish : null;
+  const animator = animate ? animateNodesToTargets : null;
+
+  // 标签直接更新；位置先收集成 targets 留给动画函数
+  const targets = new Map<string, { x?: number; y?: number }>();
+  graph.setAutoPaint(false);
+  snap.forEach((s) => {
+    const item = graph.findById(s.id);
+    if (!item) return;
+    const cur = item.getModel();
+    if (cur.label !== s.label) {
+      graph.updateItem(item, { label: s.label });
+    }
+    if (cur.x !== s.x || cur.y !== s.y) {
+      targets.set(s.id, { x: s.x, y: s.y });
+    }
+  });
+  graph.paint();
+  graph.setAutoPaint(true);
+
+  if (targets.size === 0) {
+    if (onFinish) onFinish();
+    return;
   }
 
-  // 撤销/重做时位置以补间动画的形式过渡到目标，标签变更则立即生效
-  // （标签是文字内容，不适合做插值）。动画时长保持 280ms，足够看到方向但不拖沓。
-  const ANIM_DURATION_MS = 280;
-
-  function applySnapshot(
-    graph: GraphLike,
-    snap: NodeSnapshot[] | undefined,
-    options?: HistoryApplyOptions,
-  ) {
-    if (!graph || graph.destroyed || !snap) return;
-    const opts = options || {};
-    const animate = opts.animate !== false;
-    const onFinish = typeof opts.onFinish === 'function' ? opts.onFinish : null;
-    const animator = animate ? animateNodesToTargets : null;
-
-    // 标签直接更新；位置先收集成 targets 留给动画函数
-    const targets = new Map<string, { x?: number; y?: number }>();
+  if (animator) {
+    animator(graph, targets, ANIM_DURATION_MS, onFinish);
+  } else {
+    // 兜底：没有 Layout 模块时直接跳到目标
     graph.setAutoPaint(false);
-    snap.forEach((s) => {
-      const item = graph.findById(s.id);
-      if (!item) return;
-      const cur = item.getModel();
-      if (cur.label !== s.label) {
-        graph.updateItem(item, { label: s.label });
-      }
-      if (cur.x !== s.x || cur.y !== s.y) {
-        targets.set(s.id, { x: s.x, y: s.y });
-      }
+    targets.forEach((t, id) => {
+      const item = graph.findById(id);
+      if (item) graph.updateItem(item, { x: t.x, y: t.y });
     });
+    graph.refreshPositions();
     graph.paint();
     graph.setAutoPaint(true);
-
-    if (targets.size === 0) {
-      if (onFinish) onFinish();
-      return;
-    }
-
-    if (animator) {
-      animator(graph, targets, ANIM_DURATION_MS, onFinish);
-    } else {
-      // 兜底：没有 Layout 模块时直接跳到目标
-      graph.setAutoPaint(false);
-      targets.forEach((t, id) => {
-        const item = graph.findById(id);
-        if (item) graph.updateItem(item, { x: t.x, y: t.y });
-      });
-      graph.refreshPositions();
-      graph.paint();
-      graph.setAutoPaint(true);
-      if (onFinish) onFinish();
-    }
+    if (onFinish) onFinish();
   }
+}
 
-  export function createManager(): HistoryManager {
-    const past: NodeSnapshot[][] = [];
-    const future: NodeSnapshot[][] = [];
+export function createManager(): HistoryManager {
+  const past: NodeSnapshot[][] = [];
+  const future: NodeSnapshot[][] = [];
 
-    return {
-      record(graph) {
-        const snap = snapshot(graph);
-        if (!snap) return;
-        // 与上一次快照完全相同则不重复入栈
-        if (past.length > 0 && snapshotsEqual(past[past.length - 1], snap)) {
-          return;
-        }
-        past.push(snap);
-        if (past.length > MAX_HISTORY) past.shift();
-        future.length = 0;
-      },
+  return {
+    record(graph) {
+      const snap = snapshot(graph);
+      if (!snap) return;
+      // 与上一次快照完全相同则不重复入栈
+      if (past.length > 0 && snapshotsEqual(past[past.length - 1], snap)) {
+        return;
+      }
+      past.push(snap);
+      if (past.length > MAX_HISTORY) past.shift();
+      future.length = 0;
+    },
 
-      undo(graph, options) {
-        if (past.length === 0) return false;
-        const cur = snapshot(graph);
-        const prev = past.pop() || EMPTY_SNAPSHOT;
-        if (cur) future.push(cur);
-        applySnapshot(graph, prev, options);
-        return true;
-      },
+    undo(graph, options) {
+      if (past.length === 0) return false;
+      const cur = snapshot(graph);
+      const prev = past.pop() || EMPTY_SNAPSHOT;
+      if (cur) future.push(cur);
+      applySnapshot(graph, prev, options);
+      return true;
+    },
 
-      redo(graph, options) {
-        if (future.length === 0) return false;
-        const cur = snapshot(graph);
-        const next = future.pop() || EMPTY_SNAPSHOT;
-        if (cur) past.push(cur);
-        applySnapshot(graph, next, options);
-        return true;
-      },
+    redo(graph, options) {
+      if (future.length === 0) return false;
+      const cur = snapshot(graph);
+      const next = future.pop() || EMPTY_SNAPSHOT;
+      if (cur) past.push(cur);
+      applySnapshot(graph, next, options);
+      return true;
+    },
 
-      reset() {
-        past.length = 0;
-        future.length = 0;
-      },
+    reset() {
+      past.length = 0;
+      future.length = 0;
+    },
 
-      canUndo() {
-        return past.length > 0;
-      },
+    canUndo() {
+      return past.length > 0;
+    },
 
-      canRedo() {
-        return future.length > 0;
-      },
-    };
-  }
+    canRedo() {
+      return future.length > 0;
+    },
+  };
+}
