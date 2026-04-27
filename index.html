@@ -1954,13 +1954,20 @@ Ref: posts.author_id &gt; users.id</code></pre>
     </div>
     <script type="module">
       import "prismjs/themes/prism.css";
-      import "prismjs";
-      import "prismjs/components/prism-sql";
+      import Prism from "prismjs";
       import G6 from "@antv/g6";
       import { parseSQLTables } from "./src/parser/sql";
       import { parseDBML } from "./src/parser/dbml";
       import * as ERBuilder from "./src/builder";
       import * as Layout from "./src/layout";
+
+      // prism-sql 在模块顶层引用全局 Prism；ESM 下 prismjs 不会自挂 window，
+      // 必须先把核心赋到全局，再动态 import 让语言定义晚于赋值执行。
+      // 不要用 top-level await：那会把整个模块变成异步求值，导致下方
+      // window.addEventListener("load", ...) 在 load 事件之后才注册，
+      // Hero ER 图永远不会被构建。代码高亮失败也不应阻塞主流程。
+      window.Prism = Prism;
+      import("prismjs/components/prism-sql").catch(() => {});
 
       // ───── YEAR ─────
       document.getElementById("year").textContent = new Date().getFullYear();

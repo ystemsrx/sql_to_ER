@@ -41,7 +41,13 @@ export default defineConfig({
           ) {
             return "vendor-editor";
           }
-          if (id.includes("node_modules/prismjs")) {
+          // prismjs/components/* 在模块顶层访问全局 Prism，必须落在独立 chunk
+          // 里，等运行时显式 window.Prism = Prism 后再动态加载，否则会和 core 一起
+          // 被同步求值并抛 ReferenceError。
+          if (
+            id.includes("node_modules/prismjs") &&
+            !id.includes("node_modules/prismjs/components/")
+          ) {
             return "vendor-prism";
           }
         },
