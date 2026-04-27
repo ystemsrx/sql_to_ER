@@ -241,6 +241,9 @@ export const parseSQLTables = (sql: string): ParseResult => {
       const dataType = parseColumnType(rest);
       const isPrimaryKey = /PRIMARY\s+KEY/i.test(rest);
       if (isPrimaryKey) primaryKeys.push(columnName);
+      // 内联 UNIQUE 约束（不与 PRIMARY KEY 等价 —— PK 自动唯一，但这里只看
+      // 显式 UNIQUE，用于后面的 1:1 推断）。
+      const isUnique = /\bUNIQUE\b/i.test(rest) && !isPrimaryKey;
 
       const commentMatch = rest.match(/COMMENT\s+'((?:[^'\\]|''|\\.)*)'/i);
       const comment = commentMatch ? commentMatch[1].replace(/''/g, "'") : "";
@@ -256,12 +259,14 @@ export const parseSQLTables = (sql: string): ParseResult => {
         });
       }
 
-      columns.push({
+      const col: ParsedColumn = {
         name: columnName,
         type: dataType,
         isPrimaryKey,
         comment,
-      });
+      };
+      if (isUnique) col.isUnique = true;
+      columns.push(col);
     });
 
     tables.push({
@@ -272,10 +277,19 @@ export const parseSQLTables = (sql: string): ParseResult => {
     });
 
     foreignKeys.forEach((fk) => {
+      // 默认多对一；若 FK 列在本表上是单列主键 / UNIQUE，推断为 1:1。
+      // SQL 没有 DBML 的 `-` / `<>` 写法，全部从约束推断。
+      const fkCol = columns.find((c) => c.name === fk.column);
+      const isOnlySinglePk =
+        primaryKeys.length === 1 && primaryKeys[0] === fk.column;
+      const fromCardinality: "1" | "N" =
+        fkCol?.isUnique || isOnlySinglePk ? "1" : "N";
       relationships.push({
         from: tableName,
         to: fk.referencedTable,
         label: fk.column,
+        fromCardinality,
+        toCardinality: "1",
       });
     });
   });

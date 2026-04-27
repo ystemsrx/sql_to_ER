@@ -23,7 +23,13 @@ describe("parseSQLTables", () => {
     expect(result.tables[0].primaryKeys).toContain("id");
     expect(result.tables[0].columns[0].comment).toBe("order id");
     expect(result.relationships).toEqual([
-      { from: "orders", to: "users", label: "user_id" },
+      {
+        from: "orders",
+        to: "users",
+        label: "user_id",
+        fromCardinality: "N",
+        toCardinality: "1",
+      },
     ]);
   });
 
@@ -45,7 +51,13 @@ describe("parseSQLTables", () => {
       ["Title", "CHARACTER VARYING(255)"],
     ]);
     expect(result.relationships).toEqual([
-      { from: "Article", to: "User", label: "AuthorID" },
+      {
+        from: "Article",
+        to: "User",
+        label: "AuthorID",
+        fromCardinality: "N",
+        toCardinality: "1",
+      },
     ]);
   });
 
@@ -65,7 +77,13 @@ describe("parseSQLTables", () => {
       "parent_id",
     ]);
     expect(result.relationships).toEqual([
-      { from: "note", to: "note", label: "parent_id" },
+      {
+        from: "note",
+        to: "note",
+        label: "parent_id",
+        fromCardinality: "N",
+        toCardinality: "1",
+      },
     ]);
   });
 

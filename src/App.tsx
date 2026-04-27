@@ -586,12 +586,6 @@ const App = () => {
                 height: "100%",
               }}
             >
-              {error && (
-                <div className="error-message" style={{ margin: "20px" }}>
-                  ⚠️ {error}
-                </div>
-              )}
-
               <div
                 className={`diagram-container ${showBackground ? "" : "no-grid"}`}
                 style={{ border: "none", borderRadius: 0 }}
@@ -627,6 +621,11 @@ const App = () => {
                 {loading && (
                   <div className="loading-overlay">
                     <div className="spinner"></div>
+                  </div>
+                )}
+                {error && (
+                  <div className="diagram-error-overlay">
+                    <div className="error-message">⚠️ {error}</div>
                   </div>
                 )}
                 <div

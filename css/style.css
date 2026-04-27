@@ -625,6 +625,24 @@ body::before {
   gap: 10px;
 }
 
+/* 解析失败时遮在画布上方的提示。loading-overlay 比它优先级高（z-index 10） */
+.diagram-error-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.diagram-error-overlay .error-message {
+  pointer-events: auto;
+  max-width: min(520px, 90%);
+  background: var(--app-bg-overlay);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+}
+
 /* ═══════════════════════════════════════
    图例
 ═══════════════════════════════════════ */

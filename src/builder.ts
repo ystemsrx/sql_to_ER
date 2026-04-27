@@ -179,12 +179,17 @@ const generateChenModelData = (
     // flip that lands the control points on opposite sides of the straight
     // line, forming a lens/eye shape with no gap at the vertices.
 
+    // 边标签来自解析器推断出的两端基数，缺省 N:1（DBML `>` / SQL FK 的隐含语义）。
+    // 1:1（DBML `-`、或 FK 列为单列 PK / UNIQUE 的推断结果）会在两端都标 '1'。
+    const fromLabel = rel.fromCardinality ?? 'N';
+    const toLabel = rel.toCardinality ?? '1';
+
     // Connect source entity (the one with the FK, 'many' side) to relationship
     edges.push({
       id: `edge-entity-${rel.from}-${relationshipId}-${relIndex}-1`,
       source: entityMap.get(rel.from),
       target: relationshipId,
-      label: 'N',
+      label: fromLabel,
       type: isSelfLoop ? 'self-loop-arc' : undefined,
       curveOffset: isSelfLoop ? 22 : undefined,
       style: {
@@ -208,7 +213,7 @@ const generateChenModelData = (
       id: `edge-${relationshipId}-entity-${rel.to}-${relIndex}-2`,
       source: relationshipId,
       target: entityMap.get(rel.to),
-      label: '1',
+      label: toLabel,
       type: isSelfLoop ? 'self-loop-arc' : undefined,
       curveOffset: isSelfLoop ? 22 : undefined,
       style: {

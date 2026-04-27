@@ -1,11 +1,16 @@
 export type AttributeLabelMode = "name" | "comment" | "any";
 export type NodeType = "entity" | "attribute" | "relationship";
 export type KeyType = "pk" | "normal";
+// "1" or "N" 端基数。M:N 的两端都是 "N"。
+export type Cardinality = "1" | "N";
 
 export interface ParsedColumn {
   name: string;
   type: string;
   isPrimaryKey: boolean;
+  // 是否带 UNIQUE 约束。用于推断 FK 是 1:1 还是 N:1：当 FK 列本身唯一时，
+  // 即便 DBML 写的是 `>`（多对一），关系也应渲染成 1:1。
+  isUnique?: boolean;
   comment?: string;
 }
 
@@ -27,6 +32,10 @@ export interface ParsedRelationship {
   from: string;
   to: string;
   label: string;
+  // 关系两端基数。缺省视作多对一（fromCardinality="N", toCardinality="1"），
+  // 这是 SQL FK 与 DBML `>` 的隐含语义。
+  fromCardinality?: Cardinality;
+  toCardinality?: Cardinality;
 }
 
 export interface ParseResult {

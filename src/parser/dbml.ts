@@ -20,6 +20,8 @@ import type {
 } from "../types";
 
 const IDENT = String.raw`(?:\`[^\`]+\`|"[^"]+"|\[[^\]]+\]|[\w一-龥]+)`;
+// schema-qualified 标识符：a / a.b / a.b.c。每段都允许带引号 / 反引号 / 方括号。
+const QUALIFIED_IDENT = String.raw`${IDENT}(?:\.${IDENT})*`;
 
 const cleanIdentifier = (raw: string): string => {
   const last = raw
@@ -251,7 +253,19 @@ interface RefTarget {
 }
 
 const parseRefTarget = (raw: string): RefTarget | null => {
-  const cleaned = raw.trim().replace(/^[(,]|[),]$/g, "");
+  // 仅去掉首尾游离的逗号（来自 splitTopLevelCommas 拆开内联 ref 时残留）。
+  // 不要再剥圆括号 —— 复合外键 `table.(col_a, col_b)` 的右括号会被误吃，
+  // 历史上写过 `^[(,]|[),]$` 是按"防御性清洗"思路写的，现在已无必要。
+  let cleaned = raw.trim().replace(/^,+|,+$/g, "").trim();
+  // 去掉尾部 `[delete: cascade, update: cascade]` 这类设置块。
+  // Ref: a.b > c.d [...] 时，右目标会粘上 `[...]`，必须先剥掉再分段。
+  const lb = indexOfUnquoted(cleaned, "[");
+  if (lb !== -1) {
+    const rb = findMatchingBracket(cleaned, lb);
+    if (rb !== -1) {
+      cleaned = (cleaned.slice(0, lb) + " " + cleaned.slice(rb + 1)).trim();
+    }
+  }
   if (!cleaned) return null;
   const segs = cleaned
     .split(".")
@@ -259,7 +273,19 @@ const parseRefTarget = (raw: string): RefTarget | null => {
     .filter(Boolean)
     .map((s) => s.replace(/^[`"\[]|[`"\]]$/g, ""));
   if (segs.length < 2) return null;
-  return { table: segs[segs.length - 2], column: segs[segs.length - 1] };
+  // 复合列 `(col_a, col_b)` —— 去掉外层括号当作 label，避免出现 `(col_a, col_b)`
+  // 这种带括号的边标签。table 与 column 仍按原始 segs 取，column 拿掉括号后
+  // 用于显示。
+  let column = segs[segs.length - 1];
+  const composite = column.match(/^\(\s*([\s\S]+?)\s*\)$/);
+  if (composite) {
+    column = composite[1]
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return { table: segs[segs.length - 2], column };
 };
 
 const parseInlineRef = (
@@ -315,6 +341,7 @@ const parseColumnLine = (line: string): ColumnLineResult => {
   const type = m[2].trim().replace(/\s+/g, " ");
 
   let isPrimaryKey = false;
+  let isUnique = false;
   let inlineRef: ColumnLineResult["inlineRef"] = null;
   let comment: string | undefined;
 
@@ -322,6 +349,8 @@ const parseColumnLine = (line: string): ColumnLineResult => {
     for (const attr of parseColumnAttrs(attrsRaw)) {
       if (attr.key === "pk" || attr.key === "primary key") {
         isPrimaryKey = true;
+      } else if (attr.key === "unique") {
+        isUnique = true;
       } else if (attr.key === "ref" && attr.value) {
         const r = parseInlineRef(attr.value);
         if (r) inlineRef = r;
@@ -332,6 +361,7 @@ const parseColumnLine = (line: string): ColumnLineResult => {
   }
 
   const column: ParsedColumn = { name, type, isPrimaryKey };
+  if (isUnique) column.isUnique = true;
   if (comment !== undefined) column.comment = comment;
   return { column, inlineRef };
 };
@@ -383,16 +413,29 @@ interface TopStatement {
 }
 
 const classifyHeader = (header: string): TopStatement["kind"] => {
+  // 注意：先于 `Table\b` 判 TablePartial / TableGroup，否则前者会被吞。
+  if (/^TablePartial\b/i.test(header)) return "unknown";
+  if (/^TableGroup\b/i.test(header)) return "tablegroup";
   if (/^Table\b/i.test(header)) return "table";
-  if (/^Ref\b\s*(?:[\w一-龥]+\s*)?:/i.test(header)) return "ref";
+  // Ref 短句：`Ref:` 或 `Ref name:`，可能换行后才进入正文
+  if (/^Ref\b[^{]*:/i.test(header)) return "ref";
   if (/^Ref\b/i.test(header)) return "refblock";
   if (/^Enum\b/i.test(header)) return "enum";
   if (/^Project\b/i.test(header)) return "project";
-  if (/^TableGroup\b/i.test(header)) return "tablegroup";
+  if (/^DiagramView\b/i.test(header)) return "unknown";
+  if (/^records\b/i.test(header)) return "unknown";
+  if (/^Note\b/i.test(header)) return "unknown";
   return "unknown";
 };
 
-const TOP_KEYWORD_RE = /^(Table|Ref|Project|Enum|TableGroup)\b/i;
+// 把 TablePartial / DiagramView / records / Note 也纳入识别：
+// 否则 findNextKeyword 会逐字符地走过它们的 body 内容（包含 jsonb 字面量、
+// 反引号表达式、Markdown 文本等），有概率撞上像 `TableGroup` 这样的字眼并误识别。
+// 这里识别后仍然分类为 'unknown' 在主循环里跳过。
+// 顺序：长前缀放在前面（TablePartial 在 Table 前，TableGroup 在 Table 前），
+// 否则 `Table\b` 会优先返回但匹配失败浪费一次。
+const TOP_KEYWORD_RE =
+  /^(TablePartial|TableGroup|Table|Ref|Project|Enum|DiagramView|records|Note)\b/i;
 
 // 从 from 开始找下一处可能开启顶层语句的关键字位置（必须在词边界，
 // 且当前不在字符串字面量里）。找不到返回 -1。
@@ -426,6 +469,8 @@ const tokenizeTopLevel = (src: string): TopStatement[] => {
 
     let braceIdx = -1;
     let lineEndIdx = -1;
+    let bracketDepth = 0;
+    let seenOperator = false;
     let j = i;
     while (j < n) {
       const ch = src[j];
@@ -433,13 +478,31 @@ const tokenizeTopLevel = (src: string): TopStatement[] => {
         j = skipString(src, j);
         continue;
       }
-      if (ch === "{") {
+      if (ch === "[") {
+        bracketDepth++;
+        j++;
+        continue;
+      }
+      if (ch === "]") {
+        if (bracketDepth > 0) bracketDepth--;
+        j++;
+        continue;
+      }
+      if (ch === "{" && bracketDepth === 0) {
         braceIdx = j;
         break;
       }
-      if (ch === "\n") {
+      // Ref 短句的关系运算符（仅在顶层、未在 [...] 设置块里时计数）。
+      // 多行 `Ref name:\n  a > b [...]` 形式时：`:` 后面的换行不能立刻
+      // 终止语句 —— 至少要等到运算符出现，才认为左 / 右目标都已就位。
+      if (
+        bracketDepth === 0 &&
+        (ch === "<" || ch === ">" || ch === "-")
+      ) {
+        seenOperator = true;
+      }
+      if (ch === "\n" && bracketDepth === 0 && seenOperator) {
         const head = src.slice(startIdx, j).trim();
-        // Ref 短语句没有块；遇到换行就到此为止
         if (/^Ref\b[^{]*:/i.test(head)) {
           lineEndIdx = j;
           break;
@@ -485,7 +548,7 @@ const parseTableHeader = (
   }
   const m = h.match(
     new RegExp(
-      String.raw`^Table\s+(${IDENT})(?:\s+as\s+(${IDENT}))?\s*$`,
+      String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`,
       "i",
     ),
   );
@@ -496,15 +559,39 @@ const parseTableHeader = (
   };
 };
 
+// DBML 关系运算符 → 两端基数。
+//   `>`  many-to-one  (默认 FK 方向)
+//   `<`  one-to-many
+//   `-`  one-to-one
+//   `<>` many-to-many
+const opToCardinality = (
+  op: string,
+): { from: import("../types").Cardinality; to: import("../types").Cardinality } => {
+  switch (op) {
+    case "<":
+      return { from: "1", to: "N" };
+    case "-":
+      return { from: "1", to: "1" };
+    case "<>":
+      return { from: "N", to: "N" };
+    case ">":
+    default:
+      return { from: "N", to: "1" };
+  }
+};
+
 const addRelationship = (
   ref: ParsedRefStatement,
   relationships: ParsedRelationship[],
   tableByName: Map<string, ParsedTable>,
 ): void => {
+  const card = opToCardinality(ref.op);
   relationships.push({
     from: ref.from.table,
     to: ref.to.table,
     label: ref.from.column,
+    fromCardinality: card.from,
+    toCardinality: card.to,
   });
   const t = tableByName.get(ref.from.table);
   if (t) {
@@ -535,9 +622,18 @@ export const parseDBML = (dbml: string): ParseResult => {
       for (const line of splitLogicalLines(stmt.body)) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        // 跳过嵌套块：Note { ... } / Note: '...' / indexes { ... }
+        // 跳过嵌套块 / 非列声明：
+        //   Note { ... } / Note: '...'
+        //   indexes { ... }
+        //   checks { ... }                    DBML 校验约束块
+        //   records { ... } / records (cols) { ... }   插桩示例数据块
+        //   ~partial_name                     TablePartial 注入；不展开，仅跳过
+        // 不跳过会被 parseColumnLine 错认为以 `checks` / `records` 命名的列。
         if (/^Note\s*[:{]/i.test(trimmed)) continue;
         if (/^indexes\s*\{/i.test(trimmed)) continue;
+        if (/^checks\s*\{/i.test(trimmed)) continue;
+        if (/^records\b/i.test(trimmed)) continue;
+        if (trimmed.startsWith("~")) continue;
 
         const { column, inlineRef } = parseColumnLine(trimmed);
         if (!column) continue;
@@ -548,10 +644,13 @@ export const parseDBML = (dbml: string): ParseResult => {
             referencedTable: inlineRef.target.table,
             referencedColumn: inlineRef.target.column,
           });
+          const card = opToCardinality(inlineRef.op);
           relationships.push({
             from: head.name,
             to: inlineRef.target.table,
             label: column.name,
+            fromCardinality: card.from,
+            toCardinality: card.to,
           });
         }
         columns.push(column);
@@ -585,6 +684,29 @@ export const parseDBML = (dbml: string): ParseResult => {
       continue;
     }
     // enum / project / tablegroup / unknown：忽略
+  }
+
+  // 基数推断：当关系是默认的 N:1（来自 `>` 或缺省），但 FK 列在 from 表上
+  // 是单列主键或带 unique 约束时，把 from 端升级为 "1" —— 这才是 1:1。
+  // 例：
+  //   Table user_profiles { user_id bigint [pk, ref: > users.id] }   // 推断 1:1
+  //   Table payments { order_id bigint [unique]; ... }
+  //   Ref: payments.order_id > orders.id                              // 推断 1:1
+  // 对显式写 `<` / `-` / `<>` 的关系不做改动，尊重作者意图。
+  // label 含逗号说明是复合 FK，单列推断不适用，跳过。
+  for (const rel of relationships) {
+    if (rel.fromCardinality !== "N" || rel.toCardinality !== "1") continue;
+    if (rel.label.includes(",")) continue;
+    const fromTable = tableByName.get(rel.from);
+    if (!fromTable) continue;
+    const col = fromTable.columns.find((c) => c.name === rel.label);
+    if (!col) continue;
+    const isOnlySinglePk =
+      fromTable.primaryKeys.length === 1 &&
+      fromTable.primaryKeys[0] === col.name;
+    if (col.isUnique || isOnlySinglePk) {
+      rel.fromCardinality = "1";
+    }
   }
 
   return { tables, relationships };

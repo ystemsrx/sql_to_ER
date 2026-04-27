@@ -138,7 +138,35 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         return;
       }
 
-      // === 销毁旧图前，先把当前图作为旧 input 的快照存起来 ===
+      // 解析放在保存旧图之前：解析失败时不应触发任何 IndexedDB 写入
+      // （既不为新输入排程保存，也不为旧图落档），否则会把"用户随手清空 +
+      // 粘错语法"的中间状态固化进历史。
+      let parsedData = parseSQLTables(trimmed);
+      if (parsedData.tables.length === 0) {
+        parsedData = parseDBML(trimmed);
+      }
+      const { tables, relationships } = parsedData;
+
+      if (tables.length === 0) {
+        // 无有效表：取消任何挂起的保存、清空画布并以遮罩形式呈现错误。
+        // 不写 IndexedDB；不更新 lastInputRef，否则后续的"旧图保存"会以损坏
+        // 的输入作 key 把上一次的有效图覆盖掉。
+        cancelPendingPersist();
+        if (graphRef.current) {
+          graphRef.current.clear?.();
+          graphRef.current.destroy?.();
+          graphRef.current = null;
+        }
+        historyRef.current.reset();
+        tablesDataRef.current = null;
+        lastInputRef.current = "";
+        setHasGraph(false);
+        setError(cur.t.errNoTable);
+        setLoading(false);
+        return;
+      }
+
+      // === 解析成功后，再把当前图作为旧 input 的快照存起来 ===
       // 这样用户在"上一份输入"上拖动后的位置不会因为重新生成而丢失。
       // 仅当存在旧图且旧 input 已落档（lastInputRef 非空）时才保存。
       if (graphRef.current && lastInputRef.current) {
@@ -154,19 +182,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       }
 
       lastInputRef.current = trimmed;
-
-      // Try parsing as SQL first, if it fails (no tables), try DBML.
-      let parsedData = parseSQLTables(trimmed);
-      if (parsedData.tables.length === 0) {
-        parsedData = parseDBML(trimmed);
-      }
-      const { tables, relationships } = parsedData;
-
-      if (tables.length === 0) {
-        setError(cur.t.errNoTable);
-        setLoading(false);
-        return;
-      }
 
       tablesDataRef.current = tables;
 
