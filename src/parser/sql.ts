@@ -37,7 +37,7 @@ const stripSqlComments = (src: string) => {
           out += src[i++];
         }
       }
-    } else if (ch === "-" && src[i + 1] === "--") {
+    } else if (ch === "-" && src[i + 1] === "-") {
       while (i < src.length && src[i] !== "\n") i++;
     } else if (ch === "/" && src[i + 1] === "*") {
       i += 2;
@@ -100,13 +100,30 @@ const splitStatements = (sql: string) => {
   return statements;
 };
 
-const cleanIdentifier = (raw: string) => {
-  const parts = raw
+// 拆解一个可能带 schema 前缀的标识符为各段裸名（去引号 / 去反引号 / 去方括号）。
+const splitIdentifierParts = (raw: string) =>
+  raw
     .split(".")
     .map((p) => p.trim().replace(/^[`"\[]|[`"\]]$/g, ""))
     .filter(Boolean);
+
+// 仅取最末段的裸名（用于列名 —— 列名不会有 schema 前缀）。
+const cleanIdentifier = (raw: string) => {
+  const parts = splitIdentifierParts(raw);
   return parts[parts.length - 1] || raw.trim();
 };
+
+// 保留 schema 的限定名（用于表名与 FK 目标）：`"app"."customer"` -> `app.customer`。
+// 不同 schema 下同名表才不会塌成同一个节点。
+const qualifiedIdentifier = (raw: string) => {
+  const parts = splitIdentifierParts(raw);
+  return parts.length ? parts.join(".") : raw.trim();
+};
+
+// T-SQL 批处理分隔符 GO 单独成行时把它换成 `;`，让后续按 `;` 切分能识别两边。
+// 必须在去掉块/行注释之后做，否则会误伤注释里的 GO。
+const normalizeBatchSeparators = (sql: string) =>
+  sql.replace(/^[\t ]*GO[\t ]*(?:\r?\n|$)/gim, ";\n");
 
 const splitTopLevelComma = (body: string) => {
   const parts: string[] = [];
@@ -182,7 +199,7 @@ const parseColumnType = (rest: string) => {
 export const parseSQLTables = (sql: string): ParseResult => {
   const tables: ParsedTable[] = [];
   const relationships: ParsedRelationship[] = [];
-  const cleanSql = stripSqlComments(sql).trim();
+  const cleanSql = normalizeBatchSeparators(stripSqlComments(sql)).trim();
 
   splitStatements(cleanSql).forEach((statement) => {
     if (!/^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE/i.test(statement)) return;
@@ -194,7 +211,12 @@ export const parseSQLTables = (sql: string): ParseResult => {
       ),
     );
     if (!tableNameMatch) return;
-    const tableName = cleanIdentifier(tableNameMatch[1]);
+    const tableName = qualifiedIdentifier(tableNameMatch[1]);
+
+    // PostgreSQL 分区子表（`PARTITION OF parent ...`）不是独立实体 —— 它的列、PK、
+    // FK 都继承自父表。强行解析会得到一个空节点漂在图上，干扰阅读。
+    if (/\bPARTITION\s+OF\b/i.test(statement)) return;
+
     const tableBody = extractMainBody(statement);
     if (!tableBody) return;
 
@@ -223,7 +245,7 @@ export const parseSQLTables = (sql: string): ParseResult => {
       if (fkMatch) {
         foreignKeys.push({
           column: cleanIdentifier(fkMatch[1]),
-          referencedTable: cleanIdentifier(fkMatch[2]),
+          referencedTable: qualifiedIdentifier(fkMatch[2]),
           referencedColumn: cleanIdentifier(fkMatch[3]),
         });
         return;
@@ -254,7 +276,7 @@ export const parseSQLTables = (sql: string): ParseResult => {
       if (inlineRef) {
         foreignKeys.push({
           column: columnName,
-          referencedTable: cleanIdentifier(inlineRef[1]),
+          referencedTable: qualifiedIdentifier(inlineRef[1]),
           referencedColumn: cleanIdentifier(inlineRef[2]),
         });
       }
