@@ -703,13 +703,40 @@ body::before {
     text;
 }
 
+/* 选区颜色：CM6 默认两条路径同时画选区 ——
+     a) drawSelection 扩展插入 .cm-selectionBackground 矩形（默认 #d7d4f0 浅紫）
+     b) 浏览器原生 ::selection 由我们全局规则上色（暖橙 + 白字）
+   两层叠加导致字符上一种色、空白处另一种色；原生那层还会把字色强制成白。
+   彻底修法：把 CM6 的矩形隐去，只留原生 ::selection 一条路径，并就近
+   覆盖背景色与字色。currentColor 比 inherit 在 ::selection 内更可靠 ——
+   旧版本 Chrome 对 ::selection { color: inherit } 有计算时机的 bug。 */
 .cm-host .cm-selectionBackground,
-.cm-host .cm-editor ::selection {
-  background: rgba(217, 119, 87, 0.22) !important;
+.cm-host .cm-editor .cm-selectionLayer .cm-selectionBackground,
+.cm-host .cm-editor.cm-focused
+  > .cm-scroller
+  > .cm-selectionLayer
+  .cm-selectionBackground {
+  background: transparent !important;
 }
 
-.cm-host .cm-editor.cm-focused .cm-selectionBackground {
-  background: rgba(217, 119, 87, 0.3) !important;
+/* CM6 的 hideNativeSelection 把 .cm-line ::selection 的 background-color 强制
+   置为 transparent；要 override 需要更高的特异性。.cm-host .cm-content ::selection
+   = (0,2,1)，胜过 .cm-line ::selection = (0,1,1)。!important 锁死。
+   ::selection / ::-moz-selection 必须分两条规则，否则任一未识别的伪元素
+   会让整条规则被浏览器丢弃。 */
+.cm-host .cm-content ::selection,
+.cm-host .cm-content::selection,
+.cm-host .cm-line ::selection,
+.cm-host .cm-line::selection {
+  background-color: rgba(217, 119, 87, 0.28) !important;
+  color: currentColor !important;
+}
+.cm-host .cm-content ::-moz-selection,
+.cm-host .cm-content::-moz-selection,
+.cm-host .cm-line ::-moz-selection,
+.cm-host .cm-line::-moz-selection {
+  background-color: rgba(217, 119, 87, 0.28) !important;
+  color: currentColor !important;
 }
 
 .cm-host .cm-activeLine {
