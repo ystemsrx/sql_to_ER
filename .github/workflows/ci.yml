@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+# 同一 PR / 分支只跑最新一次，旧的 in-progress 自动取消
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm 必须先于 setup-node，否则 setup-node 的 cache: pnpm 找不到可执行文件
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      # build 走 BASE_PATH=/sql_to_ER/，与 Pages 部署保持一致；
+      # 这样 PR 阶段就能在 vite.config.ts 改坏 base 时立刻失败。
+      - name: Production build (Pages base)
+        run: pnpm build
+        env:
+          BASE_PATH: /sql_to_ER/
+
+      - name: Upload dist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.run_id }}
+          path: dist
+          retention-days: 7
+          if-no-files-found: error

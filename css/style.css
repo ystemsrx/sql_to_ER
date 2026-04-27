@@ -508,19 +508,20 @@ body::before {
   transform: scale(0.95);
 }
 
-.background-toggle i,
-.colorize-toggle i,
-.attrs-toggle i,
-.history-toggle i {
+.background-toggle > svg,
+.colorize-toggle > svg,
+.attrs-toggle > svg,
+.history-toggle > svg {
   font-size: 16px;
   color: var(--app-ink-2);
+  display: block;
   transition: color var(--duration-fast) var(--ease-default);
 }
 
-.background-toggle:hover i,
-.colorize-toggle:hover i,
-.attrs-toggle:hover i,
-.history-toggle:hover i {
+.background-toggle:hover > svg,
+.colorize-toggle:hover > svg,
+.attrs-toggle:hover > svg,
+.history-toggle:hover > svg {
   color: var(--app-accent-warm);
 }
 
@@ -530,7 +531,7 @@ body::before {
   box-shadow: 0 4px 14px rgba(139, 92, 246, 0.18);
 }
 
-.colorize-toggle.active i {
+.colorize-toggle.active > svg {
   color: #0ea5e9;
 }
 
@@ -539,7 +540,7 @@ body::before {
   border-color: rgba(14, 165, 233, 0.45);
 }
 
-.colorize-toggle.active:hover i {
+.colorize-toggle.active:hover > svg {
   color: #0284c7;
 }
 
@@ -639,82 +640,184 @@ body::before {
 }
 
 /* ═══════════════════════════════════════
-   CodeMirror
+   CodeMirror 6
+   宿主 div 用 .cm-host 提供盒模型；CM6 自身渲染
+   `.cm-editor` / `.cm-content` / `.cm-gutters` 等。
 ═══════════════════════════════════════ */
-.CodeMirror {
-  height: 480px !important;
-  font-family: var(--app-font-mono) !important;
-  font-size: 13.5px;
-  line-height: 1.65;
-  background: var(--app-bg-overlay);
-  border: none;
+.cm-host {
+  height: 480px;
   border-radius: var(--radius-md);
-  color: var(--app-ink);
+  overflow: hidden;
   box-shadow: 0 0 0 1px var(--app-border);
   transition: box-shadow var(--duration-normal) var(--ease-default);
+  background: var(--app-bg-overlay);
 }
 
-.CodeMirror.CodeMirror-focused {
+.cm-host:focus-within {
   box-shadow:
     0 0 0 1.5px var(--app-accent),
     0 0 0 4.5px rgba(217, 119, 87, 0.22);
 }
 
-.CodeMirror-gutters {
-  background: var(--app-bg-raised);
-  border-right: 1px solid var(--app-border);
+.cm-host .cm-editor {
+  height: 100%;
+  font-family: var(--app-font-mono);
+  font-size: 13.5px;
+  background: transparent;
+  color: var(--app-ink);
 }
 
-.CodeMirror-linenumber {
+.cm-host .cm-editor.cm-focused {
+  outline: none;
+}
+
+.cm-host .cm-scroller {
+  font-family: inherit;
+  line-height: 1.65;
+}
+
+.cm-host .cm-gutters {
+  background: var(--app-bg-raised);
+  border-right: 1px solid var(--app-border);
   color: var(--app-ink-3);
 }
 
-.CodeMirror-cursor {
-  border-left: 1.5px solid var(--app-accent-warm) !important;
+.cm-host .cm-lineNumbers .cm-gutterElement {
+  color: var(--app-ink-3);
+}
+
+.cm-host .cm-cursor,
+.cm-host .cm-dropCursor {
+  border-left: 1.5px solid var(--app-accent-warm);
 }
 
 /* 自绘黑色 I-beam，规避 Windows + Chromium GPU 合成层下
    系统光标位图时黑时白的问题（白色主题缓存会在刷新后误取） */
-.CodeMirror,
-.CodeMirror-scroll,
-.CodeMirror-lines,
-.CodeMirror pre.CodeMirror-line,
-.CodeMirror pre.CodeMirror-line-like {
+.cm-host,
+.cm-host .cm-editor,
+.cm-host .cm-scroller,
+.cm-host .cm-content,
+.cm-host .cm-line {
   cursor:
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='20' viewBox='0 0 13 20'><g fill='none' stroke-linecap='round'><g stroke='white' stroke-width='2.6'><line x1='6.5' y1='2.5' x2='6.5' y2='17.5'/><line x1='3.5' y1='2.75' x2='9.5' y2='2.75'/><line x1='3.5' y1='17.25' x2='9.5' y2='17.25'/></g><g stroke='black' stroke-width='1.2'><line x1='6.5' y1='2.5' x2='6.5' y2='17.5'/><line x1='3.5' y1='2.75' x2='9.5' y2='2.75'/><line x1='3.5' y1='17.25' x2='9.5' y2='17.25'/></g></g></svg>")
       6 10,
     text;
 }
 
-.CodeMirror-selected {
-  background: rgba(217, 119, 87, 0.22) !important;
+/* 选区颜色：CM6 默认两条路径同时画选区 ——
+     a) drawSelection 扩展插入 .cm-selectionBackground 矩形（默认 #d7d4f0 浅紫）
+     b) 浏览器原生 ::selection 由我们全局规则上色（暖橙 + 白字）
+   两层叠加导致字符上一种色、空白处另一种色；原生那层还会把字色强制成白。
+   彻底修法：把 CM6 的矩形隐去，只留原生 ::selection 一条路径，并就近
+   覆盖背景色与字色。currentColor 比 inherit 在 ::selection 内更可靠 ——
+   旧版本 Chrome 对 ::selection { color: inherit } 有计算时机的 bug。 */
+.cm-host .cm-selectionBackground,
+.cm-host .cm-editor .cm-selectionLayer .cm-selectionBackground,
+.cm-host .cm-editor.cm-focused
+  > .cm-scroller
+  > .cm-selectionLayer
+  .cm-selectionBackground {
+  background: transparent !important;
 }
 
-.CodeMirror-focused .CodeMirror-selected {
-  background: rgba(217, 119, 87, 0.3) !important;
+/* CM6 的 hideNativeSelection 把 .cm-line ::selection 的 background-color 强制
+   置为 transparent；要 override 需要更高的特异性。.cm-host .cm-content ::selection
+   = (0,2,1)，胜过 .cm-line ::selection = (0,1,1)。!important 锁死。
+   ::selection / ::-moz-selection 必须分两条规则，否则任一未识别的伪元素
+   会让整条规则被浏览器丢弃。 */
+.cm-host .cm-content ::selection,
+.cm-host .cm-content::selection,
+.cm-host .cm-line ::selection,
+.cm-host .cm-line::selection {
+  background-color: rgba(217, 119, 87, 0.28) !important;
+  color: currentColor !important;
+}
+.cm-host .cm-content ::-moz-selection,
+.cm-host .cm-content::-moz-selection,
+.cm-host .cm-line ::-moz-selection,
+.cm-host .cm-line::-moz-selection {
+  background-color: rgba(217, 119, 87, 0.28) !important;
+  color: currentColor !important;
 }
 
-.CodeMirror-line::selection,
-.CodeMirror-line > span::selection,
-.CodeMirror-line > span > span::selection {
-  background: rgba(217, 119, 87, 0.3);
+.cm-host .cm-activeLine {
+  background: rgba(217, 119, 87, 0.05);
 }
 
-.CodeMirror-line::-moz-selection,
-.CodeMirror-line > span::-moz-selection,
-.CodeMirror-line > span > span::-moz-selection {
-  background: rgba(217, 119, 87, 0.3);
+.cm-host .cm-activeLineGutter {
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--app-ink-2);
 }
 
 /* ═══════════════════════════════════════
-   Ant Design 覆盖：开关改为暖橙
+   SwitchControl —— 原生 checkbox + 暖橙轨道
 ═══════════════════════════════════════ */
-.ant-switch.ant-switch-checked {
-  background: var(--app-accent) !important;
+.switch-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
-  background: var(--app-accent-warm) !important;
+.switch-control.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 真正的 checkbox 视觉上隐藏，仅供 a11y / 键盘聚焦 */
+.switch-control-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.switch-control-track {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.18);
+  transition: background var(--duration-normal) var(--ease-default);
+  flex: none;
+}
+
+.switch-control-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  transition: transform var(--duration-normal) var(--ease-default);
+}
+
+.switch-control-input:checked + .switch-control-track {
+  background: var(--app-accent);
+}
+
+.switch-control-input:checked + .switch-control-track .switch-control-thumb {
+  transform: translateX(12px);
+}
+
+.switch-control:hover .switch-control-input:checked + .switch-control-track {
+  background: var(--app-accent-warm);
+}
+
+/* 键盘聚焦环 —— 落在 track 上而不是隐藏的 input */
+.switch-control-input:focus-visible + .switch-control-track {
+  box-shadow:
+    0 0 0 2px var(--app-bg-overlay),
+    0 0 0 4px rgba(217, 119, 87, 0.45);
 }
 
 /* ═══════════════════════════════════════
@@ -866,8 +969,10 @@ body::before {
     font-size: 1.02rem;
   }
 
-  .CodeMirror {
-    height: 320px !important;
+  .cm-host {
+    height: 320px;
+  }
+  .cm-host .cm-editor {
     font-size: 13px;
   }
 
@@ -933,8 +1038,10 @@ body::before {
     font-size: 0.96rem;
   }
 
-  .CodeMirror {
-    height: 260px !important;
+  .cm-host {
+    height: 260px;
+  }
+  .cm-host .cm-editor {
     font-size: 12px;
   }
 
@@ -977,8 +1084,8 @@ body::before {
     gap: 8px !important;
   }
 
-  .card-header > div:last-child .ant-switch {
-    transform: scale(0.9);
+  .card-header > div:last-child .switch-control {
+    transform: scale(0.92);
   }
 }
 
@@ -1206,7 +1313,7 @@ body.is-lang-fading .lang-fade-target {
   }
 
   .input-textarea,
-  .CodeMirror {
+  .cm-host {
     background: var(--color-bg-overlay);
     color: var(--app-ink);
   }
@@ -1523,10 +1630,11 @@ body.is-lang-fading .lang-fade-target {
   letter-spacing: -0.015em;
   color: var(--app-ink);
 }
-.history-header i {
+.history-header > svg {
   position: relative;
   top: 2px;
-  font-size: 0.78em;
+  width: 0.78em;
+  height: 0.78em;
   color: var(--app-accent-warm);
 }
 .history-header .history-count {
@@ -1598,7 +1706,7 @@ body.is-lang-fading .lang-fade-target {
   transition: opacity 600ms var(--ease-default);
   box-shadow: 0 8px 24px rgba(20, 20, 19, 0.06);
 }
-.history-hint i {
+.history-hint > svg {
   color: var(--app-accent);
   animation: history-bounce 1.4s ease-in-out infinite;
 }
@@ -1640,8 +1748,9 @@ body.is-lang-fading .lang-fade-target {
   margin-bottom: var(--space-2);
   box-shadow: 0 8px 24px rgba(217, 119, 87, 0.12);
 }
-.history-empty-icon-wrap i {
-  font-size: 30px;
+.history-empty-icon-wrap > svg {
+  width: 30px;
+  height: 30px;
   color: var(--app-accent-warm);
 }
 .history-empty-title {

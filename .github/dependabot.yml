@@ -1,0 +1,53 @@
+version: 2
+updates:
+  # 应用代码依赖：每周一打包成少量 PR，避免每个包一个 PR 的噪音
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+      prefix-development: chore(deps-dev)
+      include: scope
+    groups:
+      # React 一组：核心 + 类型一起升，避免 react / react-dom / @types/react 错配
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      # CodeMirror 6 子包之间版本必须互相兼容，分组升级最稳
+      codemirror:
+        patterns:
+          - codemirror
+          - "@codemirror/*"
+          - "@lezer/*"
+      # 工具链统一升
+      tooling:
+        patterns:
+          - vite
+          - "@vitejs/*"
+          - vitest
+          - typescript
+
+  # GitHub Actions 自身：保证 actions/checkout、setup-node 这类基础动作不锈
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(ci)
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "*"

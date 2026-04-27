@@ -38,33 +38,32 @@
 
 🔗 **[ER Diagram Generator](https://ystemsrx.github.io/sql_to_ER/sql2er.html)**
 
-或者克隆到本地运行：
+或者克隆到本地开发运行：
+
+本项目使用 [pnpm](https://pnpm.io/) 作为包管理器（已通过 `packageManager` 字段锁定版本，建议先 `corepack enable` 让其自动安装）。
 
 ```bash
 git clone https://github.com/ystemsrx/sql_to_ER.git
 cd sql_to_ER
+corepack enable        # 一次性，启用 Corepack 自动管理 pnpm 版本
+pnpm install
+pnpm dev
 ```
 
 > [!WARNING]
-> **请勿直接双击打开 `sql2er.html`**。由于浏览器对 `file://` 协议的安全限制，CSS / JS 资源将无法正常加载，页面会显示空白或报错。请使用任意本地 HTTP 服务器启动，例如：
+> **请勿直接双击打开 `sql2er.html`，也不要用 `npx serve .` 直接服务源码目录。** 本项目使用 Vite + TypeScript，源码中的 `.ts/.tsx` 和 npm 依赖需要 Vite 编译与模块解析。开发时请使用：
 >
 > ```bash
-> # 方式一：Python 3（推荐，无需额外安装）
-> python -m http.server 8000
->
-> # 方式二：Node.js
-> npx serve .
->
-> # 方式三：VS Code "Live Server" 扩展
+> pnpm dev
 > ```
 >
-> 然后在浏览器访问 `http://localhost:8000/sql2er.html` 即可。
+> 然后在浏览器访问 Vite 输出的地址，例如 `http://localhost:5173/sql2er.html`。如果要用静态服务器，请先执行 `pnpm build`，再服务 `dist/` 目录。
 
 ---
 
 ## 📖 使用步骤
 
-1. 通过本地 HTTP 服务器打开 `sql2er.html`（参见上方快速使用，或直接访问在线版）
+1. 通过 `pnpm dev` 打开 `sql2er.html`（参见上方快速使用，或直接访问在线版）
 2. 在输入区粘贴 **SQL `CREATE TABLE`** 语句或 **DBML** 代码
 3. 点击 **「生成 ER 图」** 按钮
 4. 若对节点位置不满意，可**拖拽节点**调整布局；**双击节点**修改内容
