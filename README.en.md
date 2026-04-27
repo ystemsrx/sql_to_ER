@@ -11,8 +11,12 @@
 [![GitHub Forks](https://img.shields.io/github/forks/ystemsrx/sql_to_ER?style=flat-square&color=blue)](https://github.com/ystemsrx/sql_to_ER/network/members)
 [![GitHub Issues](https://img.shields.io/github/issues/ystemsrx/sql_to_ER?style=flat-square&color=red)](https://github.com/ystemsrx/sql_to_ER/issues)
 [![Last Commit](https://img.shields.io/github/last-commit/ystemsrx/sql_to_ER?style=flat-square&color=green)](https://github.com/ystemsrx/sql_to_ER/commits)
-[![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)](#)
-[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](#)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](#)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)](#)
+[![G6](https://img.shields.io/badge/AntV%20G6-4.8-1890FF?style=flat-square)](#)
+[![Vitest](https://img.shields.io/badge/Vitest-4-6E9F18?style=flat-square&logo=vitest&logoColor=white)](#)
+[![pnpm](https://img.shields.io/badge/pnpm-F69220?style=flat-square&logo=pnpm&logoColor=white)](#)
 
 ### 🌐 [**Try Online · Live Demo**](https://ystemsrx.github.io/sql_to_ER/sql2er.html)
 
