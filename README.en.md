@@ -6,7 +6,7 @@
 
 [English](README.en.md) · **Simplified Chinese**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=flat-square)](./LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/ystemsrx/sql_to_ER?style=flat-square&color=gold)](https://github.com/ystemsrx/sql_to_ER/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/ystemsrx/sql_to_ER?style=flat-square&color=blue)](https://github.com/ystemsrx/sql_to_ER/network/members)
 [![GitHub Issues](https://img.shields.io/github/issues/ystemsrx/sql_to_ER?style=flat-square&color=red)](https://github.com/ystemsrx/sql_to_ER/issues)
@@ -192,4 +192,4 @@ Issues and Pull Requests are welcome! If this project helps you, please leave a 
 
 ## 📄 License
 
-Released under the [MIT License](./LICENSE).
+Released under the [GNU AGPL v3.0](./LICENSE).
