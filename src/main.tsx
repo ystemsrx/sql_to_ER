@@ -1,7 +1,5 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import "codemirror/lib/codemirror.css";
-import "antd/dist/reset.css";
 import "../assets/fonts/fonts.css";
 import "../assets/base.css";
 import "../vendor/fontawesome/css/all.min.css";

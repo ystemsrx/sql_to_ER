@@ -1,12 +1,11 @@
-import * as React from "react";
-import { useEffect, useRef, useState } from "react";
-import { Switch } from "antd";
+import { useEffect, useState } from "react";
 import G6 from "@antv/g6";
 import { I18N } from "./i18n";
 import type { Language } from "./i18n";
 import { detectLang } from "./language";
 import { patchRelationshipLinkPoints, registerCustomNodes } from "./builder";
-import { createCodeEditorComponent } from "./editor";
+import { CodeEditor } from "./editor";
+import { SwitchControl } from "./components/SwitchControl";
 import * as Exporter from "./exporter";
 import * as Snapshots from "./snapshots";
 import type { SnapshotRecord } from "./types";
@@ -18,18 +17,12 @@ import { useUndoRedoShortcuts } from "./hooks/useUndoRedoShortcuts";
 import { useWheelZoomRotate } from "./hooks/useWheelZoomRotate";
 
 registerCustomNodes(G6);
-const CodeEditor = createCodeEditorComponent(React);
 
 const App = () => {
-  const [lang, setLang] = useState<Language>(() => detectLang() as Language);
+  const initialLang = detectLang() as Language;
+  const [lang, setLang] = useState<Language>(initialLang);
   const t = I18N[lang];
   const [showBackground, setShowBackground] = useState(true);
-  const [inputText, setInputText] = useState<string>(
-    () => I18N[detectLang() as Language].sample,
-  );
-  const [isColored, setIsColored] = useState(true);
-  const [showComment, setShowComment] = useState(false);
-  const [hideFields, setHideFields] = useState(false);
   // 历史快照面板状态
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyItems, setHistoryItems] = useState<SnapshotRecord[]>([]);
@@ -39,56 +32,45 @@ const App = () => {
     graphRef,
     historyRef,
     lastInputRef,
+    inputText,
+    isColored,
+    showComment,
+    hideFields,
     hasGraph,
     error,
     loading,
     setError,
+    setInputText,
+    setIsColored,
+    setShowComment,
+    setHideFields,
     handleGenerate,
     handleForceAlign,
     handleArrangeLayout,
     restoreFromSnapshot,
     persistSnapshot,
-  } = useGraph({
-    t,
-    inputText,
-    isColored,
-    showComment,
-    hideFields,
-    setInputText,
-    setIsColored,
-    setShowComment,
-    setHideFields,
-  });
+  } = useGraph({ t, initialLang });
 
-  const pendingRegenRef = useRef(false);
-
-  // 监听语言切换事件（由顶部 vanilla 脚本派发）
+  // 监听语言切换事件（由顶部 vanilla 脚本派发）。
+  // 用户尚未修改示例时连同示例一起替换并立即重新生成；
+  // 不再走 ref+effect 的间接路径。
   useEffect(() => {
     const onLang = (e: Event) => {
       const detail = (e as CustomEvent<{ lang?: Language }>).detail;
       const nextLang = detail && detail.lang;
       if (!nextLang || nextLang === lang) return;
-      // 如果用户尚未修改示例，则切换为目标语言的示例
-      setInputText((prev) => {
-        if (prev === I18N.zh.sample || prev === I18N.en.sample) {
-          pendingRegenRef.current = true;
-          return I18N[nextLang].sample;
-        }
-        return prev;
-      });
+      const usingDefaultSample =
+        inputText === I18N.zh.sample || inputText === I18N.en.sample;
       setLang(nextLang);
+      if (usingDefaultSample) {
+        const nextSample = I18N[nextLang].sample;
+        setInputText(nextSample);
+        handleGenerate({ inputText: nextSample });
+      }
     };
     window.addEventListener("sql2er-lang", onLang);
     return () => window.removeEventListener("sql2er-lang", onLang);
-  }, [lang]);
-
-  // 语言切换后若示例已替换，则自动重新生成
-  useEffect(() => {
-    if (pendingRegenRef.current) {
-      pendingRegenRef.current = false;
-      handleGenerate();
-    }
-  }, [inputText]);
+  }, [lang, inputText, setInputText, handleGenerate]);
 
   // 导出 SVG/PNG/Drawio - 使用 Exporter 模块
   const handleExportSVG = (onDone: ExportDoneCallback) => {
@@ -284,11 +266,10 @@ const App = () => {
                   gap: "10px",
                 }}
               >
-                <span className="inline-label">{t.showComment}</span>
-                <Switch
+                <SwitchControl
+                  label={t.showComment}
                   checked={showComment}
                   onChange={setShowComment}
-                  size="small"
                 />
               </div>
             </div>

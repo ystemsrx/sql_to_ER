@@ -14,14 +14,14 @@
   },
   "dependencies": {
     "@antv/g6": "4.8.23",
-    "antd": "^5.0.0",
-    "codemirror": "^5.65.0",
-    "dayjs": "^1.11.0",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "codemirror": "^6.0.2",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },
   "devDependencies": {
-    "@types/codemirror": "^5.60.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^5.0.0",

@@ -2,17 +2,15 @@
  * Editor Module - 编辑器相关逻辑
  * 包括 CodeMirror 代码编辑器组件和 G6 节点双击编辑功能
  */
-import CodeMirror from "codemirror";
-import "codemirror/mode/sql/sql";
-import "codemirror/mode/javascript/javascript";
-import "codemirror/addon/display/placeholder";
-import "codemirror/addon/edit/matchbrackets";
-import "codemirror/addon/edit/closebrackets";
-import type * as ReactNS from "react";
+import { useEffect, useRef } from "react";
+import { EditorView, basicSetup } from "codemirror";
+import { EditorState } from "@codemirror/state";
+import { placeholder as placeholderExtension } from "@codemirror/view";
+import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import type { ERNodeModel, GraphLike, GraphNodeLike } from "./types";
 
 // ========================
-// CodeEditor React 组件
+// CodeEditor React 组件 (CodeMirror 6)
 // ========================
 
 export interface CodeEditorProps {
@@ -21,76 +19,58 @@ export interface CodeEditorProps {
     placeholder?: string;
 }
 
-export type CodeEditorComponent = (props: CodeEditorProps) => ReactNS.ReactElement;
-
 /**
- * 创建 CodeEditor React 组件 —— 通过参数注入 React，避免本模块直接 import
- * 触发非 jsx 文件的依赖。
+ * SQL/DBML 编辑器。CodeMirror 6 用 EditorView + EditorState 模型，
+ * 一次性挂载，外部 value 变化通过 dispatch 同步进 doc。
  */
-export function createCodeEditorComponent(React: typeof ReactNS): CodeEditorComponent {
-    const { useRef, useEffect } = React;
+export const CodeEditor = ({ value, onChange, placeholder }: CodeEditorProps) => {
+    const hostRef = useRef<HTMLDivElement | null>(null);
+    const viewRef = useRef<EditorView | null>(null);
+    // 把最新的 onChange 装进 ref，避免在外部回调变化时重建 EditorView。
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
-    const CodeEditor: CodeEditorComponent = ({ value, onChange, placeholder }) => {
-        const editorRef = useRef<HTMLTextAreaElement | null>(null);
-        const cmInstance = useRef<CodeMirror.EditorFromTextArea | null>(null);
+    useEffect(() => {
+        if (!hostRef.current) return;
 
-        useEffect(() => {
-            if (!editorRef.current) return;
+        const startState = EditorState.create({
+            doc: value,
+            extensions: [
+                basicSetup,
+                sql({ dialect: PostgreSQL, upperCaseKeywords: false }),
+                EditorView.lineWrapping,
+                placeholderExtension(placeholder ?? ""),
+                EditorView.updateListener.of((update) => {
+                    if (update.docChanged) {
+                        onChangeRef.current(update.state.doc.toString());
+                    }
+                }),
+            ],
+        });
+        const view = new EditorView({ state: startState, parent: hostRef.current });
+        viewRef.current = view;
 
-            const cm = CodeMirror.fromTextArea(editorRef.current, {
-                mode: "text/x-pgsql",
-                lineNumbers: true,
-                theme: "default",
-                lineWrapping: true,
-                placeholder,
-                matchBrackets: true,
-                autoCloseBrackets: true,
-            } as CodeMirror.EditorConfiguration);
-            cmInstance.current = cm;
-            cm.setSize(null, "480px");
+        return () => {
+            view.destroy();
+            viewRef.current = null;
+        };
+        // 仅初次挂载初始化；后续 value 变化由下方 effect 同步。placeholder 静态。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-            cm.on("change", (instance) => {
-                onChange(instance.getValue());
-            });
+    // 外部 value 变化时同步进 doc。等值则跳过，避免 dispatch 把光标重置。
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view) return;
+        const current = view.state.doc.toString();
+        if (current === value) return;
+        view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: value },
+        });
+    }, [value]);
 
-            cm.setValue(value);
-
-            return () => {
-                cm.toTextArea();
-                cmInstance.current = null;
-            };
-        }, []);
-
-        useEffect(() => {
-            const cm = cmInstance.current;
-            if (cm && cm.getValue() !== value) {
-                const cursor = cm.getCursor();
-                cm.setValue(value);
-                cm.setCursor(cursor);
-            }
-        }, [value]);
-
-        return React.createElement(
-            "div",
-            {
-                style: {
-                    height: "480px",
-                    display: "flex",
-                    flexDirection: "column",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "16px",
-                    overflow: "hidden",
-                },
-            },
-            React.createElement("textarea", {
-                ref: editorRef,
-                style: { display: "none" },
-            }),
-        );
-    };
-
-    return CodeEditor;
-}
+    return <div ref={hostRef} className="cm-host" />;
+};
 
 // ========================
 // 节点双击编辑功能
@@ -286,14 +266,6 @@ export function setupNodeDoubleClickEdit(
                     }
                 }
                 graph.updateItem(editingNode, { label: newLabel });
-            }
-
-            if (model.type === "attribute") {
-                console.log(`属性 ${model.label} 已更新为 ${newLabel}`);
-            } else if (model.type === "entity") {
-                console.log(`实体 ${model.label} 已更新为 ${newLabel}`);
-            } else if (model.type === "relationship") {
-                console.log(`关系 ${model.label} 已更新为 ${newLabel}`);
             }
         }
 

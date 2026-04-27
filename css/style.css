@@ -639,82 +639,157 @@ body::before {
 }
 
 /* ═══════════════════════════════════════
-   CodeMirror
+   CodeMirror 6
+   宿主 div 用 .cm-host 提供盒模型；CM6 自身渲染
+   `.cm-editor` / `.cm-content` / `.cm-gutters` 等。
 ═══════════════════════════════════════ */
-.CodeMirror {
-  height: 480px !important;
-  font-family: var(--app-font-mono) !important;
-  font-size: 13.5px;
-  line-height: 1.65;
-  background: var(--app-bg-overlay);
-  border: none;
+.cm-host {
+  height: 480px;
   border-radius: var(--radius-md);
-  color: var(--app-ink);
+  overflow: hidden;
   box-shadow: 0 0 0 1px var(--app-border);
   transition: box-shadow var(--duration-normal) var(--ease-default);
+  background: var(--app-bg-overlay);
 }
 
-.CodeMirror.CodeMirror-focused {
+.cm-host:focus-within {
   box-shadow:
     0 0 0 1.5px var(--app-accent),
     0 0 0 4.5px rgba(217, 119, 87, 0.22);
 }
 
-.CodeMirror-gutters {
-  background: var(--app-bg-raised);
-  border-right: 1px solid var(--app-border);
+.cm-host .cm-editor {
+  height: 100%;
+  font-family: var(--app-font-mono);
+  font-size: 13.5px;
+  background: transparent;
+  color: var(--app-ink);
 }
 
-.CodeMirror-linenumber {
+.cm-host .cm-editor.cm-focused {
+  outline: none;
+}
+
+.cm-host .cm-scroller {
+  font-family: inherit;
+  line-height: 1.65;
+}
+
+.cm-host .cm-gutters {
+  background: var(--app-bg-raised);
+  border-right: 1px solid var(--app-border);
   color: var(--app-ink-3);
 }
 
-.CodeMirror-cursor {
-  border-left: 1.5px solid var(--app-accent-warm) !important;
+.cm-host .cm-lineNumbers .cm-gutterElement {
+  color: var(--app-ink-3);
+}
+
+.cm-host .cm-cursor,
+.cm-host .cm-dropCursor {
+  border-left: 1.5px solid var(--app-accent-warm);
 }
 
 /* 自绘黑色 I-beam，规避 Windows + Chromium GPU 合成层下
    系统光标位图时黑时白的问题（白色主题缓存会在刷新后误取） */
-.CodeMirror,
-.CodeMirror-scroll,
-.CodeMirror-lines,
-.CodeMirror pre.CodeMirror-line,
-.CodeMirror pre.CodeMirror-line-like {
+.cm-host,
+.cm-host .cm-editor,
+.cm-host .cm-scroller,
+.cm-host .cm-content,
+.cm-host .cm-line {
   cursor:
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='20' viewBox='0 0 13 20'><g fill='none' stroke-linecap='round'><g stroke='white' stroke-width='2.6'><line x1='6.5' y1='2.5' x2='6.5' y2='17.5'/><line x1='3.5' y1='2.75' x2='9.5' y2='2.75'/><line x1='3.5' y1='17.25' x2='9.5' y2='17.25'/></g><g stroke='black' stroke-width='1.2'><line x1='6.5' y1='2.5' x2='6.5' y2='17.5'/><line x1='3.5' y1='2.75' x2='9.5' y2='2.75'/><line x1='3.5' y1='17.25' x2='9.5' y2='17.25'/></g></g></svg>")
       6 10,
     text;
 }
 
-.CodeMirror-selected {
+.cm-host .cm-selectionBackground,
+.cm-host .cm-editor ::selection {
   background: rgba(217, 119, 87, 0.22) !important;
 }
 
-.CodeMirror-focused .CodeMirror-selected {
+.cm-host .cm-editor.cm-focused .cm-selectionBackground {
   background: rgba(217, 119, 87, 0.3) !important;
 }
 
-.CodeMirror-line::selection,
-.CodeMirror-line > span::selection,
-.CodeMirror-line > span > span::selection {
-  background: rgba(217, 119, 87, 0.3);
+.cm-host .cm-activeLine {
+  background: rgba(217, 119, 87, 0.05);
 }
 
-.CodeMirror-line::-moz-selection,
-.CodeMirror-line > span::-moz-selection,
-.CodeMirror-line > span > span::-moz-selection {
-  background: rgba(217, 119, 87, 0.3);
+.cm-host .cm-activeLineGutter {
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--app-ink-2);
 }
 
 /* ═══════════════════════════════════════
-   Ant Design 覆盖：开关改为暖橙
+   SwitchControl —— 原生 checkbox + 暖橙轨道
 ═══════════════════════════════════════ */
-.ant-switch.ant-switch-checked {
-  background: var(--app-accent) !important;
+.switch-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
-  background: var(--app-accent-warm) !important;
+.switch-control.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 真正的 checkbox 视觉上隐藏，仅供 a11y / 键盘聚焦 */
+.switch-control-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.switch-control-track {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.18);
+  transition: background var(--duration-normal) var(--ease-default);
+  flex: none;
+}
+
+.switch-control-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  transition: transform var(--duration-normal) var(--ease-default);
+}
+
+.switch-control-input:checked + .switch-control-track {
+  background: var(--app-accent);
+}
+
+.switch-control-input:checked + .switch-control-track .switch-control-thumb {
+  transform: translateX(12px);
+}
+
+.switch-control:hover .switch-control-input:checked + .switch-control-track {
+  background: var(--app-accent-warm);
+}
+
+/* 键盘聚焦环 —— 落在 track 上而不是隐藏的 input */
+.switch-control-input:focus-visible + .switch-control-track {
+  box-shadow:
+    0 0 0 2px var(--app-bg-overlay),
+    0 0 0 4px rgba(217, 119, 87, 0.45);
 }
 
 /* ═══════════════════════════════════════
@@ -866,8 +941,10 @@ body::before {
     font-size: 1.02rem;
   }
 
-  .CodeMirror {
-    height: 320px !important;
+  .cm-host {
+    height: 320px;
+  }
+  .cm-host .cm-editor {
     font-size: 13px;
   }
 
@@ -933,8 +1010,10 @@ body::before {
     font-size: 0.96rem;
   }
 
-  .CodeMirror {
-    height: 260px !important;
+  .cm-host {
+    height: 260px;
+  }
+  .cm-host .cm-editor {
     font-size: 12px;
   }
 
@@ -977,8 +1056,8 @@ body::before {
     gap: 8px !important;
   }
 
-  .card-header > div:last-child .ant-switch {
-    transform: scale(0.9);
+  .card-header > div:last-child .switch-control {
+    transform: scale(0.92);
   }
 }
 
@@ -1206,7 +1285,7 @@ body.is-lang-fading .lang-fade-target {
   }
 
   .input-textarea,
-  .CodeMirror {
+  .cm-host {
     background: var(--color-bg-overlay);
     color: var(--app-ink);
   }

@@ -29,10 +29,13 @@ export default defineConfig({
           if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
             return "vendor-react";
           }
-          if (id.includes("node_modules/antd") || id.includes("node_modules/dayjs")) {
-            return "vendor-antd";
+          if (
+            id.includes("node_modules/codemirror") ||
+            id.includes("node_modules/@codemirror") ||
+            id.includes("node_modules/@lezer")
+          ) {
+            return "vendor-editor";
           }
-          if (id.includes("node_modules/codemirror")) return "vendor-editor";
         },
       },
     },
