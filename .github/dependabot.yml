@@ -13,6 +13,12 @@ updates:
       prefix: chore(deps)
       prefix-development: chore(deps-dev)
       include: scope
+    # @antv/g6 5.x is a full API rewrite (different mount API, layout system,
+    # node registration). Pin to 4.x and only allow patch/minor bumps until
+    # we deliberately port the codebase.
+    ignore:
+      - dependency-name: "@antv/g6"
+        update-types: ["version-update:semver-major"]
     groups:
       # React 一组：核心 + 类型一起升，避免 react / react-dom / @types/react 错配
       react:
