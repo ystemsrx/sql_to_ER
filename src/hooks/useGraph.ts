@@ -326,10 +326,32 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const setShowComment = (next: boolean) => {
     setShowCommentState(next);
-    if (hasGraph && lastInputRef.current) {
-      // 标签内容变化需要重新生成（节点 label 不可热更新）
-      handleGenerate({ showComment: next });
-    }
+    const graph = graphRef.current;
+    if (!hasGraph || !graph || graph.destroyed) return;
+    // 不再走 handleGenerate 重建图；直接用每个节点上预先存的 nameLabel /
+    // commentLabel 切换 label 字段。布局保持原样，连线在 builder 的 update
+    // 里会随节点尺寸变化自动重画（连带的边刷新仍然显式做一次以兜底）。
+    graph.setAutoPaint(false);
+    graph.getNodes().forEach((node) => {
+      const m = node.getModel() as ERNodeModel & {
+        nameLabel?: string;
+        commentLabel?: string;
+      };
+      const nameLabel = m.nameLabel;
+      const commentLabel = m.commentLabel;
+      if (nameLabel === undefined && commentLabel === undefined) return;
+      const target = next
+        ? commentLabel || nameLabel || m.label
+        : nameLabel || m.label;
+      if (target !== undefined && target !== m.label) {
+        graph.updateItem(node, { label: target });
+      }
+    });
+    // 节点尺寸可能因 label 变化而改变，强制让所有边按新 bbox 重算端点。
+    graph.getEdges().forEach((edge) => graph.updateItem(edge, {}));
+    if (graph.refresh) graph.refresh();
+    graph.paint();
+    graph.setAutoPaint(true);
   };
 
   const setHideFields = (next: boolean) => {

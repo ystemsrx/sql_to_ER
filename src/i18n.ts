@@ -7,7 +7,7 @@ export const I18N = {
           pageTitle: "SQL/DBML2ER",
           cardInputTitle: "SQL / DBML",
           cardPreviewTitle: "ER 图预览",
-          showComment: "属性显示注释",
+          showComment: "展示 COMMENT",
           hideFields: "隐藏属性",
           editorPlaceholder: "在此处粘贴您的 CREATE TABLE 或 DBML 语句...",
           btnGenerate: "⚡ 生成 ER 图",

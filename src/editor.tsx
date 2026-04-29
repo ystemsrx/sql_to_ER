@@ -266,6 +266,18 @@ export function setupNodeDoubleClickEdit(
                     }
                 }
                 graph.updateItem(editingNode, { label: newLabel });
+
+                // 节点 label 变化会改变其包围盒尺寸，但 G6 不会主动让连线重新跑
+                // getLinkPoint —— 必须显式刷新与该节点相连的边，否则要等用户拖
+                // 一下节点连线才会贴上来。
+                const nodeId = model.id;
+                graph.getEdges().forEach((edge) => {
+                    const em = edge.getModel();
+                    if (em.source === nodeId || em.target === nodeId) {
+                        graph.updateItem(edge, {});
+                    }
+                });
+                if (graph.refresh) graph.refresh();
             }
         }
 

@@ -370,9 +370,38 @@ interface ParsedRefStatement {
   from: RefTarget;
   to: RefTarget;
   op: string;
+  comment?: string;
 }
 
-const parseRefBody = (body: string): ParsedRefStatement | null => {
+// Ref 顶层 settings 块 `[delete: cascade, note: 'xxx']` 中的 note 是关系注释。
+// 拆出来：返回 (剥掉外层 [...] 后的 body, 提取到的 note 字符串)。
+const stripRefSettings = (
+  body: string,
+): { body: string; comment?: string } => {
+  let cleaned = body;
+  let comment: string | undefined;
+  const lb = indexOfUnquoted(cleaned, "[");
+  if (lb !== -1) {
+    const rb = findMatchingBracket(cleaned, lb);
+    if (rb !== -1) {
+      const inner = cleaned.slice(lb + 1, rb);
+      // 注意 parseRefTarget 也会剥掉粘在右目标后面的 [...]；这里 stripRefSettings
+      // 只是把"留在 body 里的 settings 文字"再抽一层 note 出来供关系节点显示。
+      for (const attr of splitTopLevelCommas(inner)) {
+        const colon = indexOfUnquoted(attr, ":");
+        if (colon === -1) continue;
+        const key = attr.slice(0, colon).trim().toLowerCase();
+        const value = attr.slice(colon + 1).trim();
+        if (key === "note") comment = stripQuotes(value);
+      }
+      cleaned = (cleaned.slice(0, lb) + " " + cleaned.slice(rb + 1)).trim();
+    }
+  }
+  return { body: cleaned, comment };
+};
+
+const parseRefBody = (rawBody: string): ParsedRefStatement | null => {
+  const { body, comment } = stripRefSettings(rawBody);
   let i = 0;
   while (i < body.length) {
     const ch = body[i];
@@ -385,14 +414,17 @@ const parseRefBody = (body: string): ParsedRefStatement | null => {
       const right = body.slice(i + 2).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      return from && to ? { from, to, op: "<>" } : null;
+      return from && to
+        ? { from, to, op: "<>", ...(comment ? { comment } : {}) }
+        : null;
     }
     if (ch === "<" || ch === ">" || ch === "-") {
       const left = body.slice(0, i).trim();
       const right = body.slice(i + 1).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      if (from && to) return { from, to, op: ch };
+      if (from && to)
+        return { from, to, op: ch, ...(comment ? { comment } : {}) };
     }
     i++;
   }
@@ -592,6 +624,7 @@ const addRelationship = (
     label: ref.from.column,
     fromCardinality: card.from,
     toCardinality: card.to,
+    ...(ref.comment ? { comment: ref.comment } : {}),
   });
   const t = tableByName.get(ref.from.table);
   if (t) {
@@ -602,6 +635,29 @@ const addRelationship = (
       referencedColumn: ref.to.column,
     });
   }
+};
+
+// 从表 body 中提取 `Note: '...'` 或 `Note { '...' }` 作为表级注释。
+// 不修改原 body —— 调用方会照常用 splitLogicalLines 跳过 Note 行。
+const extractTableNote = (body: string): string | undefined => {
+  const lines = splitLogicalLines(body);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!/^Note\s*[:{]/i.test(line)) continue;
+    const afterNote = line.slice(4).trim();
+    if (afterNote.startsWith(":")) {
+      const v = afterNote.slice(1).trim();
+      if (v) return stripQuotes(v);
+      continue;
+    }
+    if (afterNote.startsWith("{")) {
+      const close = findMatchingBrace(afterNote, 0);
+      if (close === -1) continue;
+      const inner = afterNote.slice(1, close).trim();
+      if (inner) return stripQuotes(inner);
+    }
+  }
+  return undefined;
 };
 
 export const parseDBML = (dbml: string): ParseResult => {
@@ -656,12 +712,14 @@ export const parseDBML = (dbml: string): ParseResult => {
         columns.push(column);
       }
 
+      const tableNote = extractTableNote(stmt.body);
       const table: ParsedTable = {
         name: head.name,
         alias: head.alias,
         columns,
         primaryKeys,
         foreignKeys,
+        ...(tableNote ? { comment: tableNote } : {}),
       };
       tables.push(table);
       tableByName.set(head.name, table);

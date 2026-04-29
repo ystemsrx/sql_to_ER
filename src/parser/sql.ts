@@ -158,7 +158,9 @@ const splitTopLevelComma = (body: string) => {
   return parts;
 };
 
-const extractMainBody = (statement: string) => {
+const extractMainBody = (
+  statement: string,
+): { body: string; suffix: string } | null => {
   const openParenIndex = statement.indexOf("(");
   if (openParenIndex === -1) return null;
   let closeParenIndex = -1;
@@ -181,9 +183,18 @@ const extractMainBody = (statement: string) => {
       depth--;
     }
   }
-  return closeParenIndex === -1
-    ? null
-    : statement.substring(openParenIndex + 1, closeParenIndex);
+  if (closeParenIndex === -1) return null;
+  return {
+    body: statement.substring(openParenIndex + 1, closeParenIndex),
+    suffix: statement.substring(closeParenIndex + 1),
+  };
+};
+
+// 解析 CREATE TABLE 末尾的表级 COMMENT。MySQL 写法 `... ) ENGINE=InnoDB COMMENT='xxx'`
+// 或 `COMMENT 'xxx'`；PostgreSQL 用 COMMENT ON TABLE 单独语句，这里不处理。
+const extractTableComment = (suffix: string): string | undefined => {
+  const m = suffix.match(/\bCOMMENT\s*=?\s*'((?:[^'\\]|''|\\.)*)'/i);
+  return m ? m[1].replace(/''/g, "'") : undefined;
 };
 
 const parseIdentifierList = (text: string) =>
@@ -217,8 +228,10 @@ export const parseSQLTables = (sql: string): ParseResult => {
     // FK 都继承自父表。强行解析会得到一个空节点漂在图上，干扰阅读。
     if (/\bPARTITION\s+OF\b/i.test(statement)) return;
 
-    const tableBody = extractMainBody(statement);
-    if (!tableBody) return;
+    const extracted = extractMainBody(statement);
+    if (!extracted) return;
+    const tableBody = extracted.body;
+    const tableComment = extractTableComment(extracted.suffix);
 
     const columns: ParsedColumn[] = [];
     const primaryKeys: string[] = [];
@@ -296,6 +309,7 @@ export const parseSQLTables = (sql: string): ParseResult => {
       columns,
       primaryKeys,
       foreignKeys,
+      ...(tableComment ? { comment: tableComment } : {}),
     });
 
     foreignKeys.forEach((fk) => {
@@ -312,6 +326,9 @@ export const parseSQLTables = (sql: string): ParseResult => {
         label: fk.column,
         fromCardinality,
         toCardinality: "1",
+        // SQL 没有原生关系级注释，但用户的认知里"FK 注释 == 关系注释"是
+        // 自然的：用 FK 列上的 COMMENT 'xxx' 作为关系的注释来源。
+        ...(fkCol?.comment ? { comment: fkCol.comment } : {}),
       });
     });
   });

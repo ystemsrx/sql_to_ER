@@ -26,6 +26,7 @@ export interface ParsedTable {
   columns: ParsedColumn[];
   primaryKeys: string[];
   foreignKeys: ParsedForeignKey[];
+  comment?: string;
 }
 
 export interface ParsedRelationship {
@@ -36,6 +37,7 @@ export interface ParsedRelationship {
   // 这是 SQL FK 与 DBML `>` 的隐含语义。
   fromCardinality?: Cardinality;
   toCardinality?: Cardinality;
+  comment?: string;
 }
 
 export interface ParseResult {

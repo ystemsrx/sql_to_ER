@@ -19,20 +19,26 @@ import type {
 } from "./types";
 
 /**
- * 根据 labelMode 计算属性节点应显示的标签
+ * 根据 labelMode 与 (name, comment) 计算应显示的标签
  * labelMode: 'name' | 'comment' | 'any'
- *   'name'    - 只显示字段名
- *   'comment' - 只显示注释（若注释为空则回退到字段名）
- *   'any'     - 显示注释，若无注释则显示字段名
+ *   'name'    - 只显示原名
+ *   'comment' - 只显示注释（若注释为空则回退到原名）
+ *   'any'     - 显示注释，若无注释则显示原名
  */
-const resolveAttrLabel = (column: ParsedColumn, labelMode: AttributeLabelMode | string): string => {
-  const name = column.name || '';
-  const comment = column.comment || '';
-  if (labelMode === 'name') return name;
-  if (labelMode === 'comment') return comment || name; // 注释为空回退到字段名
-  // 'any': 优先注释，无则字段名
-  return comment || name;
+const pickLabel = (
+  name: string,
+  comment: string | undefined,
+  labelMode: AttributeLabelMode | string,
+): string => {
+  const n = name || '';
+  const c = comment || '';
+  if (labelMode === 'name') return n;
+  if (labelMode === 'comment') return c || n;
+  return c || n;
 };
+
+const resolveAttrLabel = (column: ParsedColumn, labelMode: AttributeLabelMode | string): string =>
+  pickLabel(column.name || '', column.comment, labelMode);
 
 const generateChenModelData = (
   tables: ParsedTable[],
@@ -53,10 +59,14 @@ const generateChenModelData = (
       entityMap.set(table.alias, entityId);
     }
 
+    const entityLabel = pickLabel(table.name, table.comment, labelMode);
     nodes.push({
       id: entityId,
       type: 'entity',
-      label: table.name,
+      label: entityLabel,
+      // 在节点上保留两份候选标签，方便"显示注释"开关原地切换。
+      nameLabel: table.name,
+      commentLabel: table.comment || table.name,
       // 移除固定的x,y坐标，让布局算法自动处理
       style: {
         fill: '#ffffff',
@@ -84,6 +94,8 @@ const generateChenModelData = (
           id: attributeId,
           type: 'attribute',
           label: attrLabel,
+          nameLabel: column.name,
+          commentLabel: column.comment || column.name,
           // 移除固定位置
           keyType: isPrimaryKey ? 'pk' : 'normal',
           style: {
@@ -126,6 +138,9 @@ const generateChenModelData = (
         id: entityId,
         type: 'entity',
         label: rel.to,
+        nameLabel: rel.to,
+        // 占位实体没有解析到的表注释，commentLabel 兜底回原名
+        commentLabel: rel.to,
         style: {
           fill: '#ffffff',
           stroke: isColored ? '#595959' : '#000000',
@@ -144,15 +159,41 @@ const generateChenModelData = (
     }
   });
 
+  // 根据 from 表 + FK 列名查找列注释，作为关系标签的注释回退源。
+  // 例：DBML 没有写 Ref [...note], SQL 也没有 FK 注释，但 FK 列有 COMMENT 'xxx'，
+  // 用户开"显示注释"时仍希望关系节点能显示和列同样的描述。
+  const tableByName = new Map<string, ParsedTable>();
+  tables.forEach((t) => {
+    tableByName.set(t.name, t);
+    if (t.alias) tableByName.set(t.alias, t);
+  });
+  const lookupRelComment = (rel: ParsedRelationship): string | undefined => {
+    if (rel.comment) return rel.comment;
+    const fromTable = tableByName.get(rel.from);
+    if (!fromTable) return undefined;
+    // 复合 FK label "a, b"：每段都查一遍，把首个有注释的拼回去就行了；
+    // 多 FK 列同时有注释的情况罕见，简化处理。
+    const cols = rel.label.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const c of cols) {
+      const found = fromTable.columns.find((col) => col.name === c);
+      if (found?.comment) return found.comment;
+    }
+    return undefined;
+  };
+
   // Create relationship nodes (diamonds) and connections
   relationships.forEach((rel, relIndex) => {
     const relationshipId = `rel-${rel.from}-${rel.to}-${rel.label}-${relIndex}`;
     const isSelfLoop = rel.from === rel.to;
 
+    const relComment = lookupRelComment(rel);
+    const relLabel = pickLabel(rel.label, relComment, labelMode);
     nodes.push({
       id: relationshipId,
       type: 'relationship',
-      label: rel.label,
+      label: relLabel,
+      nameLabel: rel.label,
+      commentLabel: relComment || rel.label,
       style: {
         fill: isColored ? '#f9f0ff' : '#ffffff',
         stroke: isColored ? '#722ed1' : '#000000',
@@ -312,214 +353,440 @@ let customNodesRegistered = false;
 const registerCustomNodes = (G6: G6Like): void => {
   if (customNodesRegistered) return;
   customNodesRegistered = true;
-  // 注册实体节点（矩形）
-  G6.registerNode('entity', {
-    draw(cfg, group) {
-      const fontSize = 18;
-      const text = cfg.label || '';
 
-      const textWidth = getTextWidth(text, fontSize);
-      const padding = 10; // 水平内边距，从20减小到10
-      const minWidth = 80; // 最小宽度
-      const minHeight = 50; // 最小高度
+  // 实体节点（矩形）
+  const drawEntity = (cfg: any, group: any) => {
+    const fontSize = 18;
+    const text = cfg.label || '';
 
-      const width = Math.max(minWidth, textWidth + padding * 2);
-      const height = Math.max(minHeight, fontSize + 20); // 垂直内边距
+    const textWidth = getTextWidth(text, fontSize);
+    const padding = 10;
+    const minWidth = 80;
+    const minHeight = 50;
 
-      const rectAttrs: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        fill: string;
-        stroke: string;
-        lineWidth: number;
-        lineDash?: number[];
-      } = {
-        x: -width / 2,
-        y: -height / 2,
-        width: width,
-        height: height,
-        fill: cfg.style?.fill || '#fff',
-        stroke: cfg.style?.stroke || '#000',
-        lineWidth: cfg.style?.lineWidth || 2
-      };
-      if (cfg.style?.lineDash) {
-        rectAttrs.lineDash = cfg.style.lineDash;
-      }
+    const width = Math.max(minWidth, textWidth + padding * 2);
+    const height = Math.max(minHeight, fontSize + 20);
 
-      const shape = group.addShape('rect', {
-        attrs: rectAttrs,
-        name: 'entity-shape'
-      });
+    const rectAttrs: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      fill: string;
+      stroke: string;
+      lineWidth: number;
+      lineDash?: number[];
+      radius?: number;
+      shadowColor?: string;
+      shadowBlur?: number;
+    } = {
+      x: -width / 2,
+      y: -height / 2,
+      width,
+      height,
+      fill: cfg.style?.fill || '#fff',
+      stroke: cfg.style?.stroke || '#000',
+      lineWidth: cfg.style?.lineWidth || 2,
+    };
+    if (cfg.style?.lineDash) rectAttrs.lineDash = cfg.style.lineDash;
+    if (cfg.style?.radius) rectAttrs.radius = cfg.style.radius;
+    if (cfg.style?.shadowColor) rectAttrs.shadowColor = cfg.style.shadowColor;
+    if (cfg.style?.shadowBlur !== undefined)
+      rectAttrs.shadowBlur = cfg.style.shadowBlur;
 
-      if (cfg.label) {
-        group.addShape('text', {
-          attrs: {
-            x: 0,
-            y: 0,
-            text: cfg.label,
-            fontSize: fontSize,
-            textAlign: 'center',
-            textBaseline: 'middle',
-            fill: cfg.labelCfg?.style?.fill || '#000',
-            fontWeight: cfg.labelCfg?.style?.fontWeight || 'bold',
-            fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal'
-          },
-          name: 'entity-text',
-          capture: false
-        });
-      }
+    const shape = group.addShape('rect', {
+      attrs: rectAttrs,
+      name: 'entity-shape',
+    });
 
-      return shape;
-    },
-    update(cfg, node) {
-      const group = node.getContainer();
-      const shape = group.find(e => e.get('name') === 'entity-shape');
-      if (shape && cfg.style) {
-        shape.attr('fill', cfg.style.fill);
-        shape.attr('stroke', cfg.style.stroke);
-        shape.attr('lineWidth', cfg.style.lineWidth);
-        shape.attr('lineDash', cfg.style.lineDash || [0, 0]);
-        if (cfg.style.radius) shape.attr('radius', cfg.style.radius);
-        if (cfg.style.shadowColor) shape.attr('shadowColor', cfg.style.shadowColor);
-        if (cfg.style.shadowBlur !== undefined) shape.attr('shadowBlur', cfg.style.shadowBlur);
-      }
-      const text = group.find(e => e.get('name') === 'entity-text');
-      if (text && cfg.labelCfg?.style) {
-        if (cfg.labelCfg.style.fill) text.attr('fill', cfg.labelCfg.style.fill);
-        if (cfg.labelCfg.style.fontWeight) text.attr('fontWeight', cfg.labelCfg.style.fontWeight);
-        if (cfg.labelCfg.style.fontStyle) text.attr('fontStyle', cfg.labelCfg.style.fontStyle);
-      }
-    }
-  });
-
-  // 注册属性节点（椭圆）
-  G6.registerNode('attribute', {
-    draw(cfg, group) {
-      const fontSize = 15;
-      const text = cfg.label || '';
-
-      const textWidth = getTextWidth(text, fontSize);
-      const padding = 16; // 水平内边距
-      const minWidth = 60; // 最小宽度
-      const minHeight = 40; // 最小高度
-
-      const width = Math.max(minWidth, textWidth + padding * 2);
-      const height = Math.max(minHeight, fontSize + 16); // 垂直内边距
-
-      const shape = group.addShape('ellipse', {
+    if (cfg.label) {
+      group.addShape('text', {
         attrs: {
           x: 0,
           y: 0,
-          rx: width / 2,
-          ry: height / 2,
-          fill: cfg.style?.fill || '#fff',
-          stroke: cfg.style?.stroke || '#000',
-          lineWidth: cfg.style?.lineWidth || 1
+          text: cfg.label,
+          fontSize,
+          textAlign: 'center',
+          textBaseline: 'middle',
+          fill: cfg.labelCfg?.style?.fill || '#000',
+          fontWeight: cfg.labelCfg?.style?.fontWeight || 'bold',
+          fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
         },
-        name: 'attribute-shape'
+        name: 'entity-text',
+        capture: false,
+      });
+    }
+
+    return shape;
+  };
+  G6.registerNode('entity', {
+    draw: drawEntity,
+    // 三个写入路径会走这里：
+    //   ① 双击节点编辑 label
+    //   ② "显示注释"开关切 label
+    //   ③ updateGraphStyles 改 style / labelCfg
+    // 原先只刷 style/labelCfg、不动 text 内容也不重算尺寸 -> 矩形不变大 +
+    // 连线端点不对齐。修法是 in-place 改 attrs（不能 group.clear() —— G6
+    // 在外面持有 keyShape 引用，clear 后那只 shape 就被销毁了，连线再调
+    // getLinkPoint 时会抛 "getMethod is not a function"）。
+    update(cfg: any, node: any) {
+      const group = node.getContainer();
+      const fontSize = 18;
+      const textStr = cfg.label || '';
+      const textWidth = getTextWidth(textStr, fontSize);
+      const padding = 10;
+      const minWidth = 80;
+      const minHeight = 50;
+      const width = Math.max(minWidth, textWidth + padding * 2);
+      const height = Math.max(minHeight, fontSize + 20);
+
+      const shape = group.find((e: any) => e.get('name') === 'entity-shape');
+      if (shape) {
+        const next: Record<string, unknown> = {
+          x: -width / 2,
+          y: -height / 2,
+          width,
+          height,
+          fill: cfg.style?.fill ?? shape.attr('fill'),
+          stroke: cfg.style?.stroke ?? shape.attr('stroke'),
+          lineWidth: cfg.style?.lineWidth ?? shape.attr('lineWidth'),
+          lineDash: cfg.style?.lineDash || [0, 0],
+          radius: cfg.style?.radius ?? 0,
+          shadowColor: cfg.style?.shadowColor ?? '',
+          shadowBlur: cfg.style?.shadowBlur ?? 0,
+        };
+        shape.attr(next);
+      }
+
+      let textShape = group.find(
+        (e: any) => e.get('name') === 'entity-text',
+      );
+      if (cfg.label) {
+        const labelAttrs: Record<string, unknown> = {
+          text: cfg.label,
+          fill: cfg.labelCfg?.style?.fill ?? '#000',
+          fontWeight: cfg.labelCfg?.style?.fontWeight ?? 'bold',
+          fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
+          fontFamily: cfg.labelCfg?.style?.fontFamily,
+        };
+        if (textShape) {
+          textShape.attr(labelAttrs);
+        } else {
+          group.addShape('text', {
+            attrs: {
+              x: 0,
+              y: 0,
+              fontSize,
+              textAlign: 'center',
+              textBaseline: 'middle',
+              ...labelAttrs,
+            },
+            name: 'entity-text',
+            capture: false,
+          });
+        }
+      } else if (textShape) {
+        textShape.remove(true);
+      }
+    },
+  });
+
+  // 属性节点（椭圆）
+  const drawAttribute = (cfg: any, group: any) => {
+    const fontSize = 15;
+    const text = cfg.label || '';
+
+    const textWidth = getTextWidth(text, fontSize);
+    const padding = 16;
+    const minWidth = 60;
+    const minHeight = 40;
+
+    const width = Math.max(minWidth, textWidth + padding * 2);
+    const height = Math.max(minHeight, fontSize + 16);
+
+    const shape = group.addShape('ellipse', {
+      attrs: {
+        x: 0,
+        y: 0,
+        rx: width / 2,
+        ry: height / 2,
+        fill: cfg.style?.fill || '#fff',
+        stroke: cfg.style?.stroke || '#000',
+        lineWidth: cfg.style?.lineWidth || 1,
+        lineDash: cfg.style?.lineDash,
+        shadowColor: cfg.style?.shadowColor,
+        shadowBlur: cfg.style?.shadowBlur,
+      },
+      name: 'attribute-shape',
+    });
+
+    if (cfg.label) {
+      const isPrimaryKey = cfg.keyType === 'pk';
+      group.addShape('text', {
+        attrs: {
+          x: 0,
+          y: 0,
+          text: cfg.label,
+          fontSize,
+          textAlign: 'center',
+          textBaseline: 'middle',
+          fill: cfg.labelCfg?.style?.fill || '#000',
+          fontWeight:
+            cfg.labelCfg?.style?.fontWeight ||
+            (isPrimaryKey ? 'bold' : 'normal'),
+          fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+        },
+        name: 'attribute-text',
+        capture: false,
       });
 
-      if (cfg.label) {
-        const isPrimaryKey = cfg.keyType === 'pk';
-        group.addShape('text', {
+      if (isPrimaryKey) {
+        const underlineWidth = getTextWidth(text, fontSize);
+        group.addShape('line', {
           attrs: {
-            x: 0,
-            y: 0,
-            text: cfg.label,
-            fontSize: fontSize,
-            textAlign: 'center',
-            textBaseline: 'middle',
-            fill: '#000',
-            fontWeight: isPrimaryKey ? 'bold' : 'normal'
+            x1: -underlineWidth / 2,
+            y1: 12,
+            x2: underlineWidth / 2,
+            y2: 12,
+            stroke: cfg.labelCfg?.style?.fill || '#000',
+            lineWidth: 1,
           },
-          name: 'attribute-text',
-          capture: false
+          name: 'attribute-underline',
         });
+      }
+    }
 
-        // Add underline for primary keys
-        if (isPrimaryKey) {
-          const underlineWidth = getTextWidth(text, fontSize); // 使用精确的文字宽度计算
+    return shape;
+  };
+  G6.registerNode('attribute', {
+    draw: drawAttribute,
+    update(cfg: any, node: any) {
+      const group = node.getContainer();
+      const fontSize = 15;
+      const textStr = cfg.label || '';
+      const textWidth = getTextWidth(textStr, fontSize);
+      const padding = 16;
+      const minWidth = 60;
+      const minHeight = 40;
+      const width = Math.max(minWidth, textWidth + padding * 2);
+      const height = Math.max(minHeight, fontSize + 16);
+      const isPrimaryKey = cfg.keyType === 'pk';
+
+      const shape = group.find((e: any) => e.get('name') === 'attribute-shape');
+      if (shape) {
+        shape.attr({
+          rx: width / 2,
+          ry: height / 2,
+          fill: cfg.style?.fill ?? shape.attr('fill'),
+          stroke: cfg.style?.stroke ?? shape.attr('stroke'),
+          lineWidth: cfg.style?.lineWidth ?? shape.attr('lineWidth'),
+          lineDash: cfg.style?.lineDash || [0, 0],
+          shadowColor: cfg.style?.shadowColor ?? '',
+          shadowBlur: cfg.style?.shadowBlur ?? 0,
+        });
+      }
+
+      let textShape = group.find(
+        (e: any) => e.get('name') === 'attribute-text',
+      );
+      if (cfg.label) {
+        const labelAttrs: Record<string, unknown> = {
+          text: cfg.label,
+          fill: cfg.labelCfg?.style?.fill ?? '#000',
+          fontWeight:
+            cfg.labelCfg?.style?.fontWeight ??
+            (isPrimaryKey ? 'bold' : 'normal'),
+          fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
+          fontFamily: cfg.labelCfg?.style?.fontFamily,
+        };
+        if (textShape) {
+          textShape.attr(labelAttrs);
+        } else {
+          group.addShape('text', {
+            attrs: {
+              x: 0,
+              y: 0,
+              fontSize,
+              textAlign: 'center',
+              textBaseline: 'middle',
+              ...labelAttrs,
+            },
+            name: 'attribute-text',
+            capture: false,
+          });
+        }
+      } else if (textShape) {
+        textShape.remove(true);
+      }
+
+      // 主键下划线随 keyType / label 变化增删；宽度也得跟新文本走。
+      const underline = group.find(
+        (e: any) => e.get('name') === 'attribute-underline',
+      );
+      if (isPrimaryKey && cfg.label) {
+        const underlineWidth = getTextWidth(textStr, fontSize);
+        if (underline) {
+          underline.attr({
+            x1: -underlineWidth / 2,
+            y1: 12,
+            x2: underlineWidth / 2,
+            y2: 12,
+            stroke: cfg.labelCfg?.style?.fill ?? '#000',
+          });
+        } else {
           group.addShape('line', {
             attrs: {
               x1: -underlineWidth / 2,
-              y1: 12, // 下划线位置
+              y1: 12,
               x2: underlineWidth / 2,
               y2: 12,
-              stroke: '#000',
-              lineWidth: 1
+              stroke: cfg.labelCfg?.style?.fill ?? '#000',
+              lineWidth: 1,
             },
-            name: 'attribute-underline'
+            name: 'attribute-underline',
           });
         }
+      } else if (underline) {
+        underline.remove(true);
       }
-
-      return shape;
-    }
+    },
   });
 
-  // 注册关系节点（菱形）
+  // 关系节点（菱形）
+  const drawRelationship = (cfg: any, group: any) => {
+    const fontSize = 16;
+    const text = cfg.label || '';
+
+    const textWidth = getTextWidth(text, fontSize);
+    const horizontalPadding = 24;
+    const verticalPadding = 16;
+    const minWidth = 80;
+    const minHeight = 40;
+
+    const requiredWidth = textWidth + horizontalPadding * 2;
+    const requiredHeight = fontSize + verticalPadding * 2;
+
+    const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
+    const halfHeight = Math.max(
+      minHeight / 2,
+      Math.min(halfWidth * 0.6, requiredHeight / 2),
+    );
+
+    const shape = group.addShape('polygon', {
+      attrs: {
+        points: [
+          [0, -halfHeight],
+          [halfWidth, 0],
+          [0, halfHeight],
+          [-halfWidth, 0],
+        ],
+        fill: cfg.style?.fill || '#fff',
+        stroke: cfg.style?.stroke || '#000',
+        lineWidth: cfg.style?.lineWidth || 2,
+        lineDash: cfg.style?.lineDash,
+        shadowColor: cfg.style?.shadowColor,
+        shadowBlur: cfg.style?.shadowBlur,
+      },
+      name: 'relationship-shape',
+    });
+
+    if (cfg.label) {
+      group.addShape('text', {
+        attrs: {
+          x: 0,
+          y: 0,
+          text: cfg.label,
+          fontSize,
+          textAlign: 'center',
+          textBaseline: 'middle',
+          fill: cfg.labelCfg?.style?.fill || '#000',
+          fontWeight: cfg.labelCfg?.style?.fontWeight || 'normal',
+          fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+        },
+        name: 'relationship-text',
+        capture: false,
+      });
+    }
+
+    return shape;
+  };
   G6.registerNode('relationship', {
-    draw(cfg, group) {
+    draw: drawRelationship,
+    update(cfg: any, node: any) {
+      const group = node.getContainer();
       const fontSize = 16;
-      const text = cfg.label || '';
+      const textStr = cfg.label || '';
+      const textWidth = getTextWidth(textStr, fontSize);
+      const horizontalPadding = 24;
+      const verticalPadding = 16;
+      const minWidth = 80;
+      const minHeight = 40;
 
-      const textWidth = getTextWidth(text, fontSize);
-      const horizontalPadding = 24; // 水平内边距
-      const verticalPadding = 16; // 垂直内边距
-      const minWidth = 80; // 最小宽度
-      const minHeight = 40; // 最小高度
-
-      // 计算菱形的实际宽度和高度
-      // 菱形是扁的，宽度要比高度大
       const requiredWidth = textWidth + horizontalPadding * 2;
       const requiredHeight = fontSize + verticalPadding * 2;
-
-      // 菱形的水平半径（宽度的一半）
       const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
-      // 菱形的垂直半径（高度的一半），设置为宽度的0.6倍，让菱形变扁
-      const halfHeight = Math.max(minHeight / 2, Math.min(halfWidth * 0.6, requiredHeight / 2));
+      const halfHeight = Math.max(
+        minHeight / 2,
+        Math.min(halfWidth * 0.6, requiredHeight / 2),
+      );
 
-      const shape = group.addShape('polygon', {
-        attrs: {
+      const shape = group.find(
+        (e: any) => e.get('name') === 'relationship-shape',
+      );
+      if (shape) {
+        shape.attr({
           points: [
-            [0, -halfHeight],        // 上顶点
-            [halfWidth, 0],          // 右顶点  
-            [0, halfHeight],         // 下顶点
-            [-halfWidth, 0]          // 左顶点
+            [0, -halfHeight],
+            [halfWidth, 0],
+            [0, halfHeight],
+            [-halfWidth, 0],
           ],
-          fill: cfg.style?.fill || '#fff',
-          stroke: cfg.style?.stroke || '#000',
-          lineWidth: cfg.style?.lineWidth || 2
-        },
-        name: 'relationship-shape'
-      });
-
-      if (cfg.label) {
-        group.addShape('text', {
-          attrs: {
-            x: 0,
-            y: 0,
-            text: cfg.label,
-            fontSize: fontSize,
-            textAlign: 'center',
-            textBaseline: 'middle',
-            fill: '#000'
-          },
-          name: 'relationship-text',
-          capture: false
+          fill: cfg.style?.fill ?? shape.attr('fill'),
+          stroke: cfg.style?.stroke ?? shape.attr('stroke'),
+          lineWidth: cfg.style?.lineWidth ?? shape.attr('lineWidth'),
+          lineDash: cfg.style?.lineDash || [0, 0],
+          shadowColor: cfg.style?.shadowColor ?? '',
+          shadowBlur: cfg.style?.shadowBlur ?? 0,
         });
       }
 
-      return shape;
+      let textShape = group.find(
+        (e: any) => e.get('name') === 'relationship-text',
+      );
+      if (cfg.label) {
+        const labelAttrs: Record<string, unknown> = {
+          text: cfg.label,
+          fill: cfg.labelCfg?.style?.fill ?? '#000',
+          fontWeight: cfg.labelCfg?.style?.fontWeight ?? 'normal',
+          fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
+          fontFamily: cfg.labelCfg?.style?.fontFamily,
+        };
+        if (textShape) {
+          textShape.attr(labelAttrs);
+        } else {
+          group.addShape('text', {
+            attrs: {
+              x: 0,
+              y: 0,
+              fontSize,
+              textAlign: 'center',
+              textBaseline: 'middle',
+              ...labelAttrs,
+            },
+            name: 'relationship-text',
+            capture: false,
+          });
+        }
+      } else if (textShape) {
+        textShape.remove(true);
+      }
     },
     // 自定义连线计算：使用菱形边界而不是外接矩形
     getLinkPoint: calculateDiamondLinkPoint,
     // 关闭锚点吸附，保证连线直接命中菱形边
     getAnchorPoints() {
       return [];
-    }
+    },
   });
 
   // 自引用外键的自环边：扩展 single-edge 以保留**直线**端点计算
@@ -601,6 +868,8 @@ const buildAttributeData = (
         id: attributeId,
         type: 'attribute',
         label: attrLabel,
+        nameLabel: column.name,
+        commentLabel: column.comment || column.name,
         keyType: isPrimaryKey ? 'pk' : 'normal',
         style: {
           fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
