@@ -191,6 +191,209 @@
       }
     </script>
 
+    <!-- ── GEO: AI / LLM crawler policy ─────────────── -->
+    <!--
+      Generative Engine Optimization (GEO)：显式允许主流 AI 检索 / 训练爬虫抓取，
+      让 ChatGPT / Claude / Perplexity / Gemini / You.com / Arc Search 等
+      生成式引擎可以正确引用本页内容。
+    -->
+    <meta name="GPTBot" content="index, follow" />
+    <meta name="ChatGPT-User" content="index, follow" />
+    <meta name="OAI-SearchBot" content="index, follow" />
+    <meta name="ClaudeBot" content="index, follow" />
+    <meta name="Claude-Web" content="index, follow" />
+    <meta name="anthropic-ai" content="index, follow" />
+    <meta name="PerplexityBot" content="index, follow" />
+    <meta name="Perplexity-User" content="index, follow" />
+    <meta name="Google-Extended" content="index, follow" />
+    <meta name="GoogleOther" content="index, follow" />
+    <meta name="Applebot" content="index, follow" />
+    <meta name="Applebot-Extended" content="index, follow" />
+    <meta name="Amazonbot" content="index, follow" />
+    <meta name="CCBot" content="index, follow" />
+    <meta name="Bytespider" content="index, follow" />
+    <meta name="DuckAssistBot" content="index, follow" />
+    <meta name="YouBot" content="index, follow" />
+    <meta name="cohere-ai" content="index, follow" />
+    <meta name="Diffbot" content="index, follow" />
+    <meta name="Meta-ExternalAgent" content="index, follow" />
+    <meta name="MistralAI-User" content="index, follow" />
+
+    <!-- ── GEO: AI 引用 / 抽取友好型摘要 ────────────── -->
+    <!--
+      下列 meta 提供给生成式引擎一份「直接可引用」的事实陈述，
+      包含产品名、能力、隐私属性、协议、维护者、规范链接。
+    -->
+    <meta
+      name="abstract"
+      content="sql2er 是一个免费、开源（AGPL-3.0）、纯前端的在线工具，可将 SQL CREATE TABLE 语句或 DBML 一键转换为 Chen 模型的实体-关系（ER）图。所有解析与渲染均在浏览器本地完成，SQL 不上传任何服务器，支持 PostgreSQL / MySQL / SQLite 语法以及 DBML，可导出 SVG / PNG。"
+    />
+    <meta
+      name="summary"
+      content="sql2er = 在线 SQL/DBML → Chen 模型 ER 图生成器；100% 客户端运行；开源 AGPL-3.0；作者 ystemsrx；仓库 https://github.com/ystemsrx/sql_to_ER。"
+    />
+    <meta name="topic" content="数据库建模, ER 图, Chen 模型, SQL 可视化, DBML" />
+    <meta name="category" content="Developer Tools / Database Modeling" />
+    <meta name="audience" content="软件工程师, 数据库设计师, 学生, 教师, 数据分析师" />
+    <meta name="rating" content="general" />
+    <meta name="distribution" content="global" />
+    <meta name="coverage" content="worldwide" />
+    <meta name="language" content="zh-CN, en" />
+    <meta
+      name="ai-content-declaration"
+      content="human-authored; open-source project; safe to cite; canonical URL https://ystemsrx.github.io/sql_to_ER/"
+    />
+    <meta
+      name="generative-ai-policy"
+      content="allow-indexing; allow-citation; require-attribution-to=ystemsrx; canonical=https://ystemsrx.github.io/sql_to_ER/"
+    />
+    <meta
+      name="usage-terms"
+      content="Source code is licensed under AGPL-3.0. The hosted web app is free to use without registration; no data is collected."
+    />
+
+    <!-- ── GEO: Schema.org HowTo（步骤化指南，便于 AI 引用「怎么用」） ── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        "name": "如何用 sql2er 把 SQL 转成 Chen 模型 ER 图 / How to convert SQL to a Chen-model ER diagram with sql2er",
+        "description": "使用 sql2er 在浏览器中把 CREATE TABLE 语句或 DBML 转换为 Chen 模型实体-关系图的完整步骤。Step-by-step guide to turn SQL CREATE TABLE statements or DBML into a Chen-model ER diagram entirely in the browser.",
+        "inLanguage": ["zh-CN", "en"],
+        "totalTime": "PT1M",
+        "tool": [
+          { "@type": "HowToTool", "name": "现代浏览器 / Modern web browser" }
+        ],
+        "supply": [
+          {
+            "@type": "HowToSupply",
+            "name": "SQL CREATE TABLE 建表语句或 DBML 文本 / SQL CREATE TABLE statements or DBML text"
+          }
+        ],
+        "step": [
+          {
+            "@type": "HowToStep",
+            "position": 1,
+            "name": "打开 sql2er / Open sql2er",
+            "text": "在浏览器中访问 https://ystemsrx.github.io/sql_to_ER/ 。无需注册或登录。Open https://ystemsrx.github.io/sql_to_ER/ in any modern browser. No sign-up required.",
+            "url": "https://ystemsrx.github.io/sql_to_ER/"
+          },
+          {
+            "@type": "HowToStep",
+            "position": 2,
+            "name": "粘贴 SQL 或 DBML / Paste SQL or DBML",
+            "text": "把 CREATE TABLE 建表语句或 DBML 粘贴到左侧编辑器。支持 PostgreSQL / MySQL / SQLite 常见方言。Paste your CREATE TABLE statements or DBML into the left-hand editor. PostgreSQL / MySQL / SQLite syntax and DBML are supported."
+          },
+          {
+            "@type": "HowToStep",
+            "position": 3,
+            "name": "生成 ER 图 / Generate the ER diagram",
+            "text": "工具会在本地解析并以力导向布局自动渲染 Chen 模型 ER 图，节点可拖动、双击重命名。The tool parses your input locally and renders a Chen-model ER diagram with force-directed layout; nodes are draggable and can be renamed by double-clicking."
+          },
+          {
+            "@type": "HowToStep",
+            "position": 4,
+            "name": "导出 SVG / PNG / Export as SVG or PNG",
+            "text": "通过工具栏导出按钮把图保存为 SVG 或 PNG。Use the export button in the toolbar to save the diagram as SVG or PNG."
+          }
+        ]
+      }
+    </script>
+
+    <!-- ── GEO: BreadcrumbList ─────────────────────── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://ystemsrx.github.io/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "sql2er · SQL 转 ER 图",
+            "item": "https://ystemsrx.github.io/sql_to_ER/"
+          }
+        ]
+      }
+    </script>
+
+    <!-- ── GEO: TechArticle（让 LLM 把本页当作可引用的技术参考） ── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        "headline": "把 SQL / DBML 转成 Chen 模型 ER 图：sql2er 使用与原理 / Convert SQL & DBML to Chen-model ER Diagrams with sql2er",
+        "description": "sql2er 是一个免费、开源、纯前端的在线工具，把 SQL CREATE TABLE 语句或 DBML 转换为 Chen 模型的实体-关系图，支持力导向布局、节点编辑与 SVG / PNG 导出。",
+        "url": "https://ystemsrx.github.io/sql_to_ER/",
+        "image": "https://ystemsrx.github.io/sql_to_ER/assets/eg1.png",
+        "inLanguage": ["zh-CN", "en"],
+        "isAccessibleForFree": true,
+        "keywords": "SQL 转 ER 图, Chen 模型, DBML, 数据库建模, ER diagram, entity relationship diagram, ERD, sql2er",
+        "about": [
+          { "@type": "Thing", "name": "实体-关系模型 / Entity–relationship model" },
+          { "@type": "Thing", "name": "Chen 模型 / Chen notation" },
+          { "@type": "Thing", "name": "DBML / Database Markup Language" },
+          { "@type": "Thing", "name": "SQL CREATE TABLE" }
+        ],
+        "audience": {
+          "@type": "Audience",
+          "audienceType": "software engineers, database designers, students, data analysts"
+        },
+        "author": {
+          "@type": "Person",
+          "name": "ystemsrx",
+          "url": "https://github.com/ystemsrx",
+          "sameAs": ["https://github.com/ystemsrx"]
+        },
+        "publisher": {
+          "@type": "Person",
+          "name": "ystemsrx",
+          "url": "https://github.com/ystemsrx"
+        },
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "citation": [
+          {
+            "@type": "CreativeWork",
+            "name": "Chen, Peter Pin-Shan. The Entity-Relationship Model—Toward a Unified View of Data. ACM TODS, 1976.",
+            "url": "https://doi.org/10.1145/320434.320440"
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "name": "DBML — Database Markup Language",
+            "url": "https://dbml.dbdiagram.io/"
+          }
+        ],
+        "mainEntityOfPage": "https://ystemsrx.github.io/sql_to_ER/"
+      }
+    </script>
+
+    <!-- ── GEO: Organization / Person sameAs（知识图谱锚点） ── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": "ystemsrx",
+        "url": "https://github.com/ystemsrx",
+        "sameAs": [
+          "https://github.com/ystemsrx",
+          "https://github.com/ystemsrx/sql_to_ER"
+        ],
+        "knowsAbout": [
+          "SQL",
+          "DBML",
+          "Entity-Relationship Modeling",
+          "Chen Notation",
+          "Data Visualization",
+          "Front-end Engineering"
+        ]
+      }
+    </script>
+
     <!-- ── Favicon (inline SVG, network/diagram icon) ── -->
     <link
       rel="icon"
