@@ -23,6 +23,8 @@ import {
   buildDefaultLayoutCfg,
 } from "../graph/createERGraph";
 import { attachEntityDragSync } from "../graph/attachEntityDragSync";
+import { attachForceLoop } from "../graph/forceLoop";
+import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
 import { useSnapshotPersistence } from "./useSnapshotPersistence";
 import type {
@@ -59,6 +61,7 @@ export interface UseGraphResult {
   isColored: boolean;
   showComment: boolean;
   hideFields: boolean;
+  forceOn: boolean;
   hasGraph: boolean;
   error: string | null;
   loading: boolean;
@@ -67,6 +70,7 @@ export interface UseGraphResult {
   setIsColored: (next: boolean) => void;
   setShowComment: (next: boolean) => void;
   setHideFields: (next: boolean) => void;
+  setForceOn: (next: boolean) => void;
   setError: (next: string | null) => void;
   // commands
   handleGenerate: (opts?: GenerateOptions) => void;
@@ -100,6 +104,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [isColored, setIsColoredState] = useState(true);
   const [showComment, setShowCommentState] = useState(false);
   const [hideFields, setHideFieldsState] = useState(false);
+  const [forceOn, setForceOnState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasGraph, setHasGraph] = useState(false);
@@ -109,6 +114,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const lastInputRef = useRef("");
   const tablesDataRef = useRef<ParsedTable[] | null>(null);
   const historyRef = useRef<HistoryManager>(createHistoryManager());
+  const forceCtrlRef = useRef<ForceLoopController | null>(null);
+  const forceOnRef = useRef(false);
 
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
@@ -118,6 +125,15 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const persistence = useSnapshotPersistence({ graphRef, containerRef });
   const { persistSnapshot, schedulePersist, cancelPendingPersist } = persistence;
+
+  // 公共关闭：智能布局 / 强制对齐 / 切换历史 / 显隐属性 / 重新生成
+  // 都会让"持续力导向"复位为关闭。状态、ref、控制器三处同步。
+  const disableForceIfOn = () => {
+    if (!forceOnRef.current) return;
+    forceOnRef.current = false;
+    setForceOnState(false);
+    forceCtrlRef.current?.setEnabled(false);
+  };
 
   const handleGenerate = (genOpts: GenerateOptions = {}) => {
     const cur = stateRef.current;
@@ -130,6 +146,9 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     try {
       setError(null);
       setLoading(true);
+      // 重新生成 / 历史恢复都会重建图，先把持续力导向开关复位关闭，避免
+      // 旧 controller 的状态意外延续到新图。
+      disableForceIfOn();
 
       const trimmed = String(useInputText || "").trim();
       if (!trimmed) {
@@ -213,6 +232,10 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       }
 
       // Clear previous graph completely
+      if (forceCtrlRef.current) {
+        forceCtrlRef.current.destroy();
+        forceCtrlRef.current = null;
+      }
       if (graphRef.current) {
         graphRef.current.clear?.();
         graphRef.current.destroy?.();
@@ -279,7 +302,16 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       setupNodeDoubleClickEdit(graph as any, container, {
         onBeforeChange: () => historyRef.current.record(graph),
       });
-      attachEntityDragSync(graph as any, historyRef.current);
+      attachEntityDragSync(
+        graph as any,
+        historyRef.current,
+        () => forceOnRef.current,
+      );
+
+      // 持续力导向控制器：拖动期间根据斥力 + 连边引力重排其它节点
+      const forceCtrl = attachForceLoop(graph as any);
+      forceCtrlRef.current = forceCtrl;
+      if (forceOnRef.current) forceCtrl.setEnabled(true);
     } catch (e) {
       console.error("SQL Parsing error:", e);
       const msg = e instanceof Error ? e.message : String(e);
@@ -357,11 +389,19 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const setHideFields = (next: boolean) => {
     setHideFieldsState(next);
     if (!hasGraph || !graphRef.current || graphRef.current.destroyed) return;
+    // 显隐属性会改变节点集合，持续力导向控制器的速度图会失效，先关掉。
+    disableForceIfOn();
     if (next) {
       hideAttributesInGraph();
     } else {
       showAttributesInGraph(stateRef.current.showComment, stateRef.current.isColored);
     }
+  };
+
+  const setForceOn = (next: boolean) => {
+    forceOnRef.current = next;
+    setForceOnState(next);
+    if (forceCtrlRef.current) forceCtrlRef.current.setEnabled(next);
   };
 
   const restoreFromSnapshot = (snap: SnapshotRecord) => {
@@ -402,6 +442,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     handleGenerate();
     return () => {
       cancelPendingPersist();
+      forceCtrlRef.current?.destroy();
+      forceCtrlRef.current = null;
       graphRef.current?.destroy?.();
       graphRef.current = null;
     };
@@ -426,6 +468,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const handleForceAlign = () => {
     if (!graphRef.current || graphRef.current.destroyed) return;
+    disableForceIfOn();
     historyRef.current.record(graphRef.current);
     const containerWidth = containerRef.current?.offsetWidth || 1200;
     forceAlignLayout(graphRef.current, containerWidth);
@@ -433,6 +476,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const handleArrangeLayout = () => {
     if (!graphRef.current || graphRef.current.destroyed) return;
+    disableForceIfOn();
     historyRef.current.record(graphRef.current);
     arrangeLayout(graphRef.current);
   };
@@ -446,6 +490,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     isColored,
     showComment,
     hideFields,
+    forceOn,
     hasGraph,
     error,
     loading,
@@ -453,6 +498,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setIsColored,
     setShowComment,
     setHideFields,
+    setForceOn,
     setError,
     handleGenerate,
     handleForceAlign,

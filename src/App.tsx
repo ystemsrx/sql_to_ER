@@ -7,6 +7,7 @@ import { patchRelationshipLinkPoints, registerCustomNodes } from "./builder";
 import { CodeEditor } from "./editor";
 import { SwitchControl } from "./components/SwitchControl";
 import {
+  CircleNodesIcon,
   ClockRotateLeftIcon,
   EyeIcon,
   EyeSlashIcon,
@@ -43,6 +44,7 @@ const App = () => {
     isColored,
     showComment,
     hideFields,
+    forceOn,
     hasGraph,
     error,
     loading,
@@ -51,6 +53,7 @@ const App = () => {
     setIsColored,
     setShowComment,
     setHideFields,
+    setForceOn,
     handleGenerate,
     handleForceAlign,
     handleArrangeLayout,
@@ -617,6 +620,13 @@ const App = () => {
                   title={t.tipHistory}
                 >
                   <ClockRotateLeftIcon />
+                </div>
+                <div
+                  className={`force-toggle ${forceOn ? "active" : ""}`}
+                  onClick={() => setForceOn(!forceOn)}
+                  title={forceOn ? t.tipForceOff : t.tipForceOn}
+                >
+                  <CircleNodesIcon />
                 </div>
                 {loading && (
                   <div className="loading-overlay">

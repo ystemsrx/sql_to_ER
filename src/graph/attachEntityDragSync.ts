@@ -13,10 +13,14 @@ interface DraggableGraph extends GraphLike {
  *   3. 拖实体节点时同步带动它的属性节点（共同位移）
  *
  * 由 useGraph 在创建图后调用一次；不需要解绑（图本身 destroy 时事件随之消失）。
+ *
+ * 当 isForceActive 返回 true 时，跳过 (3) —— 让持续力导向控制器接管属性节点
+ * 的位移；否则两者会同时改 attribute 坐标，互相覆盖。
  */
 export function attachEntityDragSync(
   graph: DraggableGraph,
   history: HistoryManager,
+  isForceActive?: () => boolean,
 ): void {
   graph.on("node:mouseenter", (e: any) => {
     graph.setItemState(e.item, "hover", true);
@@ -64,6 +68,7 @@ export function attachEntityDragSync(
     const nodeModel = node.getModel();
 
     if (nodeModel.type === "entity" && draggedEntity === node) {
+      if (isForceActive && isForceActive()) return;
       const startPos = dragStartPositions.get(nodeModel.id);
       if (startPos) {
         const deltaX = nodeModel.x - startPos.x;

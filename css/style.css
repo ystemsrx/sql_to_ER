@@ -464,7 +464,8 @@ body::before {
 .background-toggle,
 .colorize-toggle,
 .attrs-toggle,
-.history-toggle {
+.history-toggle,
+.force-toggle {
   position: absolute;
   left: 16px;
   width: 40px;
@@ -502,10 +503,15 @@ body::before {
   top: 160px;
 }
 
+.force-toggle {
+  top: 208px;
+}
+
 .background-toggle:hover,
 .colorize-toggle:hover,
 .attrs-toggle:hover,
-.history-toggle:hover {
+.history-toggle:hover,
+.force-toggle:hover {
   transform: scale(1.06);
   border-color: var(--app-accent);
   box-shadow: 0 6px 16px rgba(20, 20, 19, 0.1);
@@ -514,14 +520,16 @@ body::before {
 .background-toggle:active,
 .colorize-toggle:active,
 .attrs-toggle:active,
-.history-toggle:active {
+.history-toggle:active,
+.force-toggle:active {
   transform: scale(0.95);
 }
 
 .background-toggle > svg,
 .colorize-toggle > svg,
 .attrs-toggle > svg,
-.history-toggle > svg {
+.history-toggle > svg,
+.force-toggle > svg {
   font-size: 16px;
   color: var(--app-ink-2);
   display: block;
@@ -531,8 +539,28 @@ body::before {
 .background-toggle:hover > svg,
 .colorize-toggle:hover > svg,
 .attrs-toggle:hover > svg,
-.history-toggle:hover > svg {
+.history-toggle:hover > svg,
+.force-toggle:hover > svg {
   color: var(--app-accent-warm);
+}
+
+.force-toggle.active {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 50%, #fed7aa 100%);
+  border-color: rgba(217, 119, 87, 0.4);
+  box-shadow: 0 4px 14px rgba(217, 119, 87, 0.22);
+}
+
+.force-toggle.active > svg {
+  color: #c96442;
+}
+
+.force-toggle.active:hover {
+  background: linear-gradient(135deg, #fde68a 0%, #fcd34d 50%, #fdba74 100%);
+  border-color: rgba(217, 119, 87, 0.55);
+}
+
+.force-toggle.active:hover > svg {
+  color: #b04a2c;
 }
 
 .colorize-toggle.active {
@@ -555,12 +583,14 @@ body::before {
 }
 
 .attrs-toggle,
-.colorize-toggle {
+.colorize-toggle,
+.force-toggle {
   overflow: hidden;
 }
 
 .attrs-toggle::after,
-.colorize-toggle::after {
+.colorize-toggle::after,
+.force-toggle::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -581,12 +611,14 @@ body::before {
   transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
 }
 
-.colorize-toggle:not(.active)::after {
+.colorize-toggle:not(.active)::after,
+.force-toggle:not(.active)::after {
   transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
 }
 
 .attrs-toggle:hover::after,
-.colorize-toggle:hover::after {
+.colorize-toggle:hover::after,
+.force-toggle:hover::after {
   background: var(--app-accent-warm);
 }
 
@@ -936,7 +968,8 @@ body::before {
   .background-toggle:hover,
   .colorize-toggle:hover,
   .attrs-toggle:hover,
-  .history-toggle:hover {
+  .history-toggle:hover,
+  .force-toggle:hover {
     transform: none;
     border-color: var(--app-border);
     box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
@@ -954,7 +987,8 @@ body::before {
   .background-toggle:active,
   .colorize-toggle:active,
   .attrs-toggle:active,
-  .history-toggle:active {
+  .history-toggle:active,
+  .force-toggle:active {
     transform: scale(1.1);
   }
 
@@ -1571,6 +1605,7 @@ body.is-lang-fading .lang-fade-target {
 .colorize-toggle:focus-visible,
 .attrs-toggle:focus-visible,
 .history-toggle:focus-visible,
+.force-toggle:focus-visible,
 .github-corner:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;
