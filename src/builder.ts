@@ -84,8 +84,17 @@ const generateChenModelData = (
     });
 
     if (!hideFields) {
+      // 纯 FK 列（不同时是 PK 的）在 Chen 模型里由关系菱形表达，不再画成属性椭圆，
+      // 否则会出现菱形和椭圆同时挂在实体上、且文本相同（FK 列 COMMENT 也是关系标签来源）。
+      const fkOnlyColumns = new Set(
+        table.foreignKeys
+          .map((fk) => fk.column)
+          .filter((col) => !table.primaryKeys.includes(col)),
+      );
+
       // Create attribute nodes (ellipses) for each column
       table.columns.forEach((column, colIndex) => {
+        if (fkOnlyColumns.has(column.name)) return;
         const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;
         const isPrimaryKey = table.primaryKeys.includes(column.name) || column.isPrimaryKey;
         const attrLabel = resolveAttrLabel(column, labelMode);
@@ -859,7 +868,13 @@ const buildAttributeData = (
   const edges: EREdgeModel[] = [];
   tables.forEach((table, tableIndex) => {
     const entityId = `entity-${table.name}-${tableIndex}`;
+    const fkOnlyColumns = new Set(
+      table.foreignKeys
+        .map((fk) => fk.column)
+        .filter((col) => !table.primaryKeys.includes(col)),
+    );
     table.columns.forEach((column, colIndex) => {
+      if (fkOnlyColumns.has(column.name)) return;
       const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;
       const isPrimaryKey = table.primaryKeys.includes(column.name) || column.isPrimaryKey;
       const attrLabel = resolveAttrLabel(column, labelMode);
