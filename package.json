@@ -21,7 +21,7 @@
     "@antv/g6": "4.8.25",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/state": "^6.6.0",
-    "@codemirror/view": "^6.41.1",
+    "@codemirror/view": "^6.42.1",
     "codemirror": "^6.0.2",
     "prismjs": "^1.30.0",
     "react": "^19.2.5",
