@@ -14,6 +14,7 @@ interface StylesUpdate {
 export const updateGraphStyles = (
   graphInstance: GraphLike | null,
   colored: boolean,
+  fontSize?: number,
 ): void => {
   if (!graphInstance || graphInstance.destroyed) return;
 
@@ -40,6 +41,7 @@ export const updateGraphStyles = (
               fontWeight: "700",
               fontFamily: "Poppins",
               fontStyle: "italic",
+              ...(fontSize ? { fontSize } : {}),
             },
           };
         } else {
@@ -55,6 +57,7 @@ export const updateGraphStyles = (
               fill: "#0f172a",
               fontWeight: "700",
               fontFamily: "Poppins",
+              ...(fontSize ? { fontSize } : {}),
             },
           };
         }
@@ -67,7 +70,7 @@ export const updateGraphStyles = (
           shadowBlur: 10,
         };
         styles.labelCfg = {
-          style: { fill: "#0f172a", fontFamily: "Poppins" },
+          style: { fill: "#0f172a", fontFamily: "Poppins", ...(fontSize ? { fontSize } : {}) },
         };
       } else if (model.nodeType === "attribute") {
         if (model.keyType === "pk") {
@@ -83,6 +86,7 @@ export const updateGraphStyles = (
               fill: "#0f172a",
               fontWeight: "700",
               fontFamily: "Poppins",
+              ...(fontSize ? { fontSize } : {}),
             },
           };
         } else {
@@ -96,6 +100,7 @@ export const updateGraphStyles = (
               fill: "#475569",
               fontWeight: "normal",
               fontFamily: "Poppins",
+              ...(fontSize ? { fontSize } : {}),
             },
           };
         }
@@ -121,6 +126,7 @@ export const updateGraphStyles = (
             fontWeight: "bold",
             fontStyle: "italic",
             fontFamily: "Poppins",
+            ...(fontSize ? { fontSize } : {}),
           },
         };
       } else {
@@ -132,6 +138,7 @@ export const updateGraphStyles = (
                 ? "bold"
                 : "normal",
             fontFamily: "Poppins",
+            ...(fontSize ? { fontSize } : {}),
           },
         };
       }

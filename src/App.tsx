@@ -44,6 +44,7 @@ const App = () => {
     isColored,
     showComment,
     hideFields,
+    fontSize,
     forceOn,
     hasGraph,
     error,
@@ -53,6 +54,7 @@ const App = () => {
     setIsColored,
     setShowComment,
     setHideFields,
+    setFontSize,
     setForceOn,
     handleGenerate,
     handleForceAlign,
@@ -627,6 +629,19 @@ const App = () => {
                   title={forceOn ? t.tipForceOff : t.tipForceOn}
                 >
                   <CircleNodesIcon />
+                </div>
+                <div className="font-size-control" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '13px', color: '#64748b' }}>字体:</span>
+                  <input
+                    type="range"
+                    min="12"
+                    max="24"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(Number(e.target.value))}
+                    style={{ width: '60px' }}
+                    title={`字体大小: ${fontSize}px`}
+                  />
+                  <span style={{ fontSize: '12px', color: '#94a3b8', minWidth: '24px' }}>{fontSize}</span>
                 </div>
                 {loading && (
                   <div className="loading-overlay">

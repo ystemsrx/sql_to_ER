@@ -42,6 +42,7 @@ export interface GenerateOptions {
   isColored?: boolean;
   showComment?: boolean;
   hideFields?: boolean;
+  fontSize?: number;
   positionMap?: Map<string, { x?: number; y?: number; label?: string }> | null;
 }
 
@@ -61,6 +62,7 @@ export interface UseGraphResult {
   isColored: boolean;
   showComment: boolean;
   hideFields: boolean;
+  fontSize: number;
   forceOn: boolean;
   hasGraph: boolean;
   error: string | null;
@@ -70,6 +72,7 @@ export interface UseGraphResult {
   setIsColored: (next: boolean) => void;
   setShowComment: (next: boolean) => void;
   setHideFields: (next: boolean) => void;
+  setFontSize: (next: number) => void;
   setForceOn: (next: boolean) => void;
   setError: (next: string | null) => void;
   // commands
@@ -104,6 +107,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [isColored, setIsColoredState] = useState(true);
   const [showComment, setShowCommentState] = useState(false);
   const [hideFields, setHideFieldsState] = useState(false);
+  const [fontSize, setFontSizeState] = useState(16);
   const [forceOn, setForceOnState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,8 +124,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
   // 这种没有显式 opts 的路径用。
-  const stateRef = useRef({ inputText, isColored, showComment, hideFields, t });
-  stateRef.current = { inputText, isColored, showComment, hideFields, t };
+  const stateRef = useRef({ inputText, isColored, showComment, hideFields, fontSize, t });
+  stateRef.current = { inputText, isColored, showComment, hideFields, fontSize, t };
 
   const persistence = useSnapshotPersistence({ graphRef, containerRef });
   const { persistSnapshot, schedulePersist, cancelPendingPersist } = persistence;
@@ -278,7 +282,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       graph.data({ nodes, edges });
       graph.render();
 
-      updateGraphStyles(graph, useIsColored);
+      updateGraphStyles(graph, useIsColored, fontSize);
       patchRelationshipLinkPoints(graph);
 
       // 初始渲染后使用平滑动画调整视图
@@ -348,6 +352,13 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // 不再用 useEffect 监听 props 后用 ref 抑制重入。
 
   const setInputText = (next: string) => setInputTextState(next);
+
+  const setFontSize = (next: number) => {
+    setFontSizeState(next);
+    if (hasGraph && graphRef.current) {
+      updateGraphStyles(graphRef.current, isColored, next);
+    }
+  };
 
   const setIsColored = (next: boolean) => {
     setIsColoredState(next);
@@ -490,6 +501,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     isColored,
     showComment,
     hideFields,
+    fontSize,
     forceOn,
     hasGraph,
     error,
@@ -498,6 +510,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setIsColored,
     setShowComment,
     setHideFields,
+    setFontSize,
     setForceOn,
     setError,
     handleGenerate,
