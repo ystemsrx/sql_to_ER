@@ -3,10 +3,7 @@ import { I18N, type Language } from "../i18n";
 import { detectLang } from "../language";
 import { parseSQLTables } from "../parser/sql";
 import { parseDBML } from "../parser/dbml";
-import {
-  generateChenModelData,
-  patchRelationshipLinkPoints,
-} from "../builder";
+import { generateChenModelData, patchRelationshipLinkPoints } from "../builder";
 import {
   applyInitialComponentPositions,
   arrangeLayout,
@@ -18,21 +15,13 @@ import { setupNodeDoubleClickEdit } from "../editor";
 import { createManager as createHistoryManager } from "../history";
 import * as Snapshots from "../snapshots";
 import * as AttributeLayout from "../attributeLayout";
-import {
-  createERGraph,
-  buildDefaultLayoutCfg,
-} from "../graph/createERGraph";
+import { createERGraph, buildDefaultLayoutCfg } from "../graph/createERGraph";
 import { attachEntityDragSync } from "../graph/attachEntityDragSync";
 import { attachForceLoop } from "../graph/forceLoop";
 import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
 import { useSnapshotPersistence } from "./useSnapshotPersistence";
-import type {
-  ERNodeModel,
-  GraphLike,
-  ParsedTable,
-  SnapshotRecord,
-} from "../types";
+import type { ERNodeModel, GraphLike, ParsedTable, SnapshotRecord } from "../types";
 import type { HistoryManager } from "../history";
 
 type Translation = (typeof I18N)[keyof typeof I18N];
@@ -42,6 +31,7 @@ export interface GenerateOptions {
   isColored?: boolean;
   showComment?: boolean;
   hideFields?: boolean;
+  fontScale?: number;
   positionMap?: Map<string, { x?: number; y?: number; label?: string }> | null;
 }
 
@@ -61,6 +51,7 @@ export interface UseGraphResult {
   isColored: boolean;
   showComment: boolean;
   hideFields: boolean;
+  fontScale: number;
   forceOn: boolean;
   hasGraph: boolean;
   error: string | null;
@@ -70,6 +61,7 @@ export interface UseGraphResult {
   setIsColored: (next: boolean) => void;
   setShowComment: (next: boolean) => void;
   setHideFields: (next: boolean) => void;
+  setFontScale: (next: number) => void;
   setForceOn: (next: boolean) => void;
   setError: (next: string | null) => void;
   // commands
@@ -104,6 +96,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [isColored, setIsColoredState] = useState(true);
   const [showComment, setShowCommentState] = useState(false);
   const [hideFields, setHideFieldsState] = useState(false);
+  const [fontScale, setFontScaleState] = useState(1);
   const [forceOn, setForceOnState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,11 +113,30 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
   // 这种没有显式 opts 的路径用。
-  const stateRef = useRef({ inputText, isColored, showComment, hideFields, t });
-  stateRef.current = { inputText, isColored, showComment, hideFields, t };
+  const stateRef = useRef({
+    inputText,
+    isColored,
+    showComment,
+    hideFields,
+    fontScale,
+    t,
+  });
+  stateRef.current = {
+    inputText,
+    isColored,
+    showComment,
+    hideFields,
+    fontScale,
+    t,
+  };
 
   const persistence = useSnapshotPersistence({ graphRef, containerRef });
   const { persistSnapshot, schedulePersist, cancelPendingPersist } = persistence;
+
+  const applyGraphStyles = (graph: GraphLike | null, colored: boolean, scale: number) => {
+    updateGraphStyles(graph, colored, scale);
+    if (graph && !graph.destroyed) patchRelationshipLinkPoints(graph);
+  };
 
   // 公共关闭：智能布局 / 强制对齐 / 切换历史 / 显隐属性 / 重新生成
   // 都会让"持续力导向"复位为关闭。状态、ref、控制器三处同步。
@@ -141,6 +153,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     const useIsColored = genOpts.isColored ?? cur.isColored;
     const useShowComment = genOpts.showComment ?? cur.showComment;
     const useHideFields = genOpts.hideFields ?? cur.hideFields;
+    const useFontScale = genOpts.fontScale ?? cur.fontScale;
     const positionMap = genOpts.positionMap ?? null;
 
     try {
@@ -223,12 +236,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
           }
         });
       } else {
-        applyInitialComponentPositions(
-          nodes,
-          edges,
-          containerRef.current,
-          0,
-        );
+        applyInitialComponentPositions(nodes, edges, containerRef.current, 0);
       }
 
       // Clear previous graph completely
@@ -278,8 +286,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       graph.data({ nodes, edges });
       graph.render();
 
-      updateGraphStyles(graph, useIsColored);
-      patchRelationshipLinkPoints(graph);
+      applyGraphStyles(graph, useIsColored, useFontScale);
 
       // 初始渲染后使用平滑动画调整视图
       setTimeout(() => smoothFitView(graph, 600, "easeOutQuart"), 200);
@@ -302,11 +309,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       setupNodeDoubleClickEdit(graph as any, container, {
         onBeforeChange: () => historyRef.current.record(graph),
       });
-      attachEntityDragSync(
-        graph as any,
-        historyRef.current,
-        () => forceOnRef.current,
-      );
+      attachEntityDragSync(graph as any, historyRef.current, () => forceOnRef.current);
 
       // 持续力导向控制器：拖动期间根据斥力 + 连边引力重排其它节点
       const forceCtrl = attachForceLoop(graph as any);
@@ -325,21 +328,17 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const hideAttributesInGraph = () => {
     historyRef.current.reset();
     AttributeLayout.hideAttributes(
-      graphRef.current as unknown as Parameters<
-        typeof AttributeLayout.hideAttributes
-      >[0],
+      graphRef.current as unknown as Parameters<typeof AttributeLayout.hideAttributes>[0],
     );
   };
-  const showAttributesInGraph = (
-    showComment: boolean,
-    isColored: boolean,
-  ) => {
+  const showAttributesInGraph = (showComment: boolean, isColored: boolean, fontScale: number) => {
     historyRef.current.reset();
     AttributeLayout.showAttributes({
       graph: graphRef.current as unknown as AttributeLayout.ShowAttributesOptions["graph"],
       tables: tablesDataRef.current,
       labelMode: showComment ? "comment" : "name",
       isColored,
+      fontScale,
       updateStyles: updateGraphStyles,
     });
   };
@@ -350,9 +349,10 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const setInputText = (next: string) => setInputTextState(next);
 
   const setIsColored = (next: boolean) => {
+    stateRef.current.isColored = next;
     setIsColoredState(next);
     if (hasGraph && graphRef.current) {
-      updateGraphStyles(graphRef.current, next);
+      applyGraphStyles(graphRef.current, next, stateRef.current.fontScale);
     }
   };
 
@@ -372,9 +372,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       const nameLabel = m.nameLabel;
       const commentLabel = m.commentLabel;
       if (nameLabel === undefined && commentLabel === undefined) return;
-      const target = next
-        ? commentLabel || nameLabel || m.label
-        : nameLabel || m.label;
+      const target = next ? commentLabel || nameLabel || m.label : nameLabel || m.label;
       if (target !== undefined && target !== m.label) {
         graph.updateItem(node, { label: target });
       }
@@ -394,7 +392,20 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     if (next) {
       hideAttributesInGraph();
     } else {
-      showAttributesInGraph(stateRef.current.showComment, stateRef.current.isColored);
+      showAttributesInGraph(
+        stateRef.current.showComment,
+        stateRef.current.isColored,
+        stateRef.current.fontScale,
+      );
+    }
+  };
+
+  const setFontScale = (next: number) => {
+    const safeNext = Math.min(1.6, Math.max(0.4, next));
+    stateRef.current.fontScale = safeNext;
+    setFontScaleState(safeNext);
+    if (hasGraph && graphRef.current) {
+      applyGraphStyles(graphRef.current, stateRef.current.isColored, safeNext);
     }
   };
 
@@ -412,10 +423,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setShowCommentState(!!snap.showComment);
     setHideFieldsState(!!snap.hideFields);
 
-    const positionMap = new Map<
-      string,
-      { x?: number; y?: number; label?: string }
-    >();
+    const positionMap = new Map<string, { x?: number; y?: number; label?: string }>();
     snap.nodes.forEach((n) => {
       positionMap.set(n.id, { x: n.x, y: n.y, label: n.label });
     });
@@ -490,6 +498,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     isColored,
     showComment,
     hideFields,
+    fontScale,
     forceOn,
     hasGraph,
     error,
@@ -498,6 +507,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setIsColored,
     setShowComment,
     setHideFields,
+    setFontScale,
     setForceOn,
     setError,
     handleGenerate,

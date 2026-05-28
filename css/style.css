@@ -50,16 +50,8 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(
-      ellipse 60% 50% at 12% 0%,
-      rgba(217, 119, 87, 0.09) 0%,
-      transparent 60%
-    ),
-    radial-gradient(
-      ellipse 45% 45% at 100% 100%,
-      rgba(106, 155, 204, 0.06) 0%,
-      transparent 55%
-    );
+    radial-gradient(ellipse 60% 50% at 12% 0%, rgba(217, 119, 87, 0.09) 0%, transparent 60%),
+    radial-gradient(ellipse 45% 45% at 100% 100%, rgba(106, 155, 204, 0.06) 0%, transparent 55%);
 }
 
 ::selection {
@@ -440,10 +432,7 @@ body::before {
   flex: 1;
   min-height: 600px;
   background-color: #ffffff;
-  background-image: radial-gradient(
-    rgba(20, 20, 19, 0.14) 1.5px,
-    transparent 1.5px
-  );
+  background-image: radial-gradient(rgba(20, 20, 19, 0.14) 1.5px, transparent 1.5px);
   background-size: 24px 24px;
   border: none;
   border-radius: 0;
@@ -505,6 +494,97 @@ body::before {
 
 .force-toggle {
   top: 208px;
+}
+
+.font-size-slider {
+  position: absolute;
+  left: 16px;
+  top: 264px;
+  width: 40px;
+  height: 172px;
+  box-sizing: border-box;
+  padding: 12px 0 10px;
+  border: 1px solid rgba(217, 119, 87, 0.28);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-bg-overlay) 92%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(20, 20, 19, 0.09);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  z-index: 100;
+  transition:
+    transform var(--duration-fast) var(--ease-default),
+    border-color var(--duration-normal) var(--ease-default),
+    box-shadow var(--duration-normal) var(--ease-default);
+}
+
+.font-size-slider:hover {
+  transform: scale(1.03);
+  border-color: var(--app-accent);
+  box-shadow: 0 8px 20px rgba(20, 20, 19, 0.12);
+}
+
+.font-size-slider:active {
+  cursor: grabbing;
+}
+
+.font-size-slider-mark {
+  font-family: var(--app-font-display);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  color: var(--app-ink-2);
+  pointer-events: none;
+}
+
+.font-size-slider-mark-large {
+  font-size: 17px;
+}
+
+.font-size-slider-mark-small {
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.font-size-slider-track {
+  position: absolute;
+  left: 50%;
+  top: 33px;
+  bottom: 28px;
+  width: 6px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(20, 20, 19, 0.12);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.font-size-slider-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--font-slider-pct);
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--app-accent-warm), var(--app-accent));
+}
+
+.font-size-slider-thumb {
+  position: absolute;
+  left: 50%;
+  bottom: var(--font-slider-pct);
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: var(--app-accent-warm);
+  box-shadow: 0 2px 8px rgba(20, 20, 19, 0.22);
+  transform: translate(-50%, 50%);
 }
 
 .background-toggle:hover,
@@ -777,10 +857,7 @@ body::before {
    旧版本 Chrome 对 ::selection { color: inherit } 有计算时机的 bug。 */
 .cm-host .cm-selectionBackground,
 .cm-host .cm-editor .cm-selectionLayer .cm-selectionBackground,
-.cm-host .cm-editor.cm-focused
-  > .cm-scroller
-  > .cm-selectionLayer
-  .cm-selectionBackground {
+.cm-host .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
   background: transparent !important;
 }
 
@@ -973,7 +1050,8 @@ body::before {
   .colorize-toggle:hover,
   .attrs-toggle:hover,
   .history-toggle:hover,
-  .force-toggle:hover {
+  .force-toggle:hover,
+  .font-size-slider:hover {
     transform: none;
     border-color: var(--app-border);
     box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
@@ -994,6 +1072,43 @@ body::before {
   .history-toggle:active,
   .force-toggle:active {
     transform: scale(1.1);
+  }
+
+  .font-size-slider {
+    left: auto;
+    right: 16px;
+    top: auto;
+    bottom: 16px;
+    width: 172px;
+    height: 40px;
+    padding: 0 12px;
+    flex-direction: row-reverse;
+  }
+
+  .font-size-slider-track {
+    left: 32px;
+    right: 32px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 6px;
+    transform: translateY(-50%);
+  }
+
+  .font-size-slider-fill {
+    top: 0;
+    right: auto;
+    bottom: 0;
+    width: var(--font-slider-pct);
+    height: auto;
+    background: linear-gradient(90deg, var(--app-accent), var(--app-accent-warm));
+  }
+
+  .font-size-slider-thumb {
+    left: var(--font-slider-pct);
+    top: 50%;
+    bottom: auto;
+    transform: translate(-50%, -50%);
   }
 
   .app-container {
@@ -1366,16 +1481,8 @@ body.is-lang-fading .lang-fade-target {
 @media (prefers-color-scheme: dark) {
   body::before {
     background:
-      radial-gradient(
-        ellipse 60% 50% at 12% 0%,
-        rgba(217, 119, 87, 0.12) 0%,
-        transparent 60%
-      ),
-      radial-gradient(
-        ellipse 45% 45% at 100% 100%,
-        rgba(106, 155, 204, 0.08) 0%,
-        transparent 55%
-      );
+      radial-gradient(ellipse 60% 50% at 12% 0%, rgba(217, 119, 87, 0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 45% 45% at 100% 100%, rgba(106, 155, 204, 0.08) 0%, transparent 55%);
   }
 
   .input-textarea,
@@ -1427,10 +1534,21 @@ body.is-lang-fading .lang-fade-target {
     box-shadow 560ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.export-btn[data-state="idle"] { width: 140px; }
-.export-btn[data-state="open"] { width: 296px; cursor: default; }
-.export-btn[data-state="loading"] { width: 200px; cursor: default; }
-.export-btn[data-state="success"] { width: 180px; cursor: default; }
+.export-btn[data-state="idle"] {
+  width: 140px;
+}
+.export-btn[data-state="open"] {
+  width: 296px;
+  cursor: default;
+}
+.export-btn[data-state="loading"] {
+  width: 200px;
+  cursor: default;
+}
+.export-btn[data-state="success"] {
+  width: 180px;
+  cursor: default;
+}
 
 .export-btn[data-state="idle"]:hover {
   transform: scale(1.02);
@@ -1527,9 +1645,15 @@ body.is-lang-fading .lang-fade-target {
   pointer-events: none;
   transition: color 200ms ease;
 }
-.export-opt[data-fmt="PNG"]:hover .export-opt-label { color: #60a5fa; }
-.export-opt[data-fmt="SVG"]:hover .export-opt-label { color: #34d399; }
-.export-opt[data-fmt="XML"]:hover .export-opt-label { color: #f59e0b; }
+.export-opt[data-fmt="PNG"]:hover .export-opt-label {
+  color: #60a5fa;
+}
+.export-opt[data-fmt="SVG"]:hover .export-opt-label {
+  color: #34d399;
+}
+.export-opt[data-fmt="XML"]:hover .export-opt-label {
+  color: #f59e0b;
+}
 
 .export-sep {
   width: 1px;
@@ -1553,7 +1677,9 @@ body.is-lang-fading .lang-fade-target {
   justify-content: center;
   color: #a3a3a3;
   cursor: pointer;
-  transition: background 200ms ease, color 200ms ease;
+  transition:
+    background 200ms ease,
+    color 200ms ease;
 }
 .export-cancel:hover {
   background: rgba(64, 64, 64, 0.5);
@@ -1570,7 +1696,9 @@ body.is-lang-fading .lang-fade-target {
   animation: export-spin 800ms linear infinite;
 }
 @keyframes export-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .export-view-loading .loading-label {
   font-size: 14px;
@@ -1592,7 +1720,9 @@ body.is-lang-fading .lang-fade-target {
   animation: export-draw 460ms cubic-bezier(0.32, 0.72, 0, 1) 180ms forwards;
 }
 @keyframes export-draw {
-  to { stroke-dashoffset: 0; }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 .export-view-success .success-label {
   font-size: 14px;
@@ -1610,6 +1740,7 @@ body.is-lang-fading .lang-fade-target {
 .attrs-toggle:focus-visible,
 .history-toggle:focus-visible,
 .force-toggle:focus-visible,
+.font-size-slider:focus-visible,
 .github-corner:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;
@@ -1660,11 +1791,7 @@ body.is-lang-fading .lang-fade-target {
   inset: auto auto -18% -10%;
   width: 55%;
   height: 70%;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(217, 119, 87, 0.26) 0%,
-    transparent 65%
-  );
+  background: radial-gradient(ellipse at center, rgba(217, 119, 87, 0.26) 0%, transparent 65%);
   filter: blur(40px);
   pointer-events: none;
 }
@@ -1674,11 +1801,7 @@ body.is-lang-fading .lang-fade-target {
   inset: -10% -12% auto auto;
   width: 48%;
   height: 58%;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(196, 185, 154, 0.34) 0%,
-    transparent 70%
-  );
+  background: radial-gradient(ellipse at center, rgba(196, 185, 154, 0.34) 0%, transparent 70%);
   filter: blur(40px);
   pointer-events: none;
 }
@@ -1775,7 +1898,7 @@ body.is-lang-fading .lang-fade-target {
   letter-spacing: 0.01em;
   pointer-events: none;
   transition: opacity 600ms var(--ease-default);
-  box-shadow: 0 10px 28px rgba(20, 20, 19, 0.10);
+  box-shadow: 0 10px 28px rgba(20, 20, 19, 0.1);
 }
 .history-hint > svg {
   color: var(--app-accent);

@@ -1,4 +1,4 @@
-import type { GraphLike } from "../types";
+import type { ERNodeModel, GraphLike } from "../types";
 
 // G6 updateItem 的"上层 props"字段名/类型很灵活，这里就是装填样式属性的字典。
 interface StylesUpdate {
@@ -7,6 +7,16 @@ interface StylesUpdate {
   [key: string]: unknown;
 }
 
+const clampFontScale = (scale: number | undefined): number => {
+  if (!Number.isFinite(scale)) return 1;
+  return Math.min(1.6, Math.max(0.4, scale as number));
+};
+
+const nodeFontSize = (model: ERNodeModel, scale: number): number => {
+  const base = model.nodeType === "entity" ? 18 : model.nodeType === "relationship" ? 16 : 15;
+  return base * scale;
+};
+
 /**
  * 黑白 / 彩色样式批量切换。直接写到 G6 graph 上，不返回值。
  * 拆出来是为了让 useGraph 不必再持有这一大坨视觉常量。
@@ -14,8 +24,11 @@ interface StylesUpdate {
 export const updateGraphStyles = (
   graphInstance: GraphLike | null,
   colored: boolean,
+  fontScale: number = 1,
 ): void => {
   if (!graphInstance || graphInstance.destroyed) return;
+
+  const safeFontScale = clampFontScale(fontScale);
 
   graphInstance.setAutoPaint(false);
 
@@ -104,12 +117,7 @@ export const updateGraphStyles = (
       styles.style = {
         fill: "#ffffff",
         stroke: "#1e293b",
-        lineWidth:
-          model.keyType === "pk" ||
-          model.nodeType === "entity" ||
-          model.nodeType === "relationship"
-            ? 2
-            : 1,
+        lineWidth: 2,
         shadowBlur: 0,
       };
       if (model.isPlaceholder) {
@@ -127,15 +135,19 @@ export const updateGraphStyles = (
         styles.labelCfg = {
           style: {
             fill: "#1e293b",
-            fontWeight:
-              model.nodeType === "entity" || model.keyType === "pk"
-                ? "bold"
-                : "normal",
+            fontWeight: model.nodeType === "entity" || model.keyType === "pk" ? "bold" : "normal",
             fontFamily: "Poppins",
           },
         };
       }
     }
+
+    styles.labelCfg = {
+      style: {
+        ...(styles.labelCfg?.style ?? {}),
+        fontSize: nodeFontSize(model, safeFontScale),
+      },
+    };
 
     graphInstance.updateItem(node, styles);
   });
@@ -150,7 +162,7 @@ export const updateGraphStyles = (
       labelCfg: {
         style: {
           fill: "#000000",
-          fontSize: 12,
+          fontSize: 12 * safeFontScale,
           background: {
             fill: "#ffffff",
             padding: [2, 4, 2, 4],

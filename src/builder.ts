@@ -16,7 +16,7 @@ import type {
   ParsedColumn,
   ParsedRelationship,
   ParsedTable,
-} from "./types";
+} from './types';
 
 /**
  * 根据 labelMode 与 (name, comment) 计算应显示的标签
@@ -71,25 +71,23 @@ const generateChenModelData = (
       style: {
         fill: '#ffffff',
         stroke: isColored ? '#595959' : '#000000',
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
           fill: '#000000',
-          fontWeight: 'bold'
-        }
+          fontWeight: 'bold',
+        },
       },
       // 添加节点分类信息，用于布局算法
-      nodeType: 'entity'
+      nodeType: 'entity',
     });
 
     if (!hideFields) {
       // 纯 FK 列（不同时是 PK 的）在 Chen 模型里由关系菱形表达，不再画成属性椭圆，
       // 否则会出现菱形和椭圆同时挂在实体上、且文本相同（FK 列 COMMENT 也是关系标签来源）。
       const fkOnlyColumns = new Set(
-        table.foreignKeys
-          .map((fk) => fk.column)
-          .filter((col) => !table.primaryKeys.includes(col)),
+        table.foreignKeys.map((fk) => fk.column).filter((col) => !table.primaryKeys.includes(col)),
       );
 
       // Create attribute nodes (ellipses) for each column
@@ -110,16 +108,16 @@ const generateChenModelData = (
           style: {
             fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
             stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
-            lineWidth: isPrimaryKey ? 2 : 1
+            lineWidth: isPrimaryKey ? 2 : 1,
           },
           labelCfg: {
             style: {
               fill: '#000000',
-              fontWeight: isPrimaryKey ? 'bold' : 'normal'
-            }
+              fontWeight: isPrimaryKey ? 'bold' : 'normal',
+            },
           },
           nodeType: 'attribute',
-          parentEntity: entityId // 标记父实体
+          parentEntity: entityId, // 标记父实体
         });
 
         // Connect attribute to entity
@@ -128,9 +126,9 @@ const generateChenModelData = (
           source: entityId,
           target: attributeId,
           style: {
-            stroke: '#000000'
+            stroke: '#000000',
           },
-          edgeType: 'entity-attribute'
+          edgeType: 'entity-attribute',
         });
       });
     }
@@ -139,7 +137,7 @@ const generateChenModelData = (
   // Create placeholder entities for referenced tables not in the input SQL
   relationships.forEach((rel) => {
     if (!entityMap.has(rel.to)) {
-      const placeholderIndex = nodes.filter(n => n.nodeType === 'entity').length;
+      const placeholderIndex = nodes.filter((n) => n.nodeType === 'entity').length;
       const entityId = `entity-${rel.to}-${placeholderIndex}`;
       entityMap.set(rel.to, entityId);
 
@@ -154,16 +152,16 @@ const generateChenModelData = (
           fill: '#ffffff',
           stroke: isColored ? '#595959' : '#000000',
           lineWidth: 2,
-          lineDash: [4, 4]
+          lineDash: [4, 4],
         },
         labelCfg: {
           style: {
             fill: isColored ? '#999999' : '#666666',
-            fontWeight: 'bold'
-          }
+            fontWeight: 'bold',
+          },
         },
         nodeType: 'entity',
-        isPlaceholder: true
+        isPlaceholder: true,
       });
     }
   });
@@ -182,7 +180,10 @@ const generateChenModelData = (
     if (!fromTable) return undefined;
     // 复合 FK label "a, b"：每段都查一遍，把首个有注释的拼回去就行了；
     // 多 FK 列同时有注释的情况罕见，简化处理。
-    const cols = rel.label.split(',').map((s) => s.trim()).filter(Boolean);
+    const cols = rel.label
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     for (const c of cols) {
       const found = fromTable.columns.find((col) => col.name === c);
       if (found?.comment) return found.comment;
@@ -206,15 +207,15 @@ const generateChenModelData = (
       style: {
         fill: isColored ? '#f9f0ff' : '#ffffff',
         stroke: isColored ? '#722ed1' : '#000000',
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
-          fill: '#000000'
-        }
+          fill: '#000000',
+        },
       },
       nodeType: 'relationship',
-      isSelfLoop
+      isSelfLoop,
     });
 
     // For a self-referencing FK we use a custom edge type (self-loop-arc)
@@ -244,18 +245,18 @@ const generateChenModelData = (
       curveOffset: isSelfLoop ? 22 : undefined,
       style: {
         stroke: '#000000',
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
           fill: '#000000',
           background: {
             fill: '#ffffff',
-            padding: [2, 4, 2, 4]
-          }
-        }
+            padding: [2, 4, 2, 4],
+          },
+        },
       },
-      edgeType: 'entity-relationship'
+      edgeType: 'entity-relationship',
     });
 
     // Connect relationship to target entity (the one being referenced, 'one' side)
@@ -268,18 +269,18 @@ const generateChenModelData = (
       curveOffset: isSelfLoop ? 22 : undefined,
       style: {
         stroke: '#000000',
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
           fill: '#000000',
           background: {
             fill: '#ffffff',
-            padding: [2, 4, 2, 4]
-          }
-        }
+            padding: [2, 4, 2, 4],
+          },
+        },
       },
-      edgeType: 'relationship-entity'
+      edgeType: 'relationship-entity',
     });
   });
 
@@ -309,6 +310,36 @@ const getTextWidth = (text: string, fontSize: number): number => {
   return width;
 };
 
+const resolveLabelFontSize = (cfg: any, fallback: number): number => {
+  const raw = cfg?.labelCfg?.style?.fontSize;
+  const parsed =
+    typeof raw === 'number' ? raw : typeof raw === 'string' ? Number.parseFloat(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const getEntityLabelTextY = (fontSize: number): number => fontSize * 0.13;
+
+const getAttributeLabelTextY = (fontSize: number): number => fontSize * 0.11;
+
+const getRelationshipLabelTextY = (fontSize: number): number => fontSize * 0.08;
+
+const getFontScale = (fontSize: number, baseFontSize: number): number => fontSize / baseFontSize;
+
+const getShrinkOnlyScale = (fontSize: number, baseFontSize: number): number =>
+  Math.min(1, getFontScale(fontSize, baseFontSize));
+
+const getAttributeUnderlineY = (fontSize: number): number => {
+  const scale = getShrinkOnlyScale(fontSize, 15);
+  return Math.max(10 * scale, fontSize * 0.62);
+};
+
+const getAttributeHeight = (fontSize: number, hasUnderline: boolean): number => {
+  const scale = getShrinkOnlyScale(fontSize, 15);
+  const minHeight = 40 * scale;
+  const verticalRoom = (hasUnderline ? 24 : 16) * scale;
+  return Math.max(minHeight, fontSize + verticalRoom);
+};
+
 interface DiamondLinkContext {
   getBBox(): {
     centerX: number;
@@ -317,7 +348,10 @@ interface DiamondLinkContext {
     height: number;
   };
 }
-interface Point2D { x: number; y: number; }
+interface Point2D {
+  x: number;
+  y: number;
+}
 
 /**
  * 菱形节点边界计算函数（供 getLinkPoint 使用）
@@ -340,7 +374,7 @@ const calculateDiamondLinkPoint = function (this: DiamondLinkContext, point: Poi
   const t = 1 / (Math.abs(dx) / halfWidth + Math.abs(dy) / halfHeight);
   return {
     x: centerX + dx * t,
-    y: centerY + dy * t
+    y: centerY + dy * t,
   };
 };
 
@@ -365,16 +399,17 @@ const registerCustomNodes = (G6: G6Like): void => {
 
   // 实体节点（矩形）
   const drawEntity = (cfg: any, group: any) => {
-    const fontSize = 18;
+    const fontSize = resolveLabelFontSize(cfg, 18);
+    const scale = getShrinkOnlyScale(fontSize, 18);
     const text = cfg.label || '';
 
     const textWidth = getTextWidth(text, fontSize);
-    const padding = 10;
-    const minWidth = 80;
-    const minHeight = 50;
+    const padding = 10 * scale;
+    const minWidth = 80 * scale;
+    const minHeight = 50 * scale;
 
     const width = Math.max(minWidth, textWidth + padding * 2);
-    const height = Math.max(minHeight, fontSize + 20);
+    const height = Math.max(minHeight, fontSize + 20 * scale);
 
     const rectAttrs: {
       x: number;
@@ -400,8 +435,7 @@ const registerCustomNodes = (G6: G6Like): void => {
     if (cfg.style?.lineDash) rectAttrs.lineDash = cfg.style.lineDash;
     if (cfg.style?.radius) rectAttrs.radius = cfg.style.radius;
     if (cfg.style?.shadowColor) rectAttrs.shadowColor = cfg.style.shadowColor;
-    if (cfg.style?.shadowBlur !== undefined)
-      rectAttrs.shadowBlur = cfg.style.shadowBlur;
+    if (cfg.style?.shadowBlur !== undefined) rectAttrs.shadowBlur = cfg.style.shadowBlur;
 
     const shape = group.addShape('rect', {
       attrs: rectAttrs,
@@ -412,7 +446,7 @@ const registerCustomNodes = (G6: G6Like): void => {
       group.addShape('text', {
         attrs: {
           x: 0,
-          y: 0,
+          y: getEntityLabelTextY(fontSize),
           text: cfg.label,
           fontSize,
           textAlign: 'center',
@@ -420,6 +454,7 @@ const registerCustomNodes = (G6: G6Like): void => {
           fill: cfg.labelCfg?.style?.fill || '#000',
           fontWeight: cfg.labelCfg?.style?.fontWeight || 'bold',
           fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+          fontFamily: cfg.labelCfg?.style?.fontFamily,
         },
         name: 'entity-text',
         capture: false,
@@ -440,14 +475,15 @@ const registerCustomNodes = (G6: G6Like): void => {
     // getLinkPoint 时会抛 "getMethod is not a function"）。
     update(cfg: any, node: any) {
       const group = node.getContainer();
-      const fontSize = 18;
+      const fontSize = resolveLabelFontSize(cfg, 18);
+      const scale = getShrinkOnlyScale(fontSize, 18);
       const textStr = cfg.label || '';
       const textWidth = getTextWidth(textStr, fontSize);
-      const padding = 10;
-      const minWidth = 80;
-      const minHeight = 50;
+      const padding = 10 * scale;
+      const minWidth = 80 * scale;
+      const minHeight = 50 * scale;
       const width = Math.max(minWidth, textWidth + padding * 2);
-      const height = Math.max(minHeight, fontSize + 20);
+      const height = Math.max(minHeight, fontSize + 20 * scale);
 
       const shape = group.find((e: any) => e.get('name') === 'entity-shape');
       if (shape) {
@@ -467,12 +503,12 @@ const registerCustomNodes = (G6: G6Like): void => {
         shape.attr(next);
       }
 
-      let textShape = group.find(
-        (e: any) => e.get('name') === 'entity-text',
-      );
+      let textShape = group.find((e: any) => e.get('name') === 'entity-text');
       if (cfg.label) {
         const labelAttrs: Record<string, unknown> = {
           text: cfg.label,
+          y: getEntityLabelTextY(fontSize),
+          fontSize,
           fill: cfg.labelCfg?.style?.fill ?? '#000',
           fontWeight: cfg.labelCfg?.style?.fontWeight ?? 'bold',
           fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
@@ -484,7 +520,7 @@ const registerCustomNodes = (G6: G6Like): void => {
           group.addShape('text', {
             attrs: {
               x: 0,
-              y: 0,
+              y: getEntityLabelTextY(fontSize),
               fontSize,
               textAlign: 'center',
               textBaseline: 'middle',
@@ -502,16 +538,17 @@ const registerCustomNodes = (G6: G6Like): void => {
 
   // 属性节点（椭圆）
   const drawAttribute = (cfg: any, group: any) => {
-    const fontSize = 15;
+    const fontSize = resolveLabelFontSize(cfg, 15);
+    const scale = getShrinkOnlyScale(fontSize, 15);
     const text = cfg.label || '';
 
     const textWidth = getTextWidth(text, fontSize);
-    const padding = 16;
-    const minWidth = 60;
-    const minHeight = 40;
+    const padding = 16 * scale;
+    const minWidth = 60 * scale;
+    const isPrimaryKey = cfg.keyType === 'pk';
 
     const width = Math.max(minWidth, textWidth + padding * 2);
-    const height = Math.max(minHeight, fontSize + 16);
+    const height = getAttributeHeight(fontSize, isPrimaryKey);
 
     const shape = group.addShape('ellipse', {
       attrs: {
@@ -530,20 +567,18 @@ const registerCustomNodes = (G6: G6Like): void => {
     });
 
     if (cfg.label) {
-      const isPrimaryKey = cfg.keyType === 'pk';
       group.addShape('text', {
         attrs: {
           x: 0,
-          y: 0,
+          y: getAttributeLabelTextY(fontSize),
           text: cfg.label,
           fontSize,
           textAlign: 'center',
           textBaseline: 'middle',
           fill: cfg.labelCfg?.style?.fill || '#000',
-          fontWeight:
-            cfg.labelCfg?.style?.fontWeight ||
-            (isPrimaryKey ? 'bold' : 'normal'),
+          fontWeight: cfg.labelCfg?.style?.fontWeight || (isPrimaryKey ? 'bold' : 'normal'),
           fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+          fontFamily: cfg.labelCfg?.style?.fontFamily,
         },
         name: 'attribute-text',
         capture: false,
@@ -554,9 +589,9 @@ const registerCustomNodes = (G6: G6Like): void => {
         group.addShape('line', {
           attrs: {
             x1: -underlineWidth / 2,
-            y1: 12,
+            y1: getAttributeUnderlineY(fontSize),
             x2: underlineWidth / 2,
-            y2: 12,
+            y2: getAttributeUnderlineY(fontSize),
             stroke: cfg.labelCfg?.style?.fill || '#000',
             lineWidth: 1,
           },
@@ -571,15 +606,15 @@ const registerCustomNodes = (G6: G6Like): void => {
     draw: drawAttribute,
     update(cfg: any, node: any) {
       const group = node.getContainer();
-      const fontSize = 15;
+      const fontSize = resolveLabelFontSize(cfg, 15);
+      const scale = getShrinkOnlyScale(fontSize, 15);
       const textStr = cfg.label || '';
       const textWidth = getTextWidth(textStr, fontSize);
-      const padding = 16;
-      const minWidth = 60;
-      const minHeight = 40;
-      const width = Math.max(minWidth, textWidth + padding * 2);
-      const height = Math.max(minHeight, fontSize + 16);
+      const padding = 16 * scale;
+      const minWidth = 60 * scale;
       const isPrimaryKey = cfg.keyType === 'pk';
+      const width = Math.max(minWidth, textWidth + padding * 2);
+      const height = getAttributeHeight(fontSize, isPrimaryKey);
 
       const shape = group.find((e: any) => e.get('name') === 'attribute-shape');
       if (shape) {
@@ -595,16 +630,14 @@ const registerCustomNodes = (G6: G6Like): void => {
         });
       }
 
-      let textShape = group.find(
-        (e: any) => e.get('name') === 'attribute-text',
-      );
+      let textShape = group.find((e: any) => e.get('name') === 'attribute-text');
       if (cfg.label) {
         const labelAttrs: Record<string, unknown> = {
           text: cfg.label,
+          y: getAttributeLabelTextY(fontSize),
+          fontSize,
           fill: cfg.labelCfg?.style?.fill ?? '#000',
-          fontWeight:
-            cfg.labelCfg?.style?.fontWeight ??
-            (isPrimaryKey ? 'bold' : 'normal'),
+          fontWeight: cfg.labelCfg?.style?.fontWeight ?? (isPrimaryKey ? 'bold' : 'normal'),
           fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         };
@@ -614,7 +647,7 @@ const registerCustomNodes = (G6: G6Like): void => {
           group.addShape('text', {
             attrs: {
               x: 0,
-              y: 0,
+              y: getAttributeLabelTextY(fontSize),
               fontSize,
               textAlign: 'center',
               textBaseline: 'middle',
@@ -629,26 +662,24 @@ const registerCustomNodes = (G6: G6Like): void => {
       }
 
       // 主键下划线随 keyType / label 变化增删；宽度也得跟新文本走。
-      const underline = group.find(
-        (e: any) => e.get('name') === 'attribute-underline',
-      );
+      const underline = group.find((e: any) => e.get('name') === 'attribute-underline');
       if (isPrimaryKey && cfg.label) {
         const underlineWidth = getTextWidth(textStr, fontSize);
         if (underline) {
           underline.attr({
             x1: -underlineWidth / 2,
-            y1: 12,
+            y1: getAttributeUnderlineY(fontSize),
             x2: underlineWidth / 2,
-            y2: 12,
+            y2: getAttributeUnderlineY(fontSize),
             stroke: cfg.labelCfg?.style?.fill ?? '#000',
           });
         } else {
           group.addShape('line', {
             attrs: {
               x1: -underlineWidth / 2,
-              y1: 12,
+              y1: getAttributeUnderlineY(fontSize),
               x2: underlineWidth / 2,
-              y2: 12,
+              y2: getAttributeUnderlineY(fontSize),
               stroke: cfg.labelCfg?.style?.fill ?? '#000',
               lineWidth: 1,
             },
@@ -663,23 +694,21 @@ const registerCustomNodes = (G6: G6Like): void => {
 
   // 关系节点（菱形）
   const drawRelationship = (cfg: any, group: any) => {
-    const fontSize = 16;
+    const fontSize = resolveLabelFontSize(cfg, 16);
+    const scale = getShrinkOnlyScale(fontSize, 16);
     const text = cfg.label || '';
 
     const textWidth = getTextWidth(text, fontSize);
-    const horizontalPadding = 24;
-    const verticalPadding = 16;
-    const minWidth = 80;
-    const minHeight = 40;
+    const horizontalPadding = 24 * scale;
+    const verticalPadding = 16 * scale;
+    const minWidth = 80 * scale;
+    const minHeight = 40 * scale;
 
     const requiredWidth = textWidth + horizontalPadding * 2;
     const requiredHeight = fontSize + verticalPadding * 2;
 
     const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
-    const halfHeight = Math.max(
-      minHeight / 2,
-      Math.min(halfWidth * 0.6, requiredHeight / 2),
-    );
+    const halfHeight = Math.max(minHeight / 2, Math.min(halfWidth * 0.6, requiredHeight / 2));
 
     const shape = group.addShape('polygon', {
       attrs: {
@@ -703,7 +732,7 @@ const registerCustomNodes = (G6: G6Like): void => {
       group.addShape('text', {
         attrs: {
           x: 0,
-          y: 0,
+          y: getRelationshipLabelTextY(fontSize),
           text: cfg.label,
           fontSize,
           textAlign: 'center',
@@ -711,6 +740,7 @@ const registerCustomNodes = (G6: G6Like): void => {
           fill: cfg.labelCfg?.style?.fill || '#000',
           fontWeight: cfg.labelCfg?.style?.fontWeight || 'normal',
           fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+          fontFamily: cfg.labelCfg?.style?.fontFamily,
         },
         name: 'relationship-text',
         capture: false,
@@ -723,25 +753,21 @@ const registerCustomNodes = (G6: G6Like): void => {
     draw: drawRelationship,
     update(cfg: any, node: any) {
       const group = node.getContainer();
-      const fontSize = 16;
+      const fontSize = resolveLabelFontSize(cfg, 16);
+      const scale = getShrinkOnlyScale(fontSize, 16);
       const textStr = cfg.label || '';
       const textWidth = getTextWidth(textStr, fontSize);
-      const horizontalPadding = 24;
-      const verticalPadding = 16;
-      const minWidth = 80;
-      const minHeight = 40;
+      const horizontalPadding = 24 * scale;
+      const verticalPadding = 16 * scale;
+      const minWidth = 80 * scale;
+      const minHeight = 40 * scale;
 
       const requiredWidth = textWidth + horizontalPadding * 2;
       const requiredHeight = fontSize + verticalPadding * 2;
       const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
-      const halfHeight = Math.max(
-        minHeight / 2,
-        Math.min(halfWidth * 0.6, requiredHeight / 2),
-      );
+      const halfHeight = Math.max(minHeight / 2, Math.min(halfWidth * 0.6, requiredHeight / 2));
 
-      const shape = group.find(
-        (e: any) => e.get('name') === 'relationship-shape',
-      );
+      const shape = group.find((e: any) => e.get('name') === 'relationship-shape');
       if (shape) {
         shape.attr({
           points: [
@@ -759,12 +785,12 @@ const registerCustomNodes = (G6: G6Like): void => {
         });
       }
 
-      let textShape = group.find(
-        (e: any) => e.get('name') === 'relationship-text',
-      );
+      let textShape = group.find((e: any) => e.get('name') === 'relationship-text');
       if (cfg.label) {
         const labelAttrs: Record<string, unknown> = {
           text: cfg.label,
+          y: getRelationshipLabelTextY(fontSize),
+          fontSize,
           fill: cfg.labelCfg?.style?.fill ?? '#000',
           fontWeight: cfg.labelCfg?.style?.fontWeight ?? 'normal',
           fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
@@ -776,7 +802,7 @@ const registerCustomNodes = (G6: G6Like): void => {
           group.addShape('text', {
             attrs: {
               x: 0,
-              y: 0,
+              y: getRelationshipLabelTextY(fontSize),
               fontSize,
               textAlign: 'center',
               textBaseline: 'middle',
@@ -805,34 +831,43 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 一个由 model.curveOffset 决定偏移方向的控制点,最后用 getPath
   // 画二次贝塞尔曲线。两条边在端点处严丝合缝,只在中段分向两侧，
   // 形成对称的透镜/眼睛形。
-  G6.registerEdge('self-loop-arc', {
-    getControlPoints(cfg) {
-      const { startPoint, endPoint, curveOffset = 22 } = cfg;
-      if (!startPoint || !endPoint) return [];
-      const dx = endPoint.x - startPoint.x;
-      const dy = endPoint.y - startPoint.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const perpX = -dy / dist;
-      const perpY = dx / dist;
-      return [{
-        x: (startPoint.x + endPoint.x) / 2 + perpX * curveOffset,
-        y: (startPoint.y + endPoint.y) / 2 + perpY * curveOffset
-      }];
+  G6.registerEdge(
+    'self-loop-arc',
+    {
+      getControlPoints(cfg) {
+        const { startPoint, endPoint, curveOffset = 22 } = cfg;
+        if (!startPoint || !endPoint) return [];
+        const dx = endPoint.x - startPoint.x;
+        const dy = endPoint.y - startPoint.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const perpX = -dy / dist;
+        const perpY = dx / dist;
+        return [
+          {
+            x: (startPoint.x + endPoint.x) / 2 + perpX * curveOffset,
+            y: (startPoint.y + endPoint.y) / 2 + perpY * curveOffset,
+          },
+        ];
+      },
+      getPath(points) {
+        if (!points || points.length < 2) return [];
+        const start = points[0];
+        const end = points[points.length - 1];
+        const control =
+          points.length >= 3
+            ? points[1]
+            : {
+                x: (start.x + end.x) / 2,
+                y: (start.y + end.y) / 2,
+              };
+        return [
+          ['M', start.x, start.y],
+          ['Q', control.x, control.y, end.x, end.y],
+        ];
+      },
     },
-    getPath(points) {
-      if (!points || points.length < 2) return [];
-      const start = points[0];
-      const end = points[points.length - 1];
-      const control = points.length >= 3 ? points[1] : {
-        x: (start.x + end.x) / 2,
-        y: (start.y + end.y) / 2
-      };
-      return [
-        ['M', start.x, start.y],
-        ['Q', control.x, control.y, end.x, end.y]
-      ];
-    }
-  }, 'single-edge');
+    'single-edge',
+  );
 };
 
 /**
@@ -869,9 +904,7 @@ const buildAttributeData = (
   tables.forEach((table, tableIndex) => {
     const entityId = `entity-${table.name}-${tableIndex}`;
     const fkOnlyColumns = new Set(
-      table.foreignKeys
-        .map((fk) => fk.column)
-        .filter((col) => !table.primaryKeys.includes(col)),
+      table.foreignKeys.map((fk) => fk.column).filter((col) => !table.primaryKeys.includes(col)),
     );
     table.columns.forEach((column, colIndex) => {
       if (fkOnlyColumns.has(column.name)) return;
@@ -889,16 +922,16 @@ const buildAttributeData = (
         style: {
           fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
           stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
-          lineWidth: isPrimaryKey ? 2 : 1
+          lineWidth: isPrimaryKey ? 2 : 1,
         },
         labelCfg: {
           style: {
             fill: '#000000',
-            fontWeight: isPrimaryKey ? 'bold' : 'normal'
-          }
+            fontWeight: isPrimaryKey ? 'bold' : 'normal',
+          },
         },
         nodeType: 'attribute',
-        parentEntity: entityId
+        parentEntity: entityId,
       });
 
       edges.push({
@@ -906,7 +939,7 @@ const buildAttributeData = (
         source: entityId,
         target: attributeId,
         style: { stroke: '#000000' },
-        edgeType: 'entity-attribute'
+        edgeType: 'entity-attribute',
       });
     });
   });
@@ -916,23 +949,26 @@ const buildAttributeData = (
 /**
  * 估算属性节点渲染后的尺寸（与 registerCustomNodes 中 attribute 绘制逻辑保持一致）
  */
-const estimateAttributeHalfSize = (label: string | undefined | null): { halfW: number; halfH: number } => {
-  const fontSize = 15;
-  const padding = 16;
-  const minWidth = 60;
-  const minHeight = 40;
+const estimateAttributeHalfSize = (
+  label: string | undefined | null,
+  fontSize: number = 15,
+  hasUnderline: boolean = false,
+): { halfW: number; halfH: number } => {
+  const scale = getShrinkOnlyScale(fontSize, 15);
+  const padding = 16 * scale;
+  const minWidth = 60 * scale;
   const textWidth = getTextWidth(label || '', fontSize);
   const width = Math.max(minWidth, textWidth + padding * 2);
-  const height = Math.max(minHeight, fontSize + 16);
+  const height = getAttributeHeight(fontSize, hasUnderline);
   return { halfW: width / 2, halfH: height / 2 };
 };
 
 export {
-generateChenModelData,
-buildAttributeData,
-estimateAttributeHalfSize,
-registerCustomNodes,
-patchRelationshipLinkPoints,
-calculateDiamondLinkPoint,
-getTextWidth
+  generateChenModelData,
+  buildAttributeData,
+  estimateAttributeHalfSize,
+  registerCustomNodes,
+  patchRelationshipLinkPoints,
+  calculateDiamondLinkPoint,
+  getTextWidth,
 };

@@ -97,6 +97,27 @@ export interface NodeDimensions {
     fontSize: number;
 }
 
+const readLabelFontSize = (nodeModel: ERNodeModel, fallback: number): number => {
+    const raw = nodeModel.labelCfg?.style?.fontSize;
+    const parsed =
+        typeof raw === "number"
+            ? raw
+            : typeof raw === "string"
+              ? Number.parseFloat(raw)
+              : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const getShrinkOnlyScale = (fontSize: number, baseFontSize: number): number =>
+    Math.min(1, fontSize / baseFontSize);
+
+const getAttributeHeight = (fontSize: number, hasUnderline: boolean): number => {
+    const scale = getShrinkOnlyScale(fontSize, 15);
+    const minHeight = 40 * scale;
+    const verticalRoom = (hasUnderline ? 24 : 16) * scale;
+    return Math.max(minHeight, fontSize + verticalRoom);
+};
+
 /**
  * 根据节点模型计算输入框的尺寸
  */
@@ -119,25 +140,29 @@ export function getNodeDimensions(nodeModel: ERNodeModel): NodeDimensions {
     let fontSize: number;
 
     if (nodeModel.type === "entity") {
-        fontSize = 18;
+        fontSize = readLabelFontSize(nodeModel, 18);
+        const scale = getShrinkOnlyScale(fontSize, 18);
         const textWidth = getTextWidth(text, fontSize);
-        width = Math.max(80, textWidth + 20);
-        height = Math.max(50, fontSize + 20);
+        width = Math.max(80 * scale, textWidth + 20 * scale);
+        height = Math.max(50 * scale, fontSize + 20 * scale);
     } else if (nodeModel.type === "relationship") {
-        fontSize = 16;
+        fontSize = readLabelFontSize(nodeModel, 16);
+        const scale = getShrinkOnlyScale(fontSize, 16);
         const textWidth = getTextWidth(text, fontSize);
-        const horizontalPadding = 24;
-        const minWidth = 80;
+        const horizontalPadding = 24 * scale;
+        const minWidth = 80 * scale;
+        const minHeight = 40 * scale;
         const requiredWidth = textWidth + horizontalPadding * 2;
         const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
         width = halfWidth * 2;
-        height = Math.max(40, Math.min(halfWidth * 0.6, fontSize + 16) * 2);
+        height = Math.max(minHeight, Math.min(halfWidth * 0.6, fontSize + 16 * scale) * 2);
     } else {
         // attribute
-        fontSize = 15;
+        fontSize = readLabelFontSize(nodeModel, 15);
+        const scale = getShrinkOnlyScale(fontSize, 15);
         const textWidth = getTextWidth(text, fontSize);
-        width = Math.max(60, textWidth + 32);
-        height = Math.max(40, fontSize + 16);
+        width = Math.max(60 * scale, textWidth + 32 * scale);
+        height = getAttributeHeight(fontSize, nodeModel.keyType === "pk");
     }
 
     return { width, height, fontSize };
@@ -198,12 +223,16 @@ export function setupNodeDoubleClickEdit(
     const startEditing = (node: NodeEvent["item"], model: ERNodeModel) => {
         editingNode = node;
         // `getCanvasByPoint` 返回的是相对于 G6 画布左上角的坐标
-        const canvasPoint = graph.getCanvasByPoint(model.x ?? 0, model.y ?? 0);
+        const bbox = typeof node.getBBox === "function" ? node.getBBox() : null;
+        const canvasPoint = graph.getCanvasByPoint(
+            bbox?.centerX ?? model.x ?? 0,
+            bbox?.centerY ?? model.y ?? 0,
+        );
         const currentZoom = graph.getZoom();
 
         const dimensions = getNodeDimensions(model);
-        const scaledWidth = dimensions.width * currentZoom;
-        const scaledHeight = dimensions.height * currentZoom;
+        const scaledWidth = (bbox?.width ?? dimensions.width) * currentZoom;
+        const scaledHeight = (bbox?.height ?? dimensions.height) * currentZoom;
         const scaledFontSize = dimensions.fontSize * currentZoom;
 
         const borderColor = getNodeColor(model);
