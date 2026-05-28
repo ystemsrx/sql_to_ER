@@ -11,6 +11,9 @@ importers:
       '@antv/g6':
         specifier: 4.8.25
         version: 4.8.25
+      '@babel/runtime':
+        specifier: 7.29.2
+        version: 7.29.2
       '@codemirror/lang-sql':
         specifier: ^6.10.0
         version: 6.10.0
