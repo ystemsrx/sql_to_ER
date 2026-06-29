@@ -91,14 +91,32 @@ export function exportSvg(state: State): string {
     `<rect x="${Math.round(vbX)}" y="${Math.round(vbY)}" width="${Math.round(vbW)}" height="${Math.round(vbH)}" fill="#ffffff"/>`,
   );
 
-  // edges first (center-to-center), node fills hide the overlap
+  // edges first (center-to-center), node fills hide the overlap. A self-loop's two
+  // edges share both endpoints, so as straight lines they collapse onto one. Bow each
+  // to a quadratic control point (same math as the app's self-loop-arc edge) — the two
+  // edges flip source/target, so the perpendicular flips and they form a lens/loop.
+  const selfLoopControl = (s: Sized, t: Sized, off: number) => {
+    const dx = t.cx - s.cx;
+    const dy = t.cy - s.cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    return { x: (s.cx + t.cx) / 2 + (-dy / dist) * off, y: (s.cy + t.cy) / 2 + (dx / dist) * off };
+  };
+  const isArc = (e: State["edges"][number]) =>
+    e.type === "self-loop-arc" && typeof e.curveOffset === "number" && e.curveOffset !== 0;
   state.edges.forEach((e) => {
     const s = sized.get(e.source);
     const t = sized.get(e.target);
     if (!s || !t) return;
-    parts.push(
-      `<line x1="${s.cx.toFixed(1)}" y1="${s.cy.toFixed(1)}" x2="${t.cx.toFixed(1)}" y2="${t.cy.toFixed(1)}" stroke="#000" stroke-width="1.5"/>`,
-    );
+    if (isArc(e)) {
+      const c = selfLoopControl(s, t, e.curveOffset as number);
+      parts.push(
+        `<path d="M ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} Q ${c.x.toFixed(1)} ${c.y.toFixed(1)} ${t.cx.toFixed(1)} ${t.cy.toFixed(1)}" fill="none" stroke="#000" stroke-width="1.5"/>`,
+      );
+    } else {
+      parts.push(
+        `<line x1="${s.cx.toFixed(1)}" y1="${s.cy.toFixed(1)}" x2="${t.cx.toFixed(1)}" y2="${t.cy.toFixed(1)}" stroke="#000" stroke-width="1.5"/>`,
+      );
+    }
   });
 
   // nodes
@@ -152,8 +170,14 @@ export function exportSvg(state: State): string {
     const s = sized.get(e.source);
     const t = sized.get(e.target);
     if (!s || !t) return;
-    const mx = (s.cx + t.cx) / 2;
-    const my = (s.cy + t.cy) / 2;
+    let mx = (s.cx + t.cx) / 2;
+    let my = (s.cy + t.cy) / 2;
+    if (isArc(e)) {
+      // sit on the arc's peak (quadratic midpoint) so the two cardinalities separate
+      const c = selfLoopControl(s, t, e.curveOffset as number);
+      mx = (mx + c.x) / 2;
+      my = (my + c.y) / 2;
+    }
     parts.push(
       `<rect x="${(mx - 7).toFixed(1)}" y="${(my - 8).toFixed(1)}" width="14" height="14" fill="#fff"/>`,
     );

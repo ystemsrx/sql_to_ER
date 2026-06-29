@@ -4171,7 +4171,7 @@ function rotateToTargetAspect(pos, rad, target = 1.5) {
     pos[i].y = cy + dx * sin + dy * cos;
   }
 }
-function stressLayout(nodes, edges) {
+function stressLayout(nodes, edges, ringOverride) {
   const entities = nodes.filter((n) => n.nodeType === "entity");
   const rels = nodes.filter((n) => n.nodeType === "relationship");
   if (!entities.length) return;
@@ -4182,7 +4182,12 @@ function stressLayout(nodes, edges) {
       attrsByE.get(n.parentEntity).push(n);
     }
   });
-  const ring = new Map(entities.map((e) => [e.id, ringRadiusFor(e, attrsByE.get(e.id) ?? [])]));
+  const ring = new Map(
+    entities.map((e) => [
+      e.id,
+      ringOverride?.get(e.id) ?? ringRadiusFor(e, attrsByE.get(e.id) ?? [])
+    ])
+  );
   const footprint = new Map(
     entities.map((e) => {
       const attrs = attrsByE.get(e.id) ?? [];
@@ -4449,6 +4454,7 @@ function generate(opts) {
   if (layout === "optimal" && settings.attrMode === "auto") settings.attrMode = "moderate";
   const state = { version: 1, input: opts.input, format, settings, nodes, edges };
   applyAttrMode(state);
+  if (layout === "optimal") tightenCompact(state);
   return state;
 }
 function runLayout(state, kind) {
@@ -4457,6 +4463,7 @@ function runLayout(state, kind) {
   if (kind === "optimal" && state.settings.attrMode === "auto")
     state.settings.attrMode = "moderate";
   applyAttrMode(state);
+  if (kind === "optimal") tightenCompact(state);
   return { ...state };
 }
 function setFontScale(state, delta) {
@@ -4600,6 +4607,30 @@ function placeAttributesModerate(state) {
   const connectorCrosses = (ex, ey, x, y, eid) => relSegs.some(
     (seg) => seg.a !== eid && seg.b !== eid && properCross({ x: ex, y: ey }, { x, y }, seg.s, seg.t)
   );
+  const segHitsBox = (p1, p2, bx, by, bw, bh) => {
+    const minx = bx - bw / 2;
+    const maxx = bx + bw / 2;
+    const miny = by - bh / 2;
+    const maxy = by + bh / 2;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    let t0 = 0;
+    let t1 = 1;
+    const clip = (p, q) => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    return clip(-dx, p1.x - minx) && clip(dx, maxx - p1.x) && clip(-dy, p1.y - miny) && clip(dy, maxy - p1.y) && t1 > t0;
+  };
+  const boxPierced = (x, y, w, h) => relSegs.some((seg) => segHitsBox(seg.s, seg.t, x, y, w, h));
   const angleOf = (m, cx, cy) => normAngle(Math.atan2((m.y ?? 0) - cy, (m.x ?? 0) - cx));
   const order = [...attrsByEntity.keys()].sort(
     (a, b) => (attrsByEntity.get(b)?.length ?? 0) - (attrsByEntity.get(a)?.length ?? 0)
@@ -4678,7 +4709,7 @@ function placeAttributesModerate(state) {
         const a2 = baseAng + off;
         const x = ecx + R * Math.cos(a2);
         const y = ecy + R * Math.sin(a2);
-        if (!hits(x, y, it.s.width, it.s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid)) {
+        if (!hits(x, y, it.s.width, it.s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid) && !boxPierced(x, y, it.s.width, it.s.height)) {
           bx = x;
           by = y;
           placed = true;
@@ -4705,6 +4736,35 @@ function placeAttributesModerate(state) {
 function applyAttrMode(state) {
   if (state.settings.attrMode === "compact") placeAttributesCompact(state);
   else if (state.settings.attrMode === "moderate") placeAttributesModerate(state);
+}
+function measuredRingRadii(state) {
+  const attrsBy = /* @__PURE__ */ new Map();
+  state.nodes.forEach((n) => {
+    if (n.nodeType === "attribute" && typeof n.parentEntity === "string") {
+      if (!attrsBy.has(n.parentEntity)) attrsBy.set(n.parentEntity, []);
+      attrsBy.get(n.parentEntity).push(n);
+    }
+  });
+  const radii = /* @__PURE__ */ new Map();
+  state.nodes.forEach((e) => {
+    if (e.nodeType !== "entity") return;
+    const ex = e.x ?? 0;
+    const ey = e.y ?? 0;
+    const es = measureNodeSize(e);
+    let maxR = Math.hypot(es.width, es.height) / 2;
+    (attrsBy.get(e.id) ?? []).forEach((a) => {
+      maxR = Math.max(maxR, Math.hypot((a.x ?? 0) - ex, (a.y ?? 0) - ey));
+    });
+    const moderateR = ringRadiusFor(e, attrsBy.get(e.id) ?? []);
+    radii.set(e.id, Math.min(maxR, moderateR));
+  });
+  return radii;
+}
+function tightenCompact(state) {
+  if (state.settings.attrMode !== "compact") return;
+  const radii = measuredRingRadii(state);
+  stressLayout(state.nodes, state.edges, radii);
+  applyAttrMode(state);
 }
 function setAttrMode(state, mode) {
   const settings = { ...state.settings, attrMode: mode };
@@ -5024,6 +5084,46 @@ function buildScene(graph) {
       if (a.source === b.source || a.source === b.target || a.target === b.source || a.target === b.target)
         continue;
       if (segCross2(a.s, a.t, b.s, b.t)) attrCrossings++;
+    }
+  }
+  const relLineSegs = edgeSegs.filter(
+    (s) => s.type === "entity-relationship" || s.type === "relationship-entity"
+  );
+  const attrBoxes = [];
+  attrsByEntity.forEach(
+    (list) => list.forEach((m) => {
+      const b = bboxOf.get(m.id);
+      if (b) attrBoxes.push({ x: num(m.x), y: num(m.y), w: b.width, h: b.height });
+    })
+  );
+  const segHitsBox = (p1, p2, bx, by, bw, bh) => {
+    const inset = 2;
+    const minx = bx - bw / 2 + inset;
+    const maxx = bx + bw / 2 - inset;
+    const miny = by - bh / 2 + inset;
+    const maxy = by + bh / 2 - inset;
+    if (minx >= maxx || miny >= maxy) return false;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    let t0 = 0;
+    let t1 = 1;
+    const clip = (p, q) => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    return clip(-dx, p1.x - minx) && clip(dx, maxx - p1.x) && clip(-dy, p1.y - miny) && clip(dy, maxy - p1.y) && t1 > t0;
+  };
+  for (const seg of relLineSegs) {
+    for (const ab of attrBoxes) {
+      if (segHitsBox(seg.s, seg.t, ab.x, ab.y, ab.w, ab.h)) attrCrossings++;
     }
   }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -5383,13 +5483,27 @@ function exportSvg(state) {
   parts.push(
     `<rect x="${Math.round(vbX)}" y="${Math.round(vbY)}" width="${Math.round(vbW)}" height="${Math.round(vbH)}" fill="#ffffff"/>`
   );
+  const selfLoopControl = (s, t, off) => {
+    const dx = t.cx - s.cx;
+    const dy = t.cy - s.cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    return { x: (s.cx + t.cx) / 2 + -dy / dist * off, y: (s.cy + t.cy) / 2 + dx / dist * off };
+  };
+  const isArc = (e) => e.type === "self-loop-arc" && typeof e.curveOffset === "number" && e.curveOffset !== 0;
   state.edges.forEach((e) => {
     const s = sized.get(e.source);
     const t = sized.get(e.target);
     if (!s || !t) return;
-    parts.push(
-      `<line x1="${s.cx.toFixed(1)}" y1="${s.cy.toFixed(1)}" x2="${t.cx.toFixed(1)}" y2="${t.cy.toFixed(1)}" stroke="#000" stroke-width="1.5"/>`
-    );
+    if (isArc(e)) {
+      const c = selfLoopControl(s, t, e.curveOffset);
+      parts.push(
+        `<path d="M ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} Q ${c.x.toFixed(1)} ${c.y.toFixed(1)} ${t.cx.toFixed(1)} ${t.cy.toFixed(1)}" fill="none" stroke="#000" stroke-width="1.5"/>`
+      );
+    } else {
+      parts.push(
+        `<line x1="${s.cx.toFixed(1)}" y1="${s.cy.toFixed(1)}" x2="${t.cx.toFixed(1)}" y2="${t.cy.toFixed(1)}" stroke="#000" stroke-width="1.5"/>`
+      );
+    }
   });
   state.nodes.forEach((n) => {
     const s = sized.get(n.id);
@@ -5433,8 +5547,13 @@ function exportSvg(state) {
     const s = sized.get(e.source);
     const t = sized.get(e.target);
     if (!s || !t) return;
-    const mx = (s.cx + t.cx) / 2;
-    const my = (s.cy + t.cy) / 2;
+    let mx = (s.cx + t.cx) / 2;
+    let my = (s.cy + t.cy) / 2;
+    if (isArc(e)) {
+      const c = selfLoopControl(s, t, e.curveOffset);
+      mx = (mx + c.x) / 2;
+      my = (my + c.y) / 2;
+    }
     parts.push(
       `<rect x="${(mx - 7).toFixed(1)}" y="${(my - 8).toFixed(1)}" width="14" height="14" fill="#fff"/>`
     );

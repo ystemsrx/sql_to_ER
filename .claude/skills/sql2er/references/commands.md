@@ -47,13 +47,13 @@ DIAGNOSTICS
   ⚠ overlap:  <nodeA> × <nodeB>             # two skeleton nodes (entities/diamonds) overlap
   ⚠ isolated: <entity>                      # no relationships at all
   ⚠ attribute overlaps: <n>                 # attribute ellipse overlapping another node
-  ⚠ attribute-line crossings: <n>           # entity→attribute line crossing a relationship line
+  ⚠ attribute-line crossings: <n>           # attr connector crosses a rel line, or a rel line runs through an attribute ellipse
   metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> attrCrossings=<n> bbox=<w>×<h> aspect=<r> edgeLen=<n>
 
 `overlaps`/`crossings` cover only the skeleton (entities + relationship diamonds).
-`attrOverlaps` = any overlap involving an attribute ellipse; `attrCrossings` = attribute
-connector lines crossing a relationship line (the visual "tangle"). The attribute `attrs`
-modes target these two.
+`attrOverlaps` = any overlap involving an attribute ellipse; `attrCrossings` = an attribute
+connector line crossing a relationship line, OR a relationship line passing through an
+attribute ellipse (both are the visual "tangle"). The attribute `attrs` modes target these.
 
 MAP
   … entities by label, diamonds as ◇label, coarsely placed in a grid …
@@ -72,7 +72,7 @@ The MAP is a quick visual; act on coordinates and DIAGNOSTICS.
 Re-place every attribute ellipse around its (unchanged) entity. The mode is stored and re-applied after every later layout/edit, so it persists.
 
 - `auto` — leave whatever the layout produced (the default). Setting `auto` does not re-place; the next `layout`/edit restores the native look.
-- `compact` — reuses the app's show-attributes packer: each attribute sits at the shortest radius that clears all nodes and edges, so they hug the entity. Distances vary; non-overlapping. Smallest footprint.
+- `compact` — reuses the app's show-attributes packer: each attribute sits at the shortest radius that clears all nodes and edges, so they hug the entity. Distances vary; non-overlapping. Smallest footprint. When chosen during a fresh `optimal` layout (e.g. `generate --attrs compact` or `layout optimal` with compact set), the skeleton is re-laid out tighter to match the smaller footprint, so entities/diamonds pull in instead of keeping moderate-ring spacing.
 - `moderate` — one uniform ring per entity: **every attribute the same distance** from the entity. The radius is the smallest that fits them side by side (wide attributes get more arc), the ring is rotated to dodge relationship directions, and attributes slide within their slot (angle only, distance fixed) to dodge obstacles and relationship lines. Uniform distance forces a larger footprint than `compact`, so a dense graph may keep a couple of `attrCrossings`/`attrOverlaps`; `compact` is the one that guarantees zero overlaps.
 
 Check the result with `describe` → `attrOverlaps` / `attrCrossings`. Both modes are tidy and non-overlapping; `compact` is the smallest, `moderate` is the most even. On a dense graph a few `attrCrossings` may remain (relationship lines passing over attributes); compare both and keep the lower.

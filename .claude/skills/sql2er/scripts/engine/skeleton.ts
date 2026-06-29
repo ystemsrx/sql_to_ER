@@ -344,7 +344,17 @@ function rotateToTargetAspect(pos: Pt[], rad: number[], target = 1.5): void {
   }
 }
 
-export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
+/**
+ * @param ringOverride optional per-entity ring radius (centre→attribute-centre). When
+ * given (e.g. measured from a compact attribute pass), the skeleton is sized to that
+ * instead of the moderate `ringRadiusFor`, so compact diagrams pull in tight rather
+ * than reserving moderate-ring room they don't use.
+ */
+export function stressLayout(
+  nodes: ERNodeModel[],
+  edges: EREdgeModel[],
+  ringOverride?: Map<string, number>,
+): void {
   const entities = nodes.filter((n) => n.nodeType === "entity");
   const rels = nodes.filter((n) => n.nodeType === "relationship");
   if (!entities.length) return;
@@ -356,7 +366,12 @@ export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
       attrsByE.get(n.parentEntity)!.push(n);
     }
   });
-  const ring = new Map(entities.map((e) => [e.id, ringRadiusFor(e, attrsByE.get(e.id) ?? [])]));
+  const ring = new Map(
+    entities.map((e) => [
+      e.id,
+      ringOverride?.get(e.id) ?? ringRadiusFor(e, attrsByE.get(e.id) ?? []),
+    ]),
+  );
   const footprint = new Map(
     entities.map((e) => {
       const attrs = attrsByE.get(e.id) ?? [];

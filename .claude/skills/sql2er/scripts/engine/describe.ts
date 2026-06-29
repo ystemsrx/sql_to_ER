@@ -287,6 +287,55 @@ function buildScene(graph: HeadlessGraph): Scene {
       if (segCross(a.s, a.t, b.s, b.t)) attrCrossings++;
     }
   }
+  // a relationship line passing THROUGH an attribute ellipse's box. The connector test
+  // above misses this: the line doesn't cross another connector, it pierces the node.
+  const relLineSegs = edgeSegs.filter(
+    (s) => s.type === "entity-relationship" || s.type === "relationship-entity",
+  );
+  const attrBoxes: Array<{ x: number; y: number; w: number; h: number }> = [];
+  attrsByEntity.forEach((list) =>
+    list.forEach((m) => {
+      const b = bboxOf.get(m.id);
+      if (b) attrBoxes.push({ x: num(m.x), y: num(m.y), w: b.width, h: b.height });
+    }),
+  );
+  // segment vs AABB (Liang–Barsky), box inset 2px to match the overlap tolerance
+  const segHitsBox = (p1: Pt, p2: Pt, bx: number, by: number, bw: number, bh: number): boolean => {
+    const inset = 2;
+    const minx = bx - bw / 2 + inset;
+    const maxx = bx + bw / 2 - inset;
+    const miny = by - bh / 2 + inset;
+    const maxy = by + bh / 2 - inset;
+    if (minx >= maxx || miny >= maxy) return false;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    let t0 = 0;
+    let t1 = 1;
+    const clip = (p: number, q: number): boolean => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    return (
+      clip(-dx, p1.x - minx) &&
+      clip(dx, maxx - p1.x) &&
+      clip(-dy, p1.y - miny) &&
+      clip(dy, maxy - p1.y) &&
+      t1 > t0
+    );
+  };
+  for (const seg of relLineSegs) {
+    for (const ab of attrBoxes) {
+      if (segHitsBox(seg.s, seg.t, ab.x, ab.y, ab.w, ab.h)) attrCrossings++;
+    }
+  }
 
   let minX = Infinity,
     minY = Infinity,

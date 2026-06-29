@@ -16,7 +16,7 @@ import { computeAttributePositions } from "@app/attributeLayout";
 import { updateGraphStyles } from "@app/graph/updateGraphStyles";
 import type { EREdgeModel, ERNodeModel, ParseResult } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
-import { stressLayout } from "./skeleton";
+import { stressLayout, ringRadiusFor } from "./skeleton";
 
 export type LayoutKind = "optimal" | "align" | "arrange" | "none";
 
@@ -124,6 +124,7 @@ export function generate(opts: GenerateOptions): State {
   if (layout === "optimal" && settings.attrMode === "auto") settings.attrMode = "moderate";
   const state: State = { version: 1, input: opts.input, format, settings, nodes, edges };
   applyAttrMode(state);
+  if (layout === "optimal") tightenCompact(state);
   return state;
 }
 
@@ -133,6 +134,7 @@ export function runLayout(state: State, kind: LayoutKind): State {
   if (kind === "optimal" && state.settings.attrMode === "auto")
     state.settings.attrMode = "moderate";
   applyAttrMode(state);
+  if (kind === "optimal") tightenCompact(state);
   return { ...state };
 }
 
@@ -340,6 +342,40 @@ function placeAttributesModerate(state: State): void {
       (seg) =>
         seg.a !== eid && seg.b !== eid && properCross({ x: ex, y: ey }, { x, y }, seg.s, seg.t),
     );
+  // a relationship line passing THROUGH the attribute's box (segment vs AABB, Liang–
+  // Barsky). Checks ALL relationship lines, incident ones included: an attribute placed
+  // in the direction of its own entity's relationship would be pierced by that line.
+  const segHitsBox = (p1: P, p2: P, bx: number, by: number, bw: number, bh: number): boolean => {
+    const minx = bx - bw / 2;
+    const maxx = bx + bw / 2;
+    const miny = by - bh / 2;
+    const maxy = by + bh / 2;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    let t0 = 0;
+    let t1 = 1;
+    const clip = (p: number, q: number): boolean => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    return (
+      clip(-dx, p1.x - minx) &&
+      clip(dx, maxx - p1.x) &&
+      clip(-dy, p1.y - miny) &&
+      clip(dy, maxy - p1.y) &&
+      t1 > t0
+    );
+  };
+  const boxPierced = (x: number, y: number, w: number, h: number) =>
+    relSegs.some((seg) => segHitsBox(seg.s, seg.t, x, y, w, h));
 
   const angleOf = (m: ERNodeModel, cx: number, cy: number) =>
     normAngle(Math.atan2((m.y ?? 0) - cy, (m.x ?? 0) - cx));
@@ -438,7 +474,11 @@ function placeAttributesModerate(state: State): void {
         const a2 = baseAng + off;
         const x = ecx + R * Math.cos(a2);
         const y = ecy + R * Math.sin(a2);
-        if (!hits(x, y, it.s.width, it.s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid)) {
+        if (
+          !hits(x, y, it.s.width, it.s.height, eid) &&
+          !connectorCrosses(ecx, ecy, x, y, eid) &&
+          !boxPierced(x, y, it.s.width, it.s.height)
+        ) {
           bx = x;
           by = y;
           placed = true;
@@ -469,6 +509,46 @@ function applyAttrMode(state: State): void {
   if (state.settings.attrMode === "compact") placeAttributesCompact(state);
   else if (state.settings.attrMode === "moderate") placeAttributesModerate(state);
   // "auto" → leave the layout-native placement untouched
+}
+
+// Per-entity ring radius for the compact re-layout, measured from the CURRENT (compact)
+// positions: the farthest attribute centre, but CLAMPED to the moderate ring so the
+// override can only ever TIGHTEN the skeleton, never spread it. (Compact greedily pushes
+// some attributes out past the moderate uniform ring; reserving that max would enlarge
+// the diagram — the opposite of the goal.)
+function measuredRingRadii(state: State): Map<string, number> {
+  const attrsBy = new Map<string, ERNodeModel[]>();
+  state.nodes.forEach((n) => {
+    if (n.nodeType === "attribute" && typeof n.parentEntity === "string") {
+      if (!attrsBy.has(n.parentEntity)) attrsBy.set(n.parentEntity, []);
+      attrsBy.get(n.parentEntity)!.push(n);
+    }
+  });
+  const radii = new Map<string, number>();
+  state.nodes.forEach((e) => {
+    if (e.nodeType !== "entity") return;
+    const ex = e.x ?? 0;
+    const ey = e.y ?? 0;
+    const es = measureNodeSize(e);
+    let maxR = Math.hypot(es.width, es.height) / 2;
+    (attrsBy.get(e.id) ?? []).forEach((a) => {
+      maxR = Math.max(maxR, Math.hypot((a.x ?? 0) - ex, (a.y ?? 0) - ey));
+    });
+    const moderateR = ringRadiusFor(e, attrsBy.get(e.id) ?? []);
+    radii.set(e.id, Math.min(maxR, moderateR));
+  });
+  return radii;
+}
+
+// Compact diagrams: the skeleton is first sized for the moderate ring, so it leaves big
+// gaps (compact hugs the entity). Measure compact's ACTUAL ring, re-lay out the skeleton
+// tight to it, and re-place. One extra pass — compact placement is overlap-free by
+// construction (the app packer clears nodes and edges), so the tighter skeleton stays clean.
+function tightenCompact(state: State): void {
+  if (state.settings.attrMode !== "compact") return;
+  const radii = measuredRingRadii(state);
+  stressLayout(state.nodes, state.edges, radii);
+  applyAttrMode(state);
 }
 
 export function setAttrMode(state: State, mode: AttrMode): State {
