@@ -40,14 +40,15 @@ Defaults follow SQL FK / DBML `>` semantics: many-to-one. The FK-holding side is
 
 ## Settings
 
-| setting   | flag                       | effect                                                                |
-| --------- | -------------------------- | --------------------------------------------------------------------- |
-| colored   | `--colored true\|false`    | colored fills vs black/white (cosmetic; affects exports)              |
-| comment   | `--comment`                | use table/column comments as labels (falls back to names when absent) |
-| hideAttrs | `--hide-attrs`             | skeleton only — no attribute ellipses                                 |
-| fontScale | `fontsize <delta>` command | global text size; changes node sizes and therefore spacing            |
+| setting   | flag                        | effect                                                                |
+| --------- | --------------------------- | --------------------------------------------------------------------- |
+| colored   | `--colored true\|false`     | colored fills vs black/white (cosmetic; affects exports)              |
+| comment   | `--comment`                 | use table/column comments as labels (falls back to names when absent) |
+| hideAttrs | `--hide-attrs`              | skeleton only — no attribute ellipses                                 |
+| fontScale | `fontsize <delta>` command  | global text size; changes node sizes and therefore spacing            |
+| attrMode  | `--attrs` / `attrs` command | attribute orbit: `auto` / `compact` / `moderate` (persists)           |
 
-`--colored`, `--comment`, `--hide-attrs` are chosen at `generate`. To change them, re-`generate` (positions reset).
+`--colored`, `--comment`, `--hide-attrs` are chosen at `generate`. To change them, re-`generate` (positions reset). `attrMode` can be changed live with the `attrs` command.
 
 ## Semantic labels
 

@@ -3304,6 +3304,378 @@ var arrangeLayout = (graph) => {
   });
 };
 
+// src/attributeLayout.ts
+var TAU = Math.PI * 2;
+var EDGE_PADDING = 18;
+var MAX_R_EXTRA = 220;
+var nodeBorderPoint = (n, tx, ty) => {
+  const dx = tx - n.x;
+  const dy = ty - n.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return { x: n.x, y: n.y };
+  const ux = dx / len;
+  const uy = dy / len;
+  const extent = Math.abs(ux) * n.halfW + Math.abs(uy) * n.halfH;
+  return { x: n.x + extent * ux, y: n.y + extent * uy };
+};
+var rectsOverlap = (ax, ay, ahw, ahh, b, gap) => {
+  return Math.abs(ax - b.x) < ahw + b.halfW + gap && Math.abs(ay - b.y) < ahh + b.halfH + gap;
+};
+var cross2 = (ax, ay, bx, by) => ax * by - ay * bx;
+var segmentsIntersect = (x1, y1, x2, y2, x3, y3, x4, y4) => {
+  const d1 = cross2(x4 - x3, y4 - y3, x1 - x3, y1 - y3);
+  const d2 = cross2(x4 - x3, y4 - y3, x2 - x3, y2 - y3);
+  const d3 = cross2(x2 - x1, y2 - y1, x3 - x1, y3 - y1);
+  const d4 = cross2(x2 - x1, y2 - y1, x4 - x1, y4 - y1);
+  return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+};
+var segmentHitsRect = (sx1, sy1, sx2, sy2, cx, cy, hw, hh) => {
+  const x1 = cx - hw, x2 = cx + hw;
+  const y1 = cy - hh, y2 = cy + hh;
+  if (sx1 > x1 && sx1 < x2 && sy1 > y1 && sy1 < y2) return true;
+  if (sx2 > x1 && sx2 < x2 && sy2 > y1 && sy2 < y2) return true;
+  return segmentsIntersect(sx1, sy1, sx2, sy2, x1, y1, x2, y1) || segmentsIntersect(sx1, sy1, sx2, sy2, x2, y1, x2, y2) || segmentsIntersect(sx1, sy1, sx2, sy2, x2, y2, x1, y2) || segmentsIntersect(sx1, sy1, sx2, sy2, x1, y2, x1, y1);
+};
+var distributeAttributeAngles = (N, relAngles) => {
+  if (N <= 0) return { angles: [], halfWindows: [] };
+  const K = relAngles.length;
+  if (K === 0) {
+    const step = TAU / N;
+    return {
+      angles: Array.from({ length: N }, (_, i) => i * step),
+      halfWindows: Array.from({ length: N }, () => step * 0.48)
+    };
+  }
+  const sorted = relAngles.map((a) => (a % TAU + TAU) % TAU).sort((a, b) => a - b);
+  const target = TAU / (N + K);
+  const arcs = sorted.map((start, i) => {
+    const end = sorted[(i + 1) % K];
+    let width = end - start;
+    if (width <= 1e-9) width += TAU;
+    const raw = Math.max(0, width / target - 1);
+    return {
+      start,
+      width,
+      raw,
+      count: Math.max(0, Math.round(raw))
+    };
+  });
+  let total = arcs.reduce((s, a) => s + a.count, 0);
+  const residual = (a) => a.raw - a.count;
+  while (total < N) {
+    let best = 0;
+    for (let i = 1; i < arcs.length; i++) {
+      if (residual(arcs[i]) > residual(arcs[best])) best = i;
+    }
+    arcs[best].count += 1;
+    total += 1;
+  }
+  while (total > N) {
+    let best = -1;
+    for (let i = 0; i < arcs.length; i++) {
+      if (arcs[i].count <= 0) continue;
+      if (best < 0 || residual(arcs[i]) < residual(arcs[best])) best = i;
+    }
+    if (best < 0) break;
+    arcs[best].count -= 1;
+    total -= 1;
+  }
+  const angles = [];
+  const halfWindows = [];
+  arcs.forEach((arc) => {
+    const n = arc.count;
+    if (n <= 0) return;
+    const step = arc.width / (n + 1);
+    const half = step * 0.48;
+    for (let j = 0; j < n; j++) {
+      angles.push((arc.start + step * (j + 1)) % TAU);
+      halfWindows.push(half);
+    }
+  });
+  while (angles.length < N) {
+    angles.push(angles.length / N * TAU);
+    halfWindows.push(TAU / N * 0.48);
+  }
+  return {
+    angles: angles.slice(0, N),
+    halfWindows: halfWindows.slice(0, N)
+  };
+};
+var computeAttributePositions = (graph, newAttrNodes) => {
+  const byEntity = /* @__PURE__ */ new Map();
+  newAttrNodes.forEach((n) => {
+    const pid = n.parentEntity;
+    if (!byEntity.has(pid)) byEntity.set(pid, []);
+    byEntity.get(pid).push(n);
+  });
+  const existing = graph.getNodes().map((n) => {
+    const m = n.getModel();
+    const bbox = n.getBBox();
+    return {
+      id: m.id,
+      x: m.x || 0,
+      y: m.y || 0,
+      halfW: (bbox.width || 80) / 2,
+      halfH: (bbox.height || 40) / 2,
+      nodeType: m.nodeType
+    };
+  });
+  const entityMap = new Map(
+    existing.filter((n) => n.nodeType === "entity").map((n) => [n.id, n])
+  );
+  const nodeById = new Map(existing.map((n) => [n.id, n]));
+  const obstacleEdges = [];
+  graph.getEdges().forEach((e) => {
+    const m = e.getModel();
+    const s = nodeById.get(m.source);
+    const t = nodeById.get(m.target);
+    if (!s || !t) return;
+    const p1 = nodeBorderPoint(s, t.x, t.y);
+    const p2 = nodeBorderPoint(t, s.x, s.y);
+    obstacleEdges.push({
+      source: m.source,
+      target: m.target,
+      x1: p1.x,
+      y1: p1.y,
+      x2: p2.x,
+      y2: p2.y
+    });
+  });
+  const relAnglesByEntity = /* @__PURE__ */ new Map();
+  graph.getEdges().forEach((e) => {
+    const em = e.getModel();
+    if (em.edgeType !== "entity-relationship" && em.edgeType !== "relationship-entity") return;
+    let entId = null;
+    let otherId = null;
+    if (entityMap.has(em.source)) {
+      entId = em.source;
+      otherId = em.target;
+    } else if (entityMap.has(em.target)) {
+      entId = em.target;
+      otherId = em.source;
+    } else {
+      return;
+    }
+    const other = nodeById.get(otherId);
+    if (!other) return;
+    const ent = entityMap.get(entId);
+    if (!ent) return;
+    const ang = Math.atan2(other.y - ent.y, other.x - ent.x);
+    if (!relAnglesByEntity.has(entId)) relAnglesByEntity.set(entId, []);
+    relAnglesByEntity.get(entId).push(ang);
+  });
+  const entityOrder = Array.from(byEntity.keys()).sort(
+    (a, b) => byEntity.get(b).length - byEntity.get(a).length
+  );
+  entityOrder.forEach((entityId) => {
+    const attrs = byEntity.get(entityId);
+    const ent = entityMap.get(entityId);
+    if (!ent) return;
+    const N = attrs.length;
+    if (!N) return;
+    attrs.forEach((a) => {
+      const sz = estimateAttributeHalfSize(
+        a.label,
+        a.labelCfg?.style?.fontSize,
+        a.keyType === "pk"
+      );
+      a._halfW = sz.halfW;
+      a._halfH = sz.halfH;
+    });
+    const relAngles = relAnglesByEntity.get(entityId) || [];
+    const { angles: slotAngles, halfWindows } = distributeAttributeAngles(N, relAngles);
+    attrs.forEach((attr, i) => {
+      const baseAngle = slotAngles[i];
+      const halfWindow = halfWindows[i];
+      const attrHW = attr._halfW;
+      const attrHH = attr._halfH;
+      const attrBorderTowardEnt = (px2, py2) => {
+        const dx2 = ent.x - px2;
+        const dy2 = ent.y - py2;
+        const len = Math.hypot(dx2, dy2);
+        if (len < 1e-9) return { x: px2, y: py2 };
+        const ux = dx2 / len;
+        const uy = dy2 / len;
+        const ex = Math.abs(ux) * attrHW + Math.abs(uy) * attrHH;
+        return { x: px2 + ex * ux, y: py2 + ex * uy };
+      };
+      const tryAngleWithFlags = (angle, flags, maxROverride) => {
+        const dx = Math.cos(angle);
+        const dy = Math.sin(angle);
+        const entExtent = Math.abs(dx) * ent.halfW + Math.abs(dy) * ent.halfH;
+        const attrExtent = Math.abs(dx) * attrHW + Math.abs(dy) * attrHH;
+        const minR = entExtent + attrExtent + EDGE_PADDING;
+        const maxR = maxROverride !== void 0 ? maxROverride : entExtent + MAX_R_EXTRA;
+        const STEP = 4;
+        for (let R = minR; R <= maxR; R += STEP) {
+          const px2 = ent.x + R * dx;
+          const py2 = ent.y + R * dy;
+          const entBorder = nodeBorderPoint(ent, px2, py2);
+          const attrBorder = attrBorderTowardEnt(px2, py2);
+          const nex1 = entBorder.x, ney1 = entBorder.y;
+          const nex2 = attrBorder.x, ney2 = attrBorder.y;
+          let bad = false;
+          if (flags.rectNode) {
+            for (let k = 0; k < existing.length; k++) {
+              const n = existing[k];
+              if (n.id === entityId) continue;
+              if (rectsOverlap(px2, py2, attrHW, attrHH, n, 6)) {
+                bad = true;
+                break;
+              }
+            }
+            if (bad) continue;
+          }
+          if (flags.edgeNode) {
+            for (let k = 0; k < existing.length; k++) {
+              const n = existing[k];
+              if (n.id === entityId) continue;
+              if (segmentHitsRect(nex1, ney1, nex2, ney2, n.x, n.y, n.halfW + 3, n.halfH + 3)) {
+                bad = true;
+                break;
+              }
+            }
+            if (bad) continue;
+          }
+          if (flags.edgeCross) {
+            for (let k = 0; k < obstacleEdges.length; k++) {
+              const e = obstacleEdges[k];
+              if (e.source === entityId || e.target === entityId) continue;
+              if (segmentsIntersect(nex1, ney1, nex2, ney2, e.x1, e.y1, e.x2, e.y2)) {
+                bad = true;
+                break;
+              }
+            }
+            if (bad) continue;
+          }
+          if (flags.rectPierce) {
+            for (let k = 0; k < obstacleEdges.length; k++) {
+              const e = obstacleEdges[k];
+              if (segmentHitsRect(e.x1, e.y1, e.x2, e.y2, px2, py2, attrHW, attrHH)) {
+                bad = true;
+                break;
+              }
+            }
+            if (bad) continue;
+          }
+          return {
+            angle,
+            R,
+            dx,
+            dy,
+            minR,
+            nex1,
+            ney1,
+            nex2,
+            ney2
+          };
+        }
+        return null;
+      };
+      const slotDeltas = [0];
+      const SAMPLES = 8;
+      for (let k = 1; k <= SAMPLES; k++) {
+        const f = k / SAMPLES * halfWindow;
+        slotDeltas.push(f, -f);
+      }
+      const circleDeltas = [];
+      const CIRCLE_SAMPLES = 18;
+      for (let k = 1; k < CIRCLE_SAMPLES; k++) {
+        let d = k / CIRCLE_SAMPLES * TAU;
+        if (d > Math.PI) d -= TAU;
+        circleDeltas.push(d);
+      }
+      const normDev = (d) => {
+        let x = (d % TAU + TAU) % TAU;
+        if (x > Math.PI) x = TAU - x;
+        return x;
+      };
+      const STRICT = {
+        rectNode: true,
+        edgeNode: true,
+        edgeCross: true,
+        rectPierce: true
+      };
+      const NO_CROSS = {
+        rectNode: true,
+        edgeNode: true,
+        edgeCross: false,
+        rectPierce: true
+      };
+      const NO_CROSS_PIERCE = {
+        rectNode: true,
+        edgeNode: true,
+        edgeCross: false,
+        rectPierce: false
+      };
+      const ONLY_NODES = {
+        rectNode: true,
+        edgeNode: false,
+        edgeCross: false,
+        rectPierce: false
+      };
+      const DEV_PENALTY = 75;
+      const findBestInCandidates = (deltas, flags) => {
+        let local = null;
+        for (const d of deltas) {
+          const r = tryAngleWithFlags(baseAngle + d, flags);
+          if (!r) continue;
+          const score = r.R + normDev(d) * DEV_PENALTY;
+          if (!local || score < local.score) local = { ...r, score };
+        }
+        return local;
+      };
+      let best = findBestInCandidates(slotDeltas, STRICT);
+      if (!best) best = findBestInCandidates(circleDeltas, STRICT);
+      if (!best) best = findBestInCandidates(slotDeltas, NO_CROSS);
+      if (!best) best = findBestInCandidates(circleDeltas, NO_CROSS);
+      if (!best) best = findBestInCandidates(slotDeltas, NO_CROSS_PIERCE);
+      if (!best) best = findBestInCandidates(circleDeltas, NO_CROSS_PIERCE);
+      if (!best) best = findBestInCandidates(slotDeltas, ONLY_NODES);
+      if (!best) {
+        const hardCap = Math.max(ent.halfW, ent.halfH) + MAX_R_EXTRA + 160;
+        best = tryAngleWithFlags(baseAngle, ONLY_NODES, hardCap);
+      }
+      if (!best) {
+        const dx = Math.cos(baseAngle);
+        const dy = Math.sin(baseAngle);
+        const entExtent = Math.abs(dx) * ent.halfW + Math.abs(dy) * ent.halfH;
+        const attrExtent = Math.abs(dx) * attrHW + Math.abs(dy) * attrHH;
+        best = {
+          angle: baseAngle,
+          R: entExtent + attrExtent + EDGE_PADDING,
+          dx,
+          dy
+        };
+      }
+      const px = ent.x + best.R * best.dx;
+      const py = ent.y + best.R * best.dy;
+      attr.x = px;
+      attr.y = py;
+      const record = {
+        id: attr.id,
+        x: px,
+        y: py,
+        halfW: attrHW,
+        halfH: attrHH,
+        nodeType: "attribute"
+      };
+      existing.push(record);
+      nodeById.set(attr.id, record);
+      const eBorder = nodeBorderPoint(ent, px, py);
+      const aBorder = nodeBorderPoint(record, ent.x, ent.y);
+      obstacleEdges.push({
+        source: entityId,
+        target: attr.id,
+        x1: eBorder.x,
+        y1: eBorder.y,
+        x2: aBorder.x,
+        y2: aBorder.y
+      });
+    });
+  });
+};
+
 // src/graph/updateGraphStyles.ts
 var clampFontScale = (scale) => {
   if (!Number.isFinite(scale)) return 1;
@@ -3545,7 +3917,8 @@ var DEFAULT_SETTINGS = {
   colored: true,
   comment: false,
   hideAttrs: false,
-  fontScale: 1
+  fontScale: 1,
+  attrMode: "auto"
 };
 function clampFontScale2(scale) {
   if (!Number.isFinite(scale)) return 1;
@@ -3587,19 +3960,24 @@ function generate(opts) {
     forceAlignLayout(graph, CANVAS_W);
     if (layout === "arrange") arrangeLayout(graph);
   }
-  return { version: 1, input: opts.input, format, settings, nodes, edges };
+  const state = { version: 1, input: opts.input, format, settings, nodes, edges };
+  applyAttrMode(state);
+  return state;
 }
 function runLayout(state, kind) {
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
   if (kind === "align") forceAlignLayout(graph, CANVAS_W);
   else arrangeLayout(graph);
+  applyAttrMode(state);
   return { ...state };
 }
 function setFontScale(state, delta) {
   const fontScale = deltaToScale(delta);
   const settings = { ...state.settings, fontScale };
-  styleAndSize(state.nodes, state.edges, settings);
-  return { ...state, settings };
+  const next = { ...state, settings };
+  styleAndSize(next.nodes, next.edges, settings);
+  applyAttrMode(next);
+  return next;
 }
 function centroid(nodes) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -3654,9 +4032,140 @@ function translateCluster(state, node, dx, dy) {
     });
   }
 }
+var TAU2 = Math.PI * 2;
+var normAngle = (a) => {
+  let x = a % TAU2;
+  if (x < 0) x += TAU2;
+  return x;
+};
+function placeAttributesCompact(state) {
+  const attrs = state.nodes.filter((n) => n.nodeType === "attribute");
+  if (!attrs.length) return;
+  const skeleton = state.nodes.filter((n) => n.nodeType !== "attribute");
+  const graph = createHeadlessGraph(skeleton, state.edges, CANVAS_W, CANVAS_H);
+  computeAttributePositions(
+    graph,
+    attrs
+  );
+}
+function placeAttributesModerate(state) {
+  const entById = new Map(state.nodes.filter((n) => n.nodeType === "entity").map((e) => [e.id, e]));
+  const relById = new Map(
+    state.nodes.filter((n) => n.nodeType === "relationship").map((r) => [r.id, r])
+  );
+  const attrsByEntity = /* @__PURE__ */ new Map();
+  state.nodes.forEach((n) => {
+    if (n.nodeType === "attribute" && typeof n.parentEntity === "string" && entById.has(n.parentEntity)) {
+      if (!attrsByEntity.has(n.parentEntity)) attrsByEntity.set(n.parentEntity, []);
+      attrsByEntity.get(n.parentEntity).push(n);
+    }
+  });
+  const relAngles = /* @__PURE__ */ new Map();
+  state.edges.forEach((e) => {
+    if (e.edgeType !== "entity-relationship" && e.edgeType !== "relationship-entity") return;
+    const entId = entById.has(e.source) ? e.source : entById.has(e.target) ? e.target : null;
+    const relId = relById.has(e.source) ? e.source : relById.has(e.target) ? e.target : null;
+    if (!entId || !relId) return;
+    const en = entById.get(entId);
+    const rn = relById.get(relId);
+    const ang = normAngle(Math.atan2((rn.y ?? 0) - (en.y ?? 0), (rn.x ?? 0) - (en.x ?? 0)));
+    if (!relAngles.has(entId)) relAngles.set(entId, []);
+    relAngles.get(entId).push(ang);
+  });
+  const radiusOf = (m) => {
+    const s = measureNodeSize(m);
+    return Math.hypot(s.width, s.height) / 2;
+  };
+  const obstacles = [];
+  state.nodes.forEach((n) => {
+    if (n.nodeType === "entity" || n.nodeType === "relationship") {
+      const s = measureNodeSize(n);
+      obstacles.push({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, w: s.width, h: s.height });
+    }
+  });
+  const hits = (x, y, w, h, skipId) => obstacles.some(
+    (o) => o.id !== skipId && Math.abs(x - o.x) < (w + o.w) / 2 - 2 && Math.abs(y - o.y) < (h + o.h) / 2 - 2
+  );
+  attrsByEntity.forEach((attrs, eid) => {
+    const ent = entById.get(eid);
+    const ecx = ent.x ?? 0;
+    const ecy = ent.y ?? 0;
+    const entR = radiusOf(ent);
+    const maxAttrR = Math.max(...attrs.map(radiusOf));
+    const n = attrs.length;
+    const step = TAU2 / n;
+    const radial = entR + maxAttrR + 12;
+    const tangential = n > 1 ? (maxAttrR + 6) / Math.sin(Math.min(Math.PI / 2, step / 2)) : radial;
+    const R = Math.max(radial, tangential);
+    const sorted = attrs.slice().sort(
+      (a, b) => normAngle(Math.atan2((a.y ?? 0) - ecy, (a.x ?? 0) - ecx)) - normAngle(Math.atan2((b.y ?? 0) - ecy, (b.x ?? 0) - ecx))
+    );
+    const rels = relAngles.get(eid) ?? [];
+    let phase = 0;
+    if (rels.length) {
+      const TRIES = 24;
+      let best = -Infinity;
+      for (let t = 0; t < TRIES; t++) {
+        const ph = t / TRIES * step;
+        let minGap = Infinity;
+        for (let i = 0; i < n; i++) {
+          const slot = normAngle(ph + i * step);
+          for (const r of rels) {
+            let d = Math.abs(slot - r);
+            d = Math.min(d, TAU2 - d);
+            if (d < minGap) minGap = d;
+          }
+        }
+        if (minGap > best) {
+          best = minGap;
+          phase = ph;
+        }
+      }
+    } else if (sorted.length) {
+      phase = normAngle(Math.atan2((sorted[0].y ?? 0) - ecy, (sorted[0].x ?? 0) - ecx));
+    }
+    sorted.forEach((at, i) => {
+      const baseAng = phase + i * step;
+      const s = measureNodeSize(at);
+      const offsets = [0];
+      const SLIDE = 8;
+      for (let k = 1; k <= SLIDE; k++) {
+        const off = k / SLIDE * (step / 2);
+        offsets.push(off, -off);
+      }
+      let bx = ecx + R * Math.cos(baseAng);
+      let by = ecy + R * Math.sin(baseAng);
+      for (const off of offsets) {
+        const ang = baseAng + off;
+        const x = ecx + R * Math.cos(ang);
+        const y = ecy + R * Math.sin(ang);
+        if (!hits(x, y, s.width, s.height, eid)) {
+          bx = x;
+          by = y;
+          break;
+        }
+      }
+      at.x = bx;
+      at.y = by;
+      obstacles.push({ id: at.id, x: bx, y: by, w: s.width, h: s.height });
+    });
+  });
+}
+function applyAttrMode(state) {
+  if (state.settings.attrMode === "compact") placeAttributesCompact(state);
+  else if (state.settings.attrMode === "moderate") placeAttributesModerate(state);
+}
+function setAttrMode(state, mode) {
+  const settings = { ...state.settings, attrMode: mode };
+  const next = { ...state, settings };
+  styleAndSize(next.nodes, next.edges, settings);
+  applyAttrMode(next);
+  return next;
+}
 function settle(state) {
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
   arrangeLayout(graph);
+  applyAttrMode(state);
 }
 function move(state, arg, x, y, raw) {
   const node = resolveNode(state, arg);
@@ -3895,20 +4404,6 @@ function buildScene(graph) {
       if (segCross(si.a, si.b, sj.a, sj.b)) crossings.push([si.r, sj.r]);
     }
   }
-  const core = [
-    ...entities,
-    ...relationships.map(
-      (r) => entityById.get(r.id) ?? {
-        id: r.id,
-        type: "relationship",
-        label: r.label,
-        x: r.x,
-        y: r.y,
-        w: bboxOf.get(r.id)?.width ?? 60,
-        h: bboxOf.get(r.id)?.height ?? 40
-      }
-    )
-  ];
   const coreInfos = entities.concat(
     relationships.map((r) => {
       const b = bboxOf.get(r.id);
@@ -3934,6 +4429,31 @@ function buildScene(graph) {
       }
     }
   }
+  const boxes = coreInfos.map((c) => ({
+    id: c.id,
+    x: c.x,
+    y: c.y,
+    w: c.w,
+    h: c.h,
+    attr: false
+  }));
+  attrsByEntity.forEach(
+    (list) => list.forEach((m) => {
+      const b = bboxOf.get(m.id);
+      if (b)
+        boxes.push({ id: m.id, x: num(m.x), y: num(m.y), w: b.width, h: b.height, attr: true });
+    })
+  );
+  let attrOverlaps = 0;
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      if (!a.attr && !b.attr) continue;
+      if (Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - 2 && Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - 2)
+        attrOverlaps++;
+    }
+  }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   coreInfos.forEach((c) => {
     minX = Math.min(minX, c.x - c.w / 2);
@@ -3945,7 +4465,6 @@ function buildScene(graph) {
     minX = minY = 0;
     maxX = maxY = 0;
   }
-  void core;
   return {
     entities,
     relationships,
@@ -3957,6 +4476,7 @@ function buildScene(graph) {
     placeholders,
     crossings,
     overlaps,
+    attrOverlaps,
     bbox: { minX, minY, maxX, maxY }
   };
 }
@@ -4055,6 +4575,10 @@ function describe(graph, opts = {}) {
     L.push("  \u2713 no node overlaps");
   }
   scene.isolated.forEach((id) => L.push(`  \u26A0 isolated: ${scene.entityById.get(id)?.label ?? id}`));
+  if (scene.attrOverlaps > 0)
+    L.push(
+      `  \u26A0 attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\` or \`attrs moderate\`)`
+    );
   const w = Math.round(scene.bbox.maxX - scene.bbox.minX);
   const h = Math.round(scene.bbox.maxY - scene.bbox.minY);
   const aspect = h > 0 ? (w / h).toFixed(2) : "\u2014";
@@ -4067,7 +4591,7 @@ function describe(graph, opts = {}) {
     }
   });
   L.push(
-    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} bbox=${w}\xD7${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`
+    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} bbox=${w}\xD7${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`
   );
   L.push("");
   L.push("MAP  (coarse 2D placement; authoritative coords above)");
@@ -4135,6 +4659,7 @@ function describeJson(graph) {
     diagnostics: {
       crossings: s.crossings.length,
       overlaps: s.overlaps.length,
+      attrOverlaps: s.attrOverlaps,
       isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
       bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) }
     }
@@ -4348,6 +4873,7 @@ function exportSvg(state) {
 }
 
 // .claude/skills/sql2er/scripts/engine/cli.ts
+var ATTR_MODES = ["auto", "compact", "moderate"];
 function parseArgs(argv) {
   const _ = [];
   const flags = {};
@@ -4420,6 +4946,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --colored true|false           (default true)
       --comment                      show column/table comments instead of names
       --hide-attrs                   skeleton only (no attribute ellipses)
+      --attrs auto|compact|moderate  attribute orbit mode (default auto)
       --layout align|arrange|none    (default align)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
@@ -4432,6 +4959,8 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
   swap <a> <b>             Exchange two entities' positions. --raw to skip settle.
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
+  attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
+                           non-overlapping pack; moderate = uniform even ring. Persists.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (\u2248\xB10.1/step).
   export <drawio|svg|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
@@ -4456,11 +4985,20 @@ function main() {
           ...DEFAULT_SETTINGS,
           colored: boolFlag(flags.colored, true),
           comment: boolFlag(flags.comment),
-          hideAttrs: boolFlag(flags["hide-attrs"])
+          hideAttrs: boolFlag(flags["hide-attrs"]),
+          attrMode: ATTR_MODES.includes(flags.attrs) ? flags.attrs : "auto"
         }
       });
       saveState(flags, state);
       printState(state, flags);
+      break;
+    }
+    case "attrs": {
+      const mode = _[1];
+      if (!ATTR_MODES.includes(mode)) throw new Error("attrs <auto|compact|moderate>");
+      const next = setAttrMode(loadState(flags), mode);
+      saveState(flags, next);
+      printState(next, flags);
       break;
     }
     case "describe": {

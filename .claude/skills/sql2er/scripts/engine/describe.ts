@@ -67,6 +67,7 @@ interface Scene {
   placeholders: Set<string>;
   crossings: Array<[RelInfo, RelInfo]>;
   overlaps: Array<[CoreInfo, CoreInfo]>;
+  attrOverlaps: number;
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
@@ -194,21 +195,6 @@ function buildScene(graph: HeadlessGraph): Scene {
   }
 
   // overlaps among core nodes (AABB, small tolerance)
-  const core = [
-    ...entities,
-    ...relationships.map(
-      (r) =>
-        entityById.get(r.id) ?? {
-          id: r.id,
-          type: "relationship" as const,
-          label: r.label,
-          x: r.x,
-          y: r.y,
-          w: bboxOf.get(r.id)?.width ?? 60,
-          h: bboxOf.get(r.id)?.height ?? 40,
-        },
-    ),
-  ];
   const coreInfos: CoreInfo[] = entities.concat(
     relationships.map((r) => {
       const b = bboxOf.get(r.id)!;
@@ -238,6 +224,38 @@ function buildScene(graph: HeadlessGraph): Scene {
     }
   }
 
+  // attribute overlaps (any pair where at least one is an attribute): the metric
+  // attribute orbit modes optimize. Skeleton-only `overlaps` above doesn't see these.
+  type Box = { id: string; x: number; y: number; w: number; h: number; attr: boolean };
+  const boxes: Box[] = coreInfos.map((c) => ({
+    id: c.id,
+    x: c.x,
+    y: c.y,
+    w: c.w,
+    h: c.h,
+    attr: false,
+  }));
+  attrsByEntity.forEach((list) =>
+    list.forEach((m) => {
+      const b = bboxOf.get(m.id);
+      if (b)
+        boxes.push({ id: m.id, x: num(m.x), y: num(m.y), w: b.width, h: b.height, attr: true });
+    }),
+  );
+  let attrOverlaps = 0;
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      if (!a.attr && !b.attr) continue; // core-core already counted in `overlaps`
+      if (
+        Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - 2 &&
+        Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - 2
+      )
+        attrOverlaps++;
+    }
+  }
+
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
@@ -253,7 +271,6 @@ function buildScene(graph: HeadlessGraph): Scene {
     maxX = maxY = 0;
   }
 
-  void core;
   return {
     entities,
     relationships,
@@ -265,6 +282,7 @@ function buildScene(graph: HeadlessGraph): Scene {
     placeholders,
     crossings,
     overlaps,
+    attrOverlaps,
     bbox: { minX, minY, maxX, maxY },
   };
 }
@@ -387,6 +405,10 @@ export function describe(
     L.push("  ✓ no node overlaps");
   }
   scene.isolated.forEach((id) => L.push(`  ⚠ isolated: ${scene.entityById.get(id)?.label ?? id}`));
+  if (scene.attrOverlaps > 0)
+    L.push(
+      `  ⚠ attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\` or \`attrs moderate\`)`,
+    );
 
   const w = Math.round(scene.bbox.maxX - scene.bbox.minX);
   const h = Math.round(scene.bbox.maxY - scene.bbox.minY);
@@ -400,7 +422,7 @@ export function describe(
     }
   });
   L.push(
-    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} bbox=${w}×${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
+    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} bbox=${w}×${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
   );
   L.push("");
 
@@ -478,6 +500,7 @@ export interface SceneJson {
   diagnostics: {
     crossings: number;
     overlaps: number;
+    attrOverlaps: number;
     isolated: string[];
     bbox: { w: number; h: number };
   };
@@ -507,6 +530,7 @@ export function describeJson(graph: HeadlessGraph): SceneJson {
     diagnostics: {
       crossings: s.crossings.length,
       overlaps: s.overlaps.length,
+      attrOverlaps: s.attrOverlaps,
       isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
       bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) },
     },

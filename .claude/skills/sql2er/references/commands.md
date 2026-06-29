@@ -8,16 +8,17 @@ Invoke: `node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [-
 
 Parse, build, lay out, save state.
 
-| flag                            | default | meaning                                                     |
-| ------------------------------- | ------- | ----------------------------------------------------------- |
-| `--input <file>`                | —       | read schema from a file                                     |
-| `--text "<sql>"`                | —       | inline schema                                               |
-| (piped stdin)                   | —       | used if no `--input`/`--text`                               |
-| `--format auto\|sql\|dbml`      | `auto`  | `auto` tries SQL, falls back to DBML                        |
-| `--colored true\|false`         | `true`  | colored fills vs black/white                                |
-| `--comment`                     | off     | label nodes with comments (falls back to names when absent) |
-| `--hide-attrs`                  | off     | skeleton only — no attribute ellipses                       |
-| `--layout align\|arrange\|none` | `align` | initial layout                                              |
+| flag                              | default | meaning                                                     |
+| --------------------------------- | ------- | ----------------------------------------------------------- |
+| `--input <file>`                  | —       | read schema from a file                                     |
+| `--text "<sql>"`                  | —       | inline schema                                               |
+| (piped stdin)                     | —       | used if no `--input`/`--text`                               |
+| `--format auto\|sql\|dbml`        | `auto`  | `auto` tries SQL, falls back to DBML                        |
+| `--colored true\|false`           | `true`  | colored fills vs black/white                                |
+| `--comment`                       | off     | label nodes with comments (falls back to names when absent) |
+| `--hide-attrs`                    | off     | skeleton only — no attribute ellipses                       |
+| `--attrs auto\|compact\|moderate` | `auto`  | attribute orbit mode (see `attrs` below)                    |
+| `--layout align\|arrange\|none`   | `align` | initial layout                                              |
 
 ## describe
 
@@ -43,9 +44,13 @@ RELATIONS  (id | label | from→to | card | pos)
 
 DIAGNOSTICS
   ⚠ crossing: <relLabelA> × <relLabelB>     # FK edges visually cross
-  ⚠ overlap:  <nodeA> × <nodeB>             # skeleton nodes overlap
+  ⚠ overlap:  <nodeA> × <nodeB>             # two skeleton nodes (entities/diamonds) overlap
   ⚠ isolated: <entity>                      # no relationships at all
-  metrics: crossings=<n> overlaps=<n> bbox=<w>×<h> aspect=<r> edgeLen=<n>
+  ⚠ attribute overlaps: <n>                 # only shown when > 0; try attrs compact/moderate
+  metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> bbox=<w>×<h> aspect=<r> edgeLen=<n>
+
+`overlaps` counts only the skeleton (entities + relationship diamonds); `attrOverlaps`
+counts any overlap involving an attribute ellipse.
 
 MAP
   … entities by label, diamonds as ◇label, coarsely placed in a grid …
@@ -57,6 +62,16 @@ The MAP is a quick visual; act on coordinates and DIAGNOSTICS.
 
 - `align` — topological re-layout from scratch. Places the longest entity/relationship chain horizontally; fans branches out as subtrees. Deterministic. **Resets positions.** Best for trees/chains.
 - `arrange` — settle current positions: springs + 2-opt crossing removal + overlap separation. Preserves the coarse structure you set but does **not** pin exact coordinates — nodes drift as springs balance. Use after edits or on cyclic graphs. A dense graph may leave one residual overlap; running `arrange` again usually clears it.
+
+## attrs `<auto|compact|moderate>`
+
+Re-place every attribute ellipse around its (unchanged) entity. The mode is stored and re-applied after every later layout/edit, so it persists.
+
+- `auto` — leave whatever the layout produced (the default). Setting `auto` does not re-place; the next `layout`/edit restores the native look.
+- `compact` — reuses the app's show-attributes packer: each attribute sits at the shortest radius that clears all nodes and edges, so they hug the entity. Distances vary; guaranteed non-overlapping. Best when space is tight.
+- `moderate` — one uniform radius per entity, attributes spread evenly around the circle; the ring is rotated to dodge relationship directions and any leftover collision is slid along the ring (radius fixed). Even and tidy; distance is uniform per entity.
+
+Check the result with `describe` → `attrOverlaps`. `compact` is the safest for zero overlaps; `moderate` is tidiest and clears overlaps in all but the most cramped graphs.
 
 ## move / nudge / swap
 

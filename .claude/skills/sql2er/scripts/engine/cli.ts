@@ -7,14 +7,18 @@ import {
   runLayout,
   rotate,
   setFontScale,
+  setAttrMode,
   move,
   nudge,
   swap,
   splitComponents,
   DEFAULT_SETTINGS,
+  type AttrMode,
   type State,
 } from "./ops";
 import { parse as parsePath } from "node:path";
+
+const ATTR_MODES = ["auto", "compact", "moderate"] as const;
 import { describe, describeJson } from "./describe";
 import { exportDrawio, exportJson, exportSvg } from "./exporters";
 import { createHeadlessGraph } from "./adapter";
@@ -104,6 +108,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --colored true|false           (default true)
       --comment                      show column/table comments instead of names
       --hide-attrs                   skeleton only (no attribute ellipses)
+      --attrs auto|compact|moderate  attribute orbit mode (default auto)
       --layout align|arrange|none    (default align)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
@@ -116,6 +121,8 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
   swap <a> <b>             Exchange two entities' positions. --raw to skip settle.
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
+  attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
+                           non-overlapping pack; moderate = uniform even ring. Persists.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
   export <drawio|svg|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
@@ -146,10 +153,21 @@ function main(): void {
           colored: boolFlag(flags.colored, true),
           comment: boolFlag(flags.comment),
           hideAttrs: boolFlag(flags["hide-attrs"]),
+          attrMode: ATTR_MODES.includes(flags.attrs as AttrMode)
+            ? (flags.attrs as AttrMode)
+            : "auto",
         },
       });
       saveState(flags, state);
       printState(state, flags);
+      break;
+    }
+    case "attrs": {
+      const mode = _[1] as AttrMode;
+      if (!ATTR_MODES.includes(mode)) throw new Error("attrs <auto|compact|moderate>");
+      const next = setAttrMode(loadState(flags), mode);
+      saveState(flags, next);
+      printState(next, flags);
       break;
     }
     case "describe": {
