@@ -10,7 +10,7 @@
 - [move / nudge / swap](#move--nudge--swap)
 - [rotate](#rotate-degrees)
 - [fontsize](#fontsize-delta)
-- [export](#export-drawiosvgjson)
+- [export](#export-drawiosvgpngjson)
 - [Recipes](#recipes)
 
 ## Invocation and state
@@ -108,15 +108,16 @@ Rotate all node positions about the diagram center. Shapes and text stay upright
 
 `0` resets to default scale 1.0. Each step is about 0.1 scale; values clamp to 0.4-1.6. After a large font change, run `layout arrange`.
 
-## export `<drawio|svg|json>`
+## export `<drawio|svg|png|json>`
 
 `--out <file>` writes to a file; otherwise export prints to stdout.
 
 - `drawio`: `.drawio` mxfile editable in diagrams.net
 - `svg`: standalone SVG for final visual review
+- `png`: raster image rendered from SVG; requires `rsvg-convert` on `PATH` or `SQL2ER_RSVG_CONVERT`
 - `json`: `{ nodes:[{id,type,label,x,y,w,h,pk?,parent?,placeholder?}], edges:[{source,target,label,type}] }`
 
-`--split` writes one file per disconnected component. With `--out base.ext`, outputs `base-<name>.ext` per component. Without `--out`, prints each component separated by `=== component: <name> ===`.
+`--split` writes one file per disconnected component. With `--out base.ext`, outputs `base-<name>.ext` per component. Without `--out`, prints each component separated by `=== component: <name> ===`; PNG split export requires `--out`.
 
 ## Recipes
 
@@ -127,6 +128,7 @@ node $AGENT generate --input schema.sql --state er.json
 node $AGENT describe --state er.json
 node $AGENT layout optimal --state er.json
 node $AGENT export svg --out er.svg --state er.json
+node $AGENT export png --out er.png --state er.json
 node $AGENT export drawio --out er.drawio --state er.json
 ```
 

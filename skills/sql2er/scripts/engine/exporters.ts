@@ -3,6 +3,7 @@
  * app produces). SVG + JSON are written headlessly for a quick visual check and
  * for machine round-trip.
  */
+import { spawnSync } from "node:child_process";
 import { buildDrawioXML } from "@app/exporter";
 import { measureNodeSize, getTextWidth } from "@app/builder";
 import type { ERNodeModel, GraphLike } from "@app/types";
@@ -47,6 +48,43 @@ export function exportJson(state: State): string {
     })),
   };
   return JSON.stringify(out, null, 2);
+}
+
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+export function exportPng(state: State): Buffer {
+  const svg = exportSvg(state);
+  const candidates = [process.env.SQL2ER_RSVG_CONVERT, "rsvg-convert", "rsvg-convert.exe"].filter(
+    (cmd): cmd is string => !!cmd,
+  );
+  const missing: string[] = [];
+
+  for (const cmd of candidates) {
+    const result = spawnSync(cmd, ["--format", "png", "-"], {
+      input: svg,
+      maxBuffer: 200 * 1024 * 1024,
+    });
+    if (result.error) {
+      if ((result.error as NodeJS.ErrnoException).code === "ENOENT") {
+        missing.push(cmd);
+        continue;
+      }
+      throw new Error(`PNG export failed using ${cmd}: ${result.error.message}`);
+    }
+    if (result.status !== 0) {
+      const stderr = result.stderr?.toString("utf8").trim();
+      throw new Error(`PNG export failed using ${cmd}: ${stderr || `exit ${result.status}`}`);
+    }
+    const png = result.stdout ?? Buffer.alloc(0);
+    if (!png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+      throw new Error(`PNG export failed using ${cmd}: converter did not return PNG data`);
+    }
+    return png;
+  }
+
+  throw new Error(
+    `PNG export requires rsvg-convert on PATH or SQL2ER_RSVG_CONVERT. Tried: ${missing.join(", ") || "none"}.`,
+  );
 }
 
 interface Sized {

@@ -1,6 +1,6 @@
 ---
 name: sql2er
-description: Generate, inspect, tidy, and export Chen-model ER diagrams from SQL CREATE TABLE statements or DBML using the bundled sql2er agent CLI. Use when the user wants an ER diagram from a schema, wants to rearrange or clean up an existing sql2er state, wants a skeleton-only overview with attributes hidden at generate time, or needs drawio/svg/json exports with final visual review.
+description: Use when the user wants a Chen-model ER diagram from SQL CREATE TABLE statements or DBML, wants to rearrange or clean up an existing sql2er state, wants a skeleton-only overview with attributes hidden at generate time, or needs drawio/svg/png/json exports with final visual review.
 ---
 
 # sql2er
@@ -49,10 +49,11 @@ Prefer `layout optimal` after major edits. Use `attrs compact` for the smallest 
 
 ```bash
 node $AGENT export svg --out er.svg --state er.json
+node $AGENT export png --out er.png --state er.json
 node $AGENT export drawio --out er.drawio --state er.json
 ```
 
-Always export SVG and inspect the image before finishing. Ensure labels are legible, the layout is balanced, and nodes/attribute ellipses do not overlap or sit on top of lines. If overlap or crossings are provably unavoidable, minimize them and make each remaining crossing/overlap clear.
+Always export SVG or PNG and inspect the image before finishing. Ensure labels are legible, the layout is balanced, and nodes/attribute ellipses do not overlap or sit on top of lines. If overlap or crossings are provably unavoidable, minimize them and make each remaining crossing/overlap clear.
 
 ## Cleanup rules
 

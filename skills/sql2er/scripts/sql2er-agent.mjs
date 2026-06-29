@@ -4740,24 +4740,38 @@ function placeAttributesModerate(state) {
     const s = measureNodeSize(at);
     const cx = at.x ?? 0;
     const cy = at.y ?? 0;
-    if (!boxPierced(cx, cy, s.width, s.height) && !hits(cx, cy, s.width, s.height, at.id)) return;
+    if (!boxPierced(cx, cy, s.width, s.height) && !hits(cx, cy, s.width, s.height, at.id) && !connectorCrosses(ent.x ?? 0, ent.y ?? 0, cx, cy, at.parentEntity))
+      return;
     const ecx = ent.x ?? 0;
     const ecy = ent.y ?? 0;
     const half = Math.max(s.width, s.height) / 2;
     const curR = Math.hypot(cx - ecx, cy - ecy) || radiusOf(ent) + half;
+    const curAng = normAngle(Math.atan2(cy - ecy, cx - ecx));
     let best = null;
-    for (let dr = 0; dr <= 8 && !best; dr++) {
+    const clearCandidate = (x, y) => !hits(x, y, s.width, s.height, at.id) && !boxPierced(x, y, s.width, s.height) && !connectorCrosses(ecx, ecy, x, y, at.parentEntity);
+    const consider = (x, y) => {
+      if (!clearCandidate(x, y)) return;
+      const d = Math.hypot(x - cx, y - cy);
+      if (!best || d < best.d) best = { x, y, d };
+    };
+    const localStep = Math.max(6, Math.min(12, half / 4));
+    const localMax = Math.max(220, half * 8);
+    for (let r = localStep; r <= localMax; r += localStep) {
+      const steps = Math.max(24, Math.ceil(TAU3 * r / localStep));
+      for (let k = 0; k < steps; k++) {
+        const ang = k / steps * TAU3;
+        consider(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
+      }
+      if (best && best.d + localStep < r) break;
+    }
+    for (let dr = 0; dr <= 8; dr++) {
       const R2 = curR + dr * (half * 0.6 + 6);
       const steps = Math.max(36, Math.round(TAU3 * R2 / (half + 6)));
       for (let k = 0; k < steps; k++) {
-        const ang = k / steps * TAU3;
+        const ang = curAng + k / steps * TAU3;
         const x = ecx + R2 * Math.cos(ang);
         const y = ecy + R2 * Math.sin(ang);
-        if (hits(x, y, s.width, s.height, at.id)) continue;
-        if (boxPierced(x, y, s.width, s.height)) continue;
-        if (connectorCrosses(ecx, ecy, x, y, at.parentEntity)) continue;
-        const d = Math.hypot(x - cx, y - cy);
-        if (!best || d < best.d) best = { x, y, d };
+        consider(x, y);
       }
     }
     if (best) {
@@ -5378,6 +5392,9 @@ function describeJson(graph) {
   };
 }
 
+// skills/sql2er/scripts/engine/exporters.ts
+import { spawnSync } from "node:child_process";
+
 // src/exporter.ts
 function escapeXml(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
@@ -5491,6 +5508,39 @@ function exportJson(state) {
     }))
   };
   return JSON.stringify(out, null, 2);
+}
+var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+function exportPng(state) {
+  const svg = exportSvg(state);
+  const candidates = [process.env.SQL2ER_RSVG_CONVERT, "rsvg-convert", "rsvg-convert.exe"].filter(
+    (cmd) => !!cmd
+  );
+  const missing = [];
+  for (const cmd of candidates) {
+    const result = spawnSync(cmd, ["--format", "png", "-"], {
+      input: svg,
+      maxBuffer: 200 * 1024 * 1024
+    });
+    if (result.error) {
+      if (result.error.code === "ENOENT") {
+        missing.push(cmd);
+        continue;
+      }
+      throw new Error(`PNG export failed using ${cmd}: ${result.error.message}`);
+    }
+    if (result.status !== 0) {
+      const stderr = result.stderr?.toString("utf8").trim();
+      throw new Error(`PNG export failed using ${cmd}: ${stderr || `exit ${result.status}`}`);
+    }
+    const png = result.stdout ?? Buffer.alloc(0);
+    if (!png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+      throw new Error(`PNG export failed using ${cmd}: converter did not return PNG data`);
+    }
+    return png;
+  }
+  throw new Error(
+    `PNG export requires rsvg-convert on PATH or SQL2ER_RSVG_CONVERT. Tried: ${missing.join(", ") || "none"}.`
+  );
 }
 function exportSvg(state) {
   const sized = /* @__PURE__ */ new Map();
@@ -5696,7 +5746,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (\u2248\xB10.1/step).
-  export <drawio|svg|json> Write output. --out <file> (else stdout).
+  export <drawio|svg|png|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
                                      (--out base.ext -> base-<name>.ext per component)
   help
@@ -5747,8 +5797,7 @@ function main() {
     }
     case "layout": {
       const kind = _[1];
-      if (kind !== "optimal" && kind !== "arrange")
-        throw new Error("layout <optimal|arrange>");
+      if (kind !== "optimal" && kind !== "arrange") throw new Error("layout <optimal|arrange>");
       const next = runLayout(loadState(flags), kind);
       saveState(flags, next);
       printState(next, flags);
@@ -5820,22 +5869,33 @@ function main() {
       const render = (s) => {
         if (fmt === "drawio") return { out: exportDrawio(s), ext: "drawio" };
         if (fmt === "svg") return { out: exportSvg(s), ext: "svg" };
+        if (fmt === "png") return { out: exportPng(s), ext: "png" };
         if (fmt === "json") return { out: exportJson(s), ext: "json" };
-        throw new Error("export <drawio|svg|json>");
+        throw new Error("export <drawio|svg|png|json>");
+      };
+      const writeExport = (file, out2, ext2) => {
+        writeFileSync(
+          resolve(process.cwd(), file),
+          out2,
+          typeof out2 === "string" ? "utf8" : void 0
+        );
+        const bytes = typeof out2 === "string" ? Buffer.byteLength(out2) : out2.length;
+        process.stdout.write(`wrote ${file} (${ext2}, ${bytes} bytes)
+`);
       };
       if (boolFlag(flags.split)) {
         const comps = splitComponents(state);
         if (comps.length <= 1) {
           process.stdout.write(`only 1 component \u2014 nothing to split; exporting whole diagram
 `);
+        } else if (fmt === "png" && typeof flags.out !== "string") {
+          throw new Error("export png --split requires --out because PNG output is binary.");
         } else if (typeof flags.out === "string") {
           const p = parsePath(flags.out);
           comps.forEach((c) => {
             const { out: out2, ext: ext2 } = render(c.state);
             const file = `${p.dir ? p.dir + "/" : ""}${p.name}-${c.name}.${ext2}`;
-            writeFileSync(resolve(process.cwd(), file), out2, "utf8");
-            process.stdout.write(`wrote ${file} (${ext2}, ${out2.length} bytes)
-`);
+            writeExport(file, out2, ext2);
           });
           break;
         } else {
@@ -5850,9 +5910,9 @@ ${out2}
       }
       const { out, ext } = render(state);
       if (typeof flags.out === "string") {
-        writeFileSync(resolve(process.cwd(), flags.out), out, "utf8");
-        process.stdout.write(`wrote ${flags.out} (${ext}, ${out.length} bytes)
-`);
+        writeExport(flags.out, out, ext);
+      } else if (Buffer.isBuffer(out)) {
+        process.stdout.write(out);
       } else {
         process.stdout.write(out + "\n");
       }

@@ -20,7 +20,7 @@ import { parse as parsePath } from "node:path";
 
 const ATTR_MODES = ["auto", "compact", "moderate"] as const;
 import { describe, describeJson } from "./describe";
-import { exportDrawio, exportJson, exportSvg } from "./exporters";
+import { exportDrawio, exportJson, exportPng, exportSvg } from "./exporters";
 import { createHeadlessGraph } from "./adapter";
 
 interface Args {
@@ -129,7 +129,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
-  export <drawio|svg|json> Write output. --out <file> (else stdout).
+  export <drawio|svg|png|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
                                      (--out base.ext -> base-<name>.ext per component)
   help
@@ -187,8 +187,7 @@ function main(): void {
     }
     case "layout": {
       const kind = _[1];
-      if (kind !== "optimal" && kind !== "arrange")
-        throw new Error("layout <optimal|arrange>");
+      if (kind !== "optimal" && kind !== "arrange") throw new Error("layout <optimal|arrange>");
       const next = runLayout(loadState(flags), kind);
       saveState(flags, next);
       printState(next, flags);
@@ -253,11 +252,21 @@ function main(): void {
       }
       const fmt = _[1];
       const state = loadState(flags);
-      const render = (s: State): { out: string; ext: string } => {
+      const render = (s: State): { out: string | Buffer; ext: string } => {
         if (fmt === "drawio") return { out: exportDrawio(s), ext: "drawio" };
         if (fmt === "svg") return { out: exportSvg(s), ext: "svg" };
+        if (fmt === "png") return { out: exportPng(s), ext: "png" };
         if (fmt === "json") return { out: exportJson(s), ext: "json" };
-        throw new Error("export <drawio|svg|json>");
+        throw new Error("export <drawio|svg|png|json>");
+      };
+      const writeExport = (file: string, out: string | Buffer, ext: string): void => {
+        writeFileSync(
+          resolve(process.cwd(), file),
+          out,
+          typeof out === "string" ? "utf8" : undefined,
+        );
+        const bytes = typeof out === "string" ? Buffer.byteLength(out) : out.length;
+        process.stdout.write(`wrote ${file} (${ext}, ${bytes} bytes)\n`);
       };
 
       // --split: one diagram per disconnected component (unrelated tables/clusters)
@@ -265,13 +274,14 @@ function main(): void {
         const comps = splitComponents(state);
         if (comps.length <= 1) {
           process.stdout.write(`only 1 component — nothing to split; exporting whole diagram\n`);
+        } else if (fmt === "png" && typeof flags.out !== "string") {
+          throw new Error("export png --split requires --out because PNG output is binary.");
         } else if (typeof flags.out === "string") {
           const p = parsePath(flags.out);
           comps.forEach((c) => {
             const { out, ext } = render(c.state);
             const file = `${p.dir ? p.dir + "/" : ""}${p.name}-${c.name}.${ext}`;
-            writeFileSync(resolve(process.cwd(), file), out, "utf8");
-            process.stdout.write(`wrote ${file} (${ext}, ${out.length} bytes)\n`);
+            writeExport(file, out, ext);
           });
           break;
         } else {
@@ -285,8 +295,9 @@ function main(): void {
 
       const { out, ext } = render(state);
       if (typeof flags.out === "string") {
-        writeFileSync(resolve(process.cwd(), flags.out), out, "utf8");
-        process.stdout.write(`wrote ${flags.out} (${ext}, ${out.length} bytes)\n`);
+        writeExport(flags.out, out, ext);
+      } else if (Buffer.isBuffer(out)) {
+        process.stdout.write(out);
       } else {
         process.stdout.write(out + "\n");
       }

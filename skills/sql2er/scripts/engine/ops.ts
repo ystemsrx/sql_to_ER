@@ -508,10 +508,10 @@ function placeAttributesModerate(state: State): void {
     });
   });
 
-  // per-ellipse escape: if a relationship line still passes through an attribute (or it
-  // overlaps a node), THAT one ellipse leaves the uniform ring and takes the nearest
-  // clear spot — every other attribute keeps its ring position. Tries the same radius
-  // all the way around first, then steps outward, and picks the closest clear candidate.
+  // per-ellipse escape: if a relationship line still passes through an attribute, its
+  // connector crosses a relationship line, or it overlaps a node, THAT one ellipse
+  // leaves the uniform ring and takes the nearest clear spot. Every other attribute
+  // keeps its ring position.
   const obById = new Map(obstacles.map((o) => [o.id, o]));
   state.nodes.forEach((at) => {
     if (at.nodeType !== "attribute" || typeof at.parentEntity !== "string") return;
@@ -520,24 +520,47 @@ function placeAttributesModerate(state: State): void {
     const s = measureNodeSize(at);
     const cx = at.x ?? 0;
     const cy = at.y ?? 0;
-    if (!boxPierced(cx, cy, s.width, s.height) && !hits(cx, cy, s.width, s.height, at.id)) return;
+    if (
+      !boxPierced(cx, cy, s.width, s.height) &&
+      !hits(cx, cy, s.width, s.height, at.id) &&
+      !connectorCrosses(ent.x ?? 0, ent.y ?? 0, cx, cy, at.parentEntity)
+    )
+      return;
     const ecx = ent.x ?? 0;
     const ecy = ent.y ?? 0;
     const half = Math.max(s.width, s.height) / 2;
     const curR = Math.hypot(cx - ecx, cy - ecy) || radiusOf(ent) + half;
+    const curAng = normAngle(Math.atan2(cy - ecy, cx - ecx));
     let best: { x: number; y: number; d: number } | null = null;
-    for (let dr = 0; dr <= 8 && !best; dr++) {
+    const clearCandidate = (x: number, y: number): boolean =>
+      !hits(x, y, s.width, s.height, at.id) &&
+      !boxPierced(x, y, s.width, s.height) &&
+      !connectorCrosses(ecx, ecy, x, y, at.parentEntity);
+    const consider = (x: number, y: number): void => {
+      if (!clearCandidate(x, y)) return;
+      const d = Math.hypot(x - cx, y - cy);
+      if (!best || d < best.d) best = { x, y, d };
+    };
+
+    const localStep = Math.max(6, Math.min(12, half / 4));
+    const localMax = Math.max(220, half * 8);
+    for (let r = localStep; r <= localMax; r += localStep) {
+      const steps = Math.max(24, Math.ceil((TAU * r) / localStep));
+      for (let k = 0; k < steps; k++) {
+        const ang = (k / steps) * TAU;
+        consider(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
+      }
+      if (best && best.d + localStep < r) break;
+    }
+
+    for (let dr = 0; dr <= 8; dr++) {
       const R2 = curR + dr * (half * 0.6 + 6);
       const steps = Math.max(36, Math.round((TAU * R2) / (half + 6)));
       for (let k = 0; k < steps; k++) {
-        const ang = (k / steps) * TAU;
+        const ang = curAng + (k / steps) * TAU;
         const x = ecx + R2 * Math.cos(ang);
         const y = ecy + R2 * Math.sin(ang);
-        if (hits(x, y, s.width, s.height, at.id)) continue;
-        if (boxPierced(x, y, s.width, s.height)) continue;
-        if (connectorCrosses(ecx, ecy, x, y, at.parentEntity)) continue;
-        const d = Math.hypot(x - cx, y - cy);
-        if (!best || d < best.d) best = { x, y, d };
+        consider(x, y);
       }
     }
     if (best) {
