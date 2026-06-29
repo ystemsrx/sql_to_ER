@@ -1,11 +1,10 @@
 version: 2
 updates:
-  # 应用代码依赖：每周一打包成少量 PR，避免每个包一个 PR 的噪音
+  # 应用代码依赖：每月打包成少量 PR；跳过 patch 级（过小）更新，进一步降噪
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:00"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
@@ -19,6 +18,10 @@ updates:
     ignore:
       - dependency-name: "@antv/g6"
         update-types: ["version-update:semver-major"]
+      # 跳过所有 patch 级版本更新（过小、噪音大）。注意：以 patch 形式发布的
+      # 安全更新也会被一并抑制——如需更细，可改成只对 dev / 类型依赖跳过。
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
     groups:
       # React 一组：核心 + 类型一起升，避免 react / react-dom / @types/react 错配
       react:
@@ -45,14 +48,17 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:00"
       timezone: Asia/Shanghai
     open-pull-requests-limit: 3
     commit-message:
       prefix: chore(ci)
       include: scope
+    # action 也跳过 patch 级更新
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
     groups:
       actions:
         patterns:
