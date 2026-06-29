@@ -38,13 +38,14 @@ Self-referencing FKs render as one relationship diamond with a lens-shaped self-
 
 Chen diagrams read best when entities are concepts and relationships are verbs. By default, labels come from raw schema identifiers: entity = table name, attribute = column name, relationship diamond = FK column name.
 
-There is no relabel command. Set semantic labels before layout tuning:
+Set semantic labels before layout tuning:
 
-1. Prefer comments plus `generate --comment`.
+1. Prefer comments plus `generate --comment` or switch later with `labels mode comment`.
    - SQL: `author_id INT COMMENT 'belongs to'`
    - SQL table comment: `) COMMENT='Article';`
    - DBML column note: `author_id int [note: 'belongs to']`
    - DBML ref note: `Ref: posts.author_id > users.id [note: 'belongs to']`
-2. Rename the FK field only when mutating the schema is acceptable, e.g. `belongs_to INT` so the diamond reads `belongs_to`.
+2. Use `labels set <id> "semantic label"` or `labels batch` for manual labels that should not require regenerating the graph.
+3. Rename the FK field only when mutating the schema is acceptable, e.g. `belongs_to INT` so the diamond reads `belongs_to`.
 
-Regenerating with different labels resets positions, so choose labels before manual layout edits.
+Regenerating with different labels resets positions. `labels mode` keeps manual labels; `labels reset <id|all>` restores the active name/comment label.

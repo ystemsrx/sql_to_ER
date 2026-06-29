@@ -8,12 +8,17 @@ import {
   rotate,
   setFontScale,
   setAttrMode,
+  setLabel,
+  setLabelMode,
+  setLabels,
+  resetLabels,
   move,
   nudge,
   swap,
   splitComponents,
   DEFAULT_SETTINGS,
   type AttrMode,
+  type LabelMode,
   type State,
 } from "./ops";
 import { parse as parsePath } from "node:path";
@@ -91,6 +96,26 @@ function readInput(flags: Record<string, string | boolean>): string {
   throw new Error("Provide input via --input <file>, --text <inline>, or piped stdin.");
 }
 
+function readLabels(flags: Record<string, string | boolean>): Record<string, string> {
+  const hasFile = typeof flags.file === "string";
+  const hasText = typeof flags.text === "string";
+  if (hasFile === hasText)
+    throw new Error("labels batch requires exactly one of --file or --text.");
+  const raw = hasFile
+    ? rf(resolve(process.cwd(), flags.file as string), "utf8")
+    : (flags.text as string);
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error('labels batch expects a JSON object: {"node-id":"label"}.');
+  }
+  const labels: Record<string, string> = {};
+  Object.entries(parsed).forEach(([id, label]) => {
+    if (typeof label !== "string") throw new Error(`Label for "${id}" must be a string.`);
+    labels[id] = label;
+  });
+  return labels;
+}
+
 function printState(state: State, flags: Record<string, string | boolean>): void {
   const graph = createHeadlessGraph(state.nodes, state.edges);
   process.stdout.write(
@@ -128,6 +153,12 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.
+  labels set <id> <label> Set a manual node label.
+  labels batch --file labels.json | --text '{"id":"label"}'
+                           Set many manual labels at once.
+  labels reset <id|all>    Clear manual labels and restore the active name/comment mode.
+  labels mode <name|comment>
+                           Switch generated labels without clearing manual labels.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
   export <drawio|svg|png|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
@@ -174,6 +205,47 @@ function main(): void {
       saveState(flags, next);
       printState(next, flags);
       break;
+    }
+    case "labels": {
+      const sub = _[1];
+      if (sub === "set") {
+        const id = _[2];
+        const label = _[3];
+        if (!id || label === undefined) throw new Error("labels set <id> <label>");
+        const { state, resolved } = setLabel(loadState(flags), id, label);
+        saveState(flags, state);
+        process.stdout.write(`labeled ${resolved.map((r) => `${r.id}="${r.label}"`).join(", ")}\n`);
+        printState(state, flags);
+        break;
+      }
+      if (sub === "batch") {
+        const { state, resolved } = setLabels(loadState(flags), readLabels(flags));
+        saveState(flags, state);
+        process.stdout.write(`labeled ${resolved.length} nodes\n`);
+        printState(state, flags);
+        break;
+      }
+      if (sub === "reset") {
+        const idOrAll = _[2];
+        if (!idOrAll) throw new Error("labels reset <id|all>");
+        const { state, resolved } = resetLabels(loadState(flags), idOrAll);
+        saveState(flags, state);
+        process.stdout.write(`reset ${resolved.length} labels\n`);
+        printState(state, flags);
+        break;
+      }
+      if (sub === "mode") {
+        const mode = _[2] as LabelMode;
+        if (mode !== "name" && mode !== "comment") throw new Error("labels mode <name|comment>");
+        const { state } = setLabelMode(loadState(flags), mode);
+        saveState(flags, state);
+        process.stdout.write(`labelMode=${mode}\n`);
+        printState(state, flags);
+        break;
+      }
+      throw new Error(
+        "labels set <id> <label> | labels batch --file <json> | labels batch --text <json> | labels reset <id|all> | labels mode <name|comment>",
+      );
     }
     case "describe": {
       const state = loadState(flags);

@@ -7,6 +7,7 @@
 - [describe](#describe)
 - [layout](#layout-optimalarrange)
 - [attrs](#attrs-autocompactmoderate)
+- [labels](#labels)
 - [move / nudge / swap](#move--nudge--swap)
 - [rotate](#rotate-degrees)
 - [fontsize](#fontsize-delta)
@@ -91,6 +92,24 @@ Re-place attribute ellipses around their unchanged entity. The mode persists acr
 - `moderate`: more even ring; attributes use a shared distance unless one must escape to stay clear.
 
 Check the result with `describe` and compare `attrOverlaps` / `attrCrossings`.
+
+## labels
+
+Relabel nodes without regenerating or moving the skeleton. Use exact node ids from `describe`.
+Manual labels survive `labels mode`; `labels reset` removes them.
+
+```bash
+node $AGENT labels set <id> "new label" --state er.json
+node $AGENT labels batch --file labels.json --state er.json
+node $AGENT labels batch --text '{"rel-orders-users-user_id-7":"placed by","entity-users-0":"Customer"}' --state er.json
+node $AGENT labels reset <id|all> --state er.json
+node $AGENT labels mode name --state er.json
+node $AGENT labels mode comment --state er.json
+```
+
+`labels batch` expects a JSON object whose keys are node ids and whose values are strings.
+`labels mode name|comment` switches generated labels from each node's stored `nameLabel` /
+`commentLabel`; nodes with manual labels keep them until reset.
 
 ## move / nudge / swap
 

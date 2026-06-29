@@ -53,6 +53,9 @@ type AgentState = {
     parentEntity?: string;
     keyType?: string;
     isSelfLoop?: boolean;
+    nameLabel?: string;
+    commentLabel?: string;
+    manualLabel?: string;
   }>;
   edges: Array<{ id: string; source: string; target: string; edgeType: string; label?: string }>;
 };
@@ -133,6 +136,70 @@ function makeAttributeRingState(count: number): AgentState {
   };
 }
 
+function makeRelabelState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: false,
+      fontScale: 1,
+      attrMode: "auto",
+    },
+    nodes: [
+      {
+        id: "entity-users-0",
+        type: "entity",
+        label: "users",
+        nameLabel: "users",
+        commentLabel: "User account",
+        nodeType: "entity",
+        x: 100,
+        y: 100,
+      },
+      {
+        id: "attr-users-name-0-1",
+        type: "attribute",
+        label: "name",
+        nameLabel: "name",
+        commentLabel: "Full name",
+        nodeType: "attribute",
+        parentEntity: "entity-users-0",
+        keyType: "normal",
+        x: 100,
+        y: 180,
+      },
+      {
+        id: "rel-posts-users-user_id-0",
+        type: "relationship",
+        label: "user_id",
+        nameLabel: "user_id",
+        commentLabel: "author",
+        nodeType: "relationship",
+        x: 220,
+        y: 100,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-users-name",
+        source: "entity-users-0",
+        target: "attr-users-name-0-1",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-users-rel",
+        source: "entity-users-0",
+        target: "rel-posts-users-user_id-0",
+        edgeType: "entity-relationship",
+        label: "1",
+      },
+    ],
+  };
+}
+
 describe("sql2er agent CLI attribute visibility", () => {
   it("decides hidden attributes at generate time and exports the stored skeleton only", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
@@ -189,6 +256,98 @@ describe("sql2er agent CLI export formats", () => {
       const bytes = readFileSync(out);
       expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
       expect(bytes.length).toBeGreaterThan(1000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sql2er agent CLI labels", () => {
+  it("sets batch labels from inline JSON and resets one or all labels to the active mode", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeRelabelState()));
+
+      const relBefore = nodePosition(readState(state), "rel-posts-users-user_id-0");
+      const set = runAgent([
+        "labels",
+        "set",
+        "rel-posts-users-user_id-0",
+        "placed by",
+        "--state",
+        state,
+      ]);
+      expect(set.status).toBe(0);
+
+      const batch = runAgent([
+        "labels",
+        "batch",
+        "--text",
+        '{"entity-users-0":"Customer","attr-users-name-0-1":"Display name"}',
+        "--state",
+        state,
+      ]);
+      expect(batch.status).toBe(0);
+
+      const relabeled = readState(state);
+      expect(relabeled.nodes.find((n) => n.id === "entity-users-0")?.label).toBe("Customer");
+      expect(relabeled.nodes.find((n) => n.id === "attr-users-name-0-1")?.label).toBe(
+        "Display name",
+      );
+      expect(relabeled.nodes.find((n) => n.id === "rel-posts-users-user_id-0")?.label).toBe(
+        "placed by",
+      );
+      expect(nodePosition(relabeled, "rel-posts-users-user_id-0")).toEqual(relBefore);
+
+      const resetOne = runAgent(["labels", "reset", "attr-users-name-0-1", "--state", state]);
+      expect(resetOne.status).toBe(0);
+      expect(readState(state).nodes.find((n) => n.id === "attr-users-name-0-1")?.label).toBe(
+        "name",
+      );
+
+      const resetAll = runAgent(["labels", "reset", "all", "--state", state]);
+      expect(resetAll.status).toBe(0);
+      const reset = readState(state);
+      expect(reset.nodes.find((n) => n.id === "entity-users-0")?.label).toBe("users");
+      expect(reset.nodes.find((n) => n.id === "rel-posts-users-user_id-0")?.label).toBe("user_id");
+      expect(reset.nodes.some((n) => n.manualLabel)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads batch labels from a file and switches base label mode without clearing manual labels", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const labels = resolve(dir, "labels.json");
+      writeFileSync(state, JSON.stringify(makeRelabelState()));
+      writeFileSync(labels, JSON.stringify({ "rel-posts-users-user_id-0": "placed by" }));
+
+      const set = runAgent(["labels", "set", "entity-users-0", "Customer", "--state", state]);
+      expect(set.status).toBe(0);
+      const batch = runAgent(["labels", "batch", "--file", labels, "--state", state]);
+      expect(batch.status).toBe(0);
+      const mode = runAgent(["labels", "mode", "comment", "--state", state]);
+      expect(mode.status).toBe(0);
+
+      const commentMode = readState(state);
+      expect(commentMode.settings.comment).toBe(true);
+      expect(commentMode.nodes.find((n) => n.id === "entity-users-0")?.label).toBe("Customer");
+      expect(commentMode.nodes.find((n) => n.id === "attr-users-name-0-1")?.label).toBe(
+        "Full name",
+      );
+      expect(commentMode.nodes.find((n) => n.id === "rel-posts-users-user_id-0")?.label).toBe(
+        "placed by",
+      );
+
+      const resetAll = runAgent(["labels", "reset", "all", "--state", state]);
+      expect(resetAll.status).toBe(0);
+      const reset = readState(state);
+      expect(reset.nodes.find((n) => n.id === "entity-users-0")?.label).toBe("User account");
+      expect(reset.nodes.find((n) => n.id === "rel-posts-users-user_id-0")?.label).toBe("author");
+      expect(reset.nodes.some((n) => n.manualLabel)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

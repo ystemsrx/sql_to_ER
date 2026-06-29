@@ -193,6 +193,54 @@ export interface EditResult {
   resolved: { id: string; label: string }[];
 }
 
+export type LabelMode = "name" | "comment";
+
+export interface LabelEditResult {
+  state: State;
+  resolved: { id: string; label: string }[];
+}
+
+type LabelNode = ERNodeModel & {
+  nameLabel?: string;
+  commentLabel?: string;
+  manualLabel?: string;
+};
+
+const currentLabelMode = (state: State): LabelMode => (state.settings.comment ? "comment" : "name");
+
+function ensureBaseLabels(node: LabelNode): void {
+  const current = String(node.label ?? node.id);
+  if (node.nameLabel === undefined) node.nameLabel = current;
+  if (node.commentLabel === undefined) node.commentLabel = node.nameLabel;
+}
+
+function baseLabelFor(node: LabelNode, mode: LabelMode): string {
+  ensureBaseLabels(node);
+  if (mode === "comment")
+    return String(node.commentLabel || node.nameLabel || node.label || node.id);
+  return String(node.nameLabel || node.label || node.id);
+}
+
+function applyLabelsByMode(state: State): void {
+  const mode = currentLabelMode(state);
+  state.nodes.forEach((node) => {
+    const n = node as LabelNode;
+    n.label = typeof n.manualLabel === "string" ? n.manualLabel : baseLabelFor(n, mode);
+  });
+}
+
+function restyleAfterLabelEdit(state: State): void {
+  styleAndSize(state.nodes, state.edges, state.settings);
+  applyAttrMode(state);
+}
+
+function resolveNodeById(state: State, id: string): LabelNode {
+  const node = state.nodes.find((n) => n.id === id) as LabelNode | undefined;
+  if (!node)
+    throw new Error(`Could not resolve "${id}" to a node id. Use an exact id from describe.`);
+  return node;
+}
+
 function resolveNode(state: State, arg: string): ERNodeModel | null {
   const byId = state.nodes.find((n) => n.id === arg);
   if (byId) return byId;
@@ -209,6 +257,58 @@ function resolveNode(state: State, arg: string): ERNodeModel | null {
   );
   if (byName.length === 1) return byName[0];
   return null;
+}
+
+export function setLabel(state: State, id: string, label: string): LabelEditResult {
+  const node = resolveNodeById(state, id);
+  ensureBaseLabels(node);
+  node.manualLabel = label;
+  node.label = label;
+  restyleAfterLabelEdit(state);
+  return { state: { ...state }, resolved: [{ id: node.id, label }] };
+}
+
+export function setLabels(state: State, labels: Record<string, string>): LabelEditResult {
+  const entries = Object.entries(labels);
+  if (!entries.length) throw new Error("labels batch requires at least one id:label entry.");
+  const nodes = entries.map(([id, label]) => {
+    if (typeof label !== "string") throw new Error(`Label for "${id}" must be a string.`);
+    return [resolveNodeById(state, id), label] as const;
+  });
+  nodes.forEach(([node, label]) => {
+    ensureBaseLabels(node);
+    node.manualLabel = label;
+    node.label = label;
+  });
+  restyleAfterLabelEdit(state);
+  return {
+    state: { ...state },
+    resolved: nodes.map(([node]) => ({ id: node.id, label: String(node.label ?? "") })),
+  };
+}
+
+export function resetLabels(state: State, idOrAll: string): LabelEditResult {
+  const nodes =
+    idOrAll === "all" ? (state.nodes as LabelNode[]) : [resolveNodeById(state, idOrAll)];
+  nodes.forEach((node) => {
+    delete node.manualLabel;
+    node.label = baseLabelFor(node, currentLabelMode(state));
+  });
+  restyleAfterLabelEdit(state);
+  return {
+    state: { ...state },
+    resolved: nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") })),
+  };
+}
+
+export function setLabelMode(state: State, mode: LabelMode): LabelEditResult {
+  state.settings = { ...state.settings, comment: mode === "comment" };
+  applyLabelsByMode(state);
+  restyleAfterLabelEdit(state);
+  return {
+    state: { ...state },
+    resolved: state.nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") })),
+  };
 }
 
 function translateCluster(state: State, node: ERNodeModel, dx: number, dy: number) {

@@ -4739,6 +4739,35 @@ function rotate(state, degrees) {
   });
   return { ...state };
 }
+var currentLabelMode = (state) => state.settings.comment ? "comment" : "name";
+function ensureBaseLabels(node) {
+  const current = String(node.label ?? node.id);
+  if (node.nameLabel === void 0) node.nameLabel = current;
+  if (node.commentLabel === void 0) node.commentLabel = node.nameLabel;
+}
+function baseLabelFor(node, mode) {
+  ensureBaseLabels(node);
+  if (mode === "comment")
+    return String(node.commentLabel || node.nameLabel || node.label || node.id);
+  return String(node.nameLabel || node.label || node.id);
+}
+function applyLabelsByMode(state) {
+  const mode = currentLabelMode(state);
+  state.nodes.forEach((node) => {
+    const n = node;
+    n.label = typeof n.manualLabel === "string" ? n.manualLabel : baseLabelFor(n, mode);
+  });
+}
+function restyleAfterLabelEdit(state) {
+  styleAndSize(state.nodes, state.edges, state.settings);
+  applyAttrMode(state);
+}
+function resolveNodeById(state, id) {
+  const node = state.nodes.find((n) => n.id === id);
+  if (!node)
+    throw new Error(`Could not resolve "${id}" to a node id. Use an exact id from describe.`);
+  return node;
+}
 function resolveNode(state, arg) {
   const byId = state.nodes.find((n) => n.id === arg);
   if (byId) return byId;
@@ -4752,6 +4781,53 @@ function resolveNode(state, arg) {
   );
   if (byName.length === 1) return byName[0];
   return null;
+}
+function setLabel(state, id, label) {
+  const node = resolveNodeById(state, id);
+  ensureBaseLabels(node);
+  node.manualLabel = label;
+  node.label = label;
+  restyleAfterLabelEdit(state);
+  return { state: { ...state }, resolved: [{ id: node.id, label }] };
+}
+function setLabels(state, labels) {
+  const entries = Object.entries(labels);
+  if (!entries.length) throw new Error("labels batch requires at least one id:label entry.");
+  const nodes = entries.map(([id, label]) => {
+    if (typeof label !== "string") throw new Error(`Label for "${id}" must be a string.`);
+    return [resolveNodeById(state, id), label];
+  });
+  nodes.forEach(([node, label]) => {
+    ensureBaseLabels(node);
+    node.manualLabel = label;
+    node.label = label;
+  });
+  restyleAfterLabelEdit(state);
+  return {
+    state: { ...state },
+    resolved: nodes.map(([node]) => ({ id: node.id, label: String(node.label ?? "") }))
+  };
+}
+function resetLabels(state, idOrAll) {
+  const nodes = idOrAll === "all" ? state.nodes : [resolveNodeById(state, idOrAll)];
+  nodes.forEach((node) => {
+    delete node.manualLabel;
+    node.label = baseLabelFor(node, currentLabelMode(state));
+  });
+  restyleAfterLabelEdit(state);
+  return {
+    state: { ...state },
+    resolved: nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") }))
+  };
+}
+function setLabelMode(state, mode) {
+  state.settings = { ...state.settings, comment: mode === "comment" };
+  applyLabelsByMode(state);
+  restyleAfterLabelEdit(state);
+  return {
+    state: { ...state },
+    resolved: state.nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") }))
+  };
 }
 function translateCluster(state, node, dx, dy) {
   node.x = (typeof node.x === "number" ? node.x : 0) + dx;
@@ -5981,6 +6057,23 @@ function readInput(flags) {
   }
   throw new Error("Provide input via --input <file>, --text <inline>, or piped stdin.");
 }
+function readLabels(flags) {
+  const hasFile = typeof flags.file === "string";
+  const hasText = typeof flags.text === "string";
+  if (hasFile === hasText)
+    throw new Error("labels batch requires exactly one of --file or --text.");
+  const raw = hasFile ? rf(resolve(process.cwd(), flags.file), "utf8") : flags.text;
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error('labels batch expects a JSON object: {"node-id":"label"}.');
+  }
+  const labels = {};
+  Object.entries(parsed).forEach(([id, label]) => {
+    if (typeof label !== "string") throw new Error(`Label for "${id}" must be a string.`);
+    labels[id] = label;
+  });
+  return labels;
+}
 function printState(state, flags) {
   const graph = createHeadlessGraph(state.nodes, state.edges);
   process.stdout.write(
@@ -6017,6 +6110,12 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.
+  labels set <id> <label> Set a manual node label.
+  labels batch --file labels.json | --text '{"id":"label"}'
+                           Set many manual labels at once.
+  labels reset <id|all>    Clear manual labels and restore the active name/comment mode.
+  labels mode <name|comment>
+                           Switch generated labels without clearing manual labels.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (\u2248\xB10.1/step).
   export <drawio|svg|png|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
@@ -6056,6 +6155,51 @@ function main() {
       saveState(flags, next);
       printState(next, flags);
       break;
+    }
+    case "labels": {
+      const sub = _[1];
+      if (sub === "set") {
+        const id = _[2];
+        const label = _[3];
+        if (!id || label === void 0) throw new Error("labels set <id> <label>");
+        const { state, resolved } = setLabel(loadState(flags), id, label);
+        saveState(flags, state);
+        process.stdout.write(`labeled ${resolved.map((r) => `${r.id}="${r.label}"`).join(", ")}
+`);
+        printState(state, flags);
+        break;
+      }
+      if (sub === "batch") {
+        const { state, resolved } = setLabels(loadState(flags), readLabels(flags));
+        saveState(flags, state);
+        process.stdout.write(`labeled ${resolved.length} nodes
+`);
+        printState(state, flags);
+        break;
+      }
+      if (sub === "reset") {
+        const idOrAll = _[2];
+        if (!idOrAll) throw new Error("labels reset <id|all>");
+        const { state, resolved } = resetLabels(loadState(flags), idOrAll);
+        saveState(flags, state);
+        process.stdout.write(`reset ${resolved.length} labels
+`);
+        printState(state, flags);
+        break;
+      }
+      if (sub === "mode") {
+        const mode = _[2];
+        if (mode !== "name" && mode !== "comment") throw new Error("labels mode <name|comment>");
+        const { state } = setLabelMode(loadState(flags), mode);
+        saveState(flags, state);
+        process.stdout.write(`labelMode=${mode}
+`);
+        printState(state, flags);
+        break;
+      }
+      throw new Error(
+        "labels set <id> <label> | labels batch --file <json> | labels batch --text <json> | labels reset <id|all> | labels mode <name|comment>"
+      );
     }
     case "describe": {
       const state = loadState(flags);

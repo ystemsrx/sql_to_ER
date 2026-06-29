@@ -25,6 +25,14 @@ Use `--hide-attrs` only when the user wants an overview/skeleton, the schema is 
 
 Use `--comment` when table/column/ref comments carry readable business labels. Set labels before tuning layout because regenerating resets positions.
 
+If generated names are not semantic enough, relabel nodes before layout tuning:
+
+```bash
+node $AGENT labels mode comment --state er.json
+node $AGENT labels set rel-orders-users-user_id-7 "placed by" --state er.json
+node $AGENT labels batch --file labels.json --state er.json
+```
+
 2. Inspect diagnostics:
 
 ```bash
