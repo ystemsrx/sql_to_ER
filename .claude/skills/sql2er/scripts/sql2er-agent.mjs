@@ -4122,86 +4122,95 @@ function placeAttributesModerate(state) {
     const ecx = ent.x ?? 0;
     const ecy = ent.y ?? 0;
     const entR = radiusOf(ent);
-    const maxAttrR = Math.max(...attrs.map(radiusOf));
     const rels = relAngles.get(eid) ?? [];
-    const ordered = attrs.slice().sort((a, b) => angleOf(a, ecx, ecy) - angleOf(b, ecx, ecy));
-    const baseR = entR + maxAttrR + 10;
-    const rowGap = 2 * maxAttrR + 8;
-    const rings = [];
-    let rest = ordered.slice();
-    let ri = 0;
-    while (rest.length) {
-      const R = baseR + ri * rowGap;
-      const sinHalf = Math.min(0.9, (maxAttrR + 4) / R);
-      const cap = Math.max(1, Math.floor(Math.PI / Math.asin(sinHalf)));
-      const take = ri >= 6 ? rest.length : Math.min(cap, rest.length);
-      rings.push({ R, items: rest.splice(0, take) });
-      ri++;
+    const GAP = 8;
+    const items = attrs.map((at) => {
+      const s = measureNodeSize(at);
+      return { at, s, half: Math.max(s.width, s.height) / 2 };
+    });
+    const n = items.length;
+    const maxHalf = Math.max(...items.map((it) => it.half));
+    const angWidth = (half, R2) => 2 * Math.asin(Math.min(0.999, (half + GAP / 2) / R2));
+    const angularSum = (R2) => items.reduce((s, it) => s + angWidth(it.half, R2), 0);
+    const radialMin = entR + maxHalf + GAP;
+    const target = TAU2 * 0.92;
+    let lo = radialMin;
+    let hi = radialMin;
+    while (angularSum(hi) > target && hi < radialMin + 6e3) hi *= 1.5;
+    for (let k = 0; k < 40; k++) {
+      const mid = (lo + hi) / 2;
+      if (angularSum(mid) <= target) hi = mid;
+      else lo = mid;
     }
-    rings.forEach((ring) => {
-      const n = ring.items.length;
-      const step = TAU2 / n;
-      let phase = 0;
-      if (rels.length) {
-        const TRIES = 24;
-        let best = -Infinity;
-        for (let t = 0; t < TRIES; t++) {
-          const ph = t / TRIES * step;
-          let minGap = Infinity;
-          for (let i = 0; i < n; i++) {
-            const slot = normAngle(ph + i * step);
-            for (const r of rels) {
-              let d = Math.abs(slot - r);
-              d = Math.min(d, TAU2 - d);
-              if (d < minGap) minGap = d;
-            }
-          }
-          if (minGap > best) {
-            best = minGap;
-            phase = ph;
+    const R = hi;
+    const ordered = items.slice().sort((a, b) => angleOf(a.at, ecx, ecy) - angleOf(b.at, ecx, ecy));
+    const widths = ordered.map((it) => angWidth(it.half, R));
+    const slack = Math.max(0, TAU2 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
+    const baseAngles = [];
+    let acc = 0;
+    for (let i = 0; i < ordered.length; i++) {
+      acc += slack / 2 + widths[i] / 2;
+      baseAngles.push(acc);
+      acc += widths[i] / 2 + slack / 2;
+    }
+    let phase = ordered.length ? angleOf(ordered[0].at, ecx, ecy) - baseAngles[0] : 0;
+    if (rels.length) {
+      const TRIES = 36;
+      let best = -Infinity;
+      for (let t = 0; t < TRIES; t++) {
+        const ph = t / TRIES * TAU2;
+        let minGap = Infinity;
+        for (const ba of baseAngles) {
+          const slot = normAngle(ph + ba);
+          for (const r of rels) {
+            let d = Math.abs(slot - r);
+            d = Math.min(d, TAU2 - d);
+            if (d < minGap) minGap = d;
           }
         }
-      } else if (ring.items.length) {
-        phase = angleOf(ring.items[0], ecx, ecy);
+        if (minGap > best) {
+          best = minGap;
+          phase = ph;
+        }
       }
-      ring.items.forEach((at, i) => {
-        const baseAng = phase + i * step;
-        const s = measureNodeSize(at);
-        const offsets = [0];
-        const SLIDE = 6;
-        for (let k = 1; k <= SLIDE; k++) {
-          const off = k / SLIDE * (step / 2);
-          offsets.push(off, -off);
+    }
+    ordered.forEach((it, i) => {
+      const baseAng = phase + baseAngles[i];
+      const win = widths[i] / 2 + slack;
+      const offsets = [0];
+      const SLIDE = 10;
+      for (let k = 1; k <= SLIDE; k++) {
+        const off = k / SLIDE * win;
+        offsets.push(off, -off);
+      }
+      let bx = ecx + R * Math.cos(baseAng);
+      let by = ecy + R * Math.sin(baseAng);
+      let placed = false;
+      for (const off of offsets) {
+        const a2 = baseAng + off;
+        const x = ecx + R * Math.cos(a2);
+        const y = ecy + R * Math.sin(a2);
+        if (!hits(x, y, it.s.width, it.s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid)) {
+          bx = x;
+          by = y;
+          placed = true;
+          break;
         }
-        let bx = ecx + ring.R * Math.cos(baseAng);
-        let by = ecy + ring.R * Math.sin(baseAng);
-        let placed = false;
+      }
+      if (!placed)
         for (const off of offsets) {
           const a2 = baseAng + off;
-          const x = ecx + ring.R * Math.cos(a2);
-          const y = ecy + ring.R * Math.sin(a2);
-          if (!hits(x, y, s.width, s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid)) {
+          const x = ecx + R * Math.cos(a2);
+          const y = ecy + R * Math.sin(a2);
+          if (!hits(x, y, it.s.width, it.s.height, eid)) {
             bx = x;
             by = y;
-            placed = true;
             break;
           }
         }
-        if (!placed)
-          for (const off of offsets) {
-            const a2 = baseAng + off;
-            const x = ecx + ring.R * Math.cos(a2);
-            const y = ecy + ring.R * Math.sin(a2);
-            if (!hits(x, y, s.width, s.height, eid)) {
-              bx = x;
-              by = y;
-              break;
-            }
-          }
-        at.x = bx;
-        at.y = by;
-        obstacles.push({ id: at.id, x: bx, y: by, w: s.width, h: s.height });
-      });
+      it.at.x = bx;
+      it.at.y = by;
+      obstacles.push({ id: it.at.id, x: bx, y: by, w: it.s.width, h: it.s.height });
     });
   });
 }

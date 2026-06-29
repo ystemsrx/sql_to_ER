@@ -72,7 +72,7 @@ Re-place every attribute ellipse around its (unchanged) entity. The mode is stor
 
 - `auto` — leave whatever the layout produced (the default). Setting `auto` does not re-place; the next `layout`/edit restores the native look.
 - `compact` — reuses the app's show-attributes packer: each attribute sits at the shortest radius that clears all nodes and edges, so they hug the entity. Distances vary; non-overlapping. Smallest footprint.
-- `moderate` — even concentric rings. Distance is uniform within a ring; an entity with few attributes gets one ring (all equidistant), a high-attribute one gets 2–3 close rings rather than a single huge ring that would tangle with neighbours. Rings dodge relationship directions and slide off obstacles and relationship lines.
+- `moderate` — one uniform ring per entity: **every attribute the same distance** from the entity. The radius is the smallest that fits them side by side (wide attributes get more arc), the ring is rotated to dodge relationship directions, and attributes slide within their slot (angle only, distance fixed) to dodge obstacles and relationship lines. Uniform distance forces a larger footprint than `compact`, so a dense graph may keep a couple of `attrCrossings`/`attrOverlaps`; `compact` is the one that guarantees zero overlaps.
 
 Check the result with `describe` → `attrOverlaps` / `attrCrossings`. Both modes are tidy and non-overlapping; `compact` is the smallest, `moderate` is the most even. On a dense graph a few `attrCrossings` may remain (relationship lines passing over attributes); compare both and keep the lower.
 
