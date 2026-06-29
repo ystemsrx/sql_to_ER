@@ -46,11 +46,14 @@ DIAGNOSTICS
   ⚠ crossing: <relLabelA> × <relLabelB>     # FK edges visually cross
   ⚠ overlap:  <nodeA> × <nodeB>             # two skeleton nodes (entities/diamonds) overlap
   ⚠ isolated: <entity>                      # no relationships at all
-  ⚠ attribute overlaps: <n>                 # only shown when > 0; try attrs compact/moderate
-  metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> bbox=<w>×<h> aspect=<r> edgeLen=<n>
+  ⚠ attribute overlaps: <n>                 # attribute ellipse overlapping another node
+  ⚠ attribute-line crossings: <n>           # entity→attribute line crossing a relationship line
+  metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> attrCrossings=<n> bbox=<w>×<h> aspect=<r> edgeLen=<n>
 
-`overlaps` counts only the skeleton (entities + relationship diamonds); `attrOverlaps`
-counts any overlap involving an attribute ellipse.
+`overlaps`/`crossings` cover only the skeleton (entities + relationship diamonds).
+`attrOverlaps` = any overlap involving an attribute ellipse; `attrCrossings` = attribute
+connector lines crossing a relationship line (the visual "tangle"). The attribute `attrs`
+modes target these two.
 
 MAP
   … entities by label, diamonds as ◇label, coarsely placed in a grid …
@@ -68,10 +71,10 @@ The MAP is a quick visual; act on coordinates and DIAGNOSTICS.
 Re-place every attribute ellipse around its (unchanged) entity. The mode is stored and re-applied after every later layout/edit, so it persists.
 
 - `auto` — leave whatever the layout produced (the default). Setting `auto` does not re-place; the next `layout`/edit restores the native look.
-- `compact` — reuses the app's show-attributes packer: each attribute sits at the shortest radius that clears all nodes and edges, so they hug the entity. Distances vary; guaranteed non-overlapping. Best when space is tight.
-- `moderate` — one uniform radius per entity, attributes spread evenly around the circle; the ring is rotated to dodge relationship directions and any leftover collision is slid along the ring (radius fixed). Even and tidy; distance is uniform per entity.
+- `compact` — reuses the app's show-attributes packer: each attribute sits at the shortest radius that clears all nodes and edges, so they hug the entity. Distances vary; non-overlapping. Smallest footprint.
+- `moderate` — even concentric rings. Distance is uniform within a ring; an entity with few attributes gets one ring (all equidistant), a high-attribute one gets 2–3 close rings rather than a single huge ring that would tangle with neighbours. Rings dodge relationship directions and slide off obstacles and relationship lines.
 
-Check the result with `describe` → `attrOverlaps`. `compact` is the safest for zero overlaps; `moderate` is tidiest and clears overlaps in all but the most cramped graphs.
+Check the result with `describe` → `attrOverlaps` / `attrCrossings`. Both modes are tidy and non-overlapping; `compact` is the smallest, `moderate` is the most even. On a dense graph a few `attrCrossings` may remain (relationship lines passing over attributes); compare both and keep the lower.
 
 ## move / nudge / swap
 

@@ -30,7 +30,7 @@ export interface Settings {
   // How attribute ellipses orbit their entity:
   //   auto     — whatever the layout (align/arrange) produced
   //   compact  — reuse the app's show-attributes packer (shortest non-overlapping)
-  //   moderate — uniform per-entity radius, evenly distributed, non-overlapping
+  //   moderate — even concentric rings (uniform distance within a ring)
   attrMode: AttrMode;
 }
 
@@ -220,11 +220,11 @@ function placeAttributesCompact(state: State): void {
   );
 }
 
-// moderate: one uniform radius per entity, attributes spread evenly around the
-// full circle (same distance for all of an entity's attributes). The whole ring is
-// rotated to dodge relationship directions; any attribute that still lands on an
-// obstacle (a diamond, another entity, an already-placed attribute) is slid along
-// the ring — angle changes, radius stays — so the uniform distance is preserved.
+// moderate: even, tidy concentric rings around each entity. Distance is uniform
+// within a ring; an entity with few attributes uses a single ring (all equidistant),
+// a high-attribute entity uses 2–3 close rings rather than one huge ring whose large
+// footprint would reach into neighbouring clusters. Each ring is rotated to dodge
+// relationship directions and its attributes are slid (radius fixed) off any obstacle.
 function placeAttributesModerate(state: State): void {
   const entById = new Map(state.nodes.filter((n) => n.nodeType === "entity").map((e) => [e.id, e]));
   const relById = new Map(
@@ -286,87 +286,150 @@ function placeAttributesModerate(state: State): void {
         Math.abs(y - o.y) < (h + o.h) / 2 - 2,
     );
 
-  attrsByEntity.forEach((attrs, eid) => {
+  // relationship edge segments (entity↔diamond, centre-to-centre) so an attribute
+  // connector isn't placed across a relationship line.
+  const centre = new Map<string, { x: number; y: number }>();
+  state.nodes.forEach((n) => {
+    if (n.nodeType === "entity" || n.nodeType === "relationship")
+      centre.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+  });
+  const relSegs: {
+    s: { x: number; y: number };
+    t: { x: number; y: number };
+    a: string;
+    b: string;
+  }[] = [];
+  state.edges.forEach((e) => {
+    if (e.edgeType === "entity-relationship" || e.edgeType === "relationship-entity") {
+      const s = centre.get(e.source);
+      const t = centre.get(e.target);
+      if (s && t) relSegs.push({ s, t, a: e.source, b: e.target });
+    }
+  });
+  type P = { x: number; y: number };
+  const properCross = (a1: P, a2: P, b1: P, b2: P) => {
+    const eq = (p: P, q: P) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+    if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
+    const c = (o: P, p: P, q: P) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+    const d1 = c(b1, b2, a1);
+    const d2 = c(b1, b2, a2);
+    const d3 = c(a1, a2, b1);
+    const d4 = c(a1, a2, b2);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  };
+  const connectorCrosses = (ex: number, ey: number, x: number, y: number, eid: string) =>
+    relSegs.some(
+      (seg) =>
+        seg.a !== eid && seg.b !== eid && properCross({ x: ex, y: ey }, { x, y }, seg.s, seg.t),
+    );
+
+  const angleOf = (m: ERNodeModel, cx: number, cy: number) =>
+    normAngle(Math.atan2((m.y ?? 0) - cy, (m.x ?? 0) - cx));
+
+  // crowded entities first so they claim space before sparse ones
+  const order = [...attrsByEntity.keys()].sort(
+    (a, b) => (attrsByEntity.get(b)?.length ?? 0) - (attrsByEntity.get(a)?.length ?? 0),
+  );
+
+  order.forEach((eid) => {
+    const attrs = attrsByEntity.get(eid)!;
     const ent = entById.get(eid)!;
     const ecx = ent.x ?? 0;
     const ecy = ent.y ?? 0;
     const entR = radiusOf(ent);
     const maxAttrR = Math.max(...attrs.map(radiusOf));
-    const n = attrs.length;
-
-    // Even split of the FULL circle keeps the step (and therefore the radius)
-    // small. Radius clears the entity and is large enough that neighbours on the
-    // ring don't touch. (Allocating only into the gaps between relationships, as a
-    // strict-avoid scheme would, can force a tiny step → huge radius → the ring
-    // collides with other clusters. We dodge relationships by phase instead.)
-    const step = TAU / n;
-    const radial = entR + maxAttrR + 12;
-    const tangential = n > 1 ? (maxAttrR + 6) / Math.sin(Math.min(Math.PI / 2, step / 2)) : radial;
-    const R = Math.max(radial, tangential);
-
-    // keep attributes near their current angular order to minimise visual jumps
-    const sorted = attrs
-      .slice()
-      .sort(
-        (a, b) =>
-          normAngle(Math.atan2((a.y ?? 0) - ecy, (a.x ?? 0) - ecx)) -
-          normAngle(Math.atan2((b.y ?? 0) - ecy, (b.x ?? 0) - ecx)),
-      );
-
-    // pick a rotation phase (within one step) that keeps every slot as far as
-    // possible from any relationship direction
     const rels = relAngles.get(eid) ?? [];
-    let phase = 0;
-    if (rels.length) {
-      const TRIES = 24;
-      let best = -Infinity;
-      for (let t = 0; t < TRIES; t++) {
-        const ph = (t / TRIES) * step;
-        let minGap = Infinity;
-        for (let i = 0; i < n; i++) {
-          const slot = normAngle(ph + i * step);
-          for (const r of rels) {
-            let d = Math.abs(slot - r);
-            d = Math.min(d, TAU - d);
-            if (d < minGap) minGap = d;
-          }
-        }
-        if (minGap > best) {
-          best = minGap;
-          phase = ph;
-        }
-      }
-    } else if (sorted.length) {
-      // no relationships: anchor to the first attribute's current angle
-      phase = normAngle(Math.atan2((sorted[0].y ?? 0) - ecy, (sorted[0].x ?? 0) - ecx));
+
+    const ordered = attrs.slice().sort((a, b) => angleOf(a, ecx, ecy) - angleOf(b, ecx, ecy));
+
+    // Concentric tight rings: distance is uniform WITHIN a ring, and a
+    // high-attribute entity uses 2–3 close rings instead of one huge ring (whose
+    // big footprint reaches into neighbouring clusters and tangles). Each ring
+    // holds as many attributes as fit without touching.
+    const baseR = entR + maxAttrR + 10;
+    const rowGap = 2 * maxAttrR + 8;
+    const rings: { R: number; items: ERNodeModel[] }[] = [];
+    let rest = ordered.slice();
+    let ri = 0;
+    while (rest.length) {
+      const R = baseR + ri * rowGap;
+      const sinHalf = Math.min(0.9, (maxAttrR + 4) / R);
+      const cap = Math.max(1, Math.floor(Math.PI / Math.asin(sinHalf)));
+      const take = ri >= 6 ? rest.length : Math.min(cap, rest.length);
+      rings.push({ R, items: rest.splice(0, take) });
+      ri++;
     }
 
-    sorted.forEach((at, i) => {
-      const baseAng = phase + i * step;
-      const s = measureNodeSize(at);
-      // try the even slot, then slide ± along the ring (up to half a step) to clear
-      // any obstacle while keeping the radius fixed
-      const offsets = [0];
-      const SLIDE = 8;
-      for (let k = 1; k <= SLIDE; k++) {
-        const off = (k / SLIDE) * (step / 2);
-        offsets.push(off, -off);
-      }
-      let bx = ecx + R * Math.cos(baseAng);
-      let by = ecy + R * Math.sin(baseAng);
-      for (const off of offsets) {
-        const ang = baseAng + off;
-        const x = ecx + R * Math.cos(ang);
-        const y = ecy + R * Math.sin(ang);
-        if (!hits(x, y, s.width, s.height, eid)) {
-          bx = x;
-          by = y;
-          break;
+    rings.forEach((ring) => {
+      const n = ring.items.length;
+      const step = TAU / n;
+      // rotate the ring to keep slots away from relationship directions
+      let phase = 0;
+      if (rels.length) {
+        const TRIES = 24;
+        let best = -Infinity;
+        for (let t = 0; t < TRIES; t++) {
+          const ph = (t / TRIES) * step;
+          let minGap = Infinity;
+          for (let i = 0; i < n; i++) {
+            const slot = normAngle(ph + i * step);
+            for (const r of rels) {
+              let d = Math.abs(slot - r);
+              d = Math.min(d, TAU - d);
+              if (d < minGap) minGap = d;
+            }
+          }
+          if (minGap > best) {
+            best = minGap;
+            phase = ph;
+          }
         }
+      } else if (ring.items.length) {
+        phase = angleOf(ring.items[0], ecx, ecy);
       }
-      at.x = bx;
-      at.y = by;
-      obstacles.push({ id: at.id, x: bx, y: by, w: s.width, h: s.height });
+
+      ring.items.forEach((at, i) => {
+        const baseAng = phase + i * step;
+        const s = measureNodeSize(at);
+        // try the even slot, then slide ± along the ring (radius fixed) to clear
+        // any obstacle (a diamond, another entity, an already-placed attribute)
+        const offsets = [0];
+        const SLIDE = 6;
+        for (let k = 1; k <= SLIDE; k++) {
+          const off = (k / SLIDE) * (step / 2);
+          offsets.push(off, -off);
+        }
+        let bx = ecx + ring.R * Math.cos(baseAng);
+        let by = ecy + ring.R * Math.sin(baseAng);
+        let placed = false;
+        // pass 1: clear of obstacles AND not across a relationship line
+        for (const off of offsets) {
+          const a2 = baseAng + off;
+          const x = ecx + ring.R * Math.cos(a2);
+          const y = ecy + ring.R * Math.sin(a2);
+          if (!hits(x, y, s.width, s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid)) {
+            bx = x;
+            by = y;
+            placed = true;
+            break;
+          }
+        }
+        // pass 2: settle for clear-of-obstacles
+        if (!placed)
+          for (const off of offsets) {
+            const a2 = baseAng + off;
+            const x = ecx + ring.R * Math.cos(a2);
+            const y = ecy + ring.R * Math.sin(a2);
+            if (!hits(x, y, s.width, s.height, eid)) {
+              bx = x;
+              by = y;
+              break;
+            }
+          }
+        at.x = bx;
+        at.y = by;
+        obstacles.push({ id: at.id, x: bx, y: by, w: s.width, h: s.height });
+      });
     });
   });
 }

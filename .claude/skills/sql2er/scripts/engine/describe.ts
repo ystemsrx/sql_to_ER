@@ -68,6 +68,7 @@ interface Scene {
   crossings: Array<[RelInfo, RelInfo]>;
   overlaps: Array<[CoreInfo, CoreInfo]>;
   attrOverlaps: number;
+  attrCrossings: number;
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
@@ -256,6 +257,37 @@ function buildScene(graph: HeadlessGraph): Scene {
     }
   }
 
+  // attribute connector crossings: an entity→attribute line crossing a relationship
+  // edge or another connector. This is the visual "tangle" that box-overlap misses.
+  const centerOf = (id: string): Pt | null => {
+    const b = bboxOf.get(id);
+    return b ? { x: b.centerX, y: b.centerY } : null;
+  };
+  const edgeSegs = edges
+    .map((e) => {
+      const m = e.getModel();
+      const s = centerOf(m.source);
+      const t = centerOf(m.target);
+      return s && t ? { s, t, source: m.source, target: m.target, type: m.edgeType } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x);
+  let attrCrossings = 0;
+  for (let i = 0; i < edgeSegs.length; i++) {
+    for (let j = i + 1; j < edgeSegs.length; j++) {
+      const a = edgeSegs[i];
+      const b = edgeSegs[j];
+      if (a.type !== "entity-attribute" && b.type !== "entity-attribute") continue;
+      if (
+        a.source === b.source ||
+        a.source === b.target ||
+        a.target === b.source ||
+        a.target === b.target
+      )
+        continue;
+      if (segCross(a.s, a.t, b.s, b.t)) attrCrossings++;
+    }
+  }
+
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
@@ -283,6 +315,7 @@ function buildScene(graph: HeadlessGraph): Scene {
     crossings,
     overlaps,
     attrOverlaps,
+    attrCrossings,
     bbox: { minX, minY, maxX, maxY },
   };
 }
@@ -406,9 +439,9 @@ export function describe(
   }
   scene.isolated.forEach((id) => L.push(`  ⚠ isolated: ${scene.entityById.get(id)?.label ?? id}`));
   if (scene.attrOverlaps > 0)
-    L.push(
-      `  ⚠ attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\` or \`attrs moderate\`)`,
-    );
+    L.push(`  ⚠ attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\`)`);
+  if (scene.attrCrossings > 0)
+    L.push(`  ⚠ attribute-line crossings: ${scene.attrCrossings}  (try \`attrs compact\`)`);
 
   const w = Math.round(scene.bbox.maxX - scene.bbox.minX);
   const h = Math.round(scene.bbox.maxY - scene.bbox.minY);
@@ -422,7 +455,7 @@ export function describe(
     }
   });
   L.push(
-    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} bbox=${w}×${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
+    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} attrCrossings=${scene.attrCrossings} bbox=${w}×${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
   );
   L.push("");
 
@@ -501,6 +534,7 @@ export interface SceneJson {
     crossings: number;
     overlaps: number;
     attrOverlaps: number;
+    attrCrossings: number;
     isolated: string[];
     bbox: { w: number; h: number };
   };
@@ -531,6 +565,7 @@ export function describeJson(graph: HeadlessGraph): SceneJson {
       crossings: s.crossings.length,
       overlaps: s.overlaps.length,
       attrOverlaps: s.attrOverlaps,
+      attrCrossings: s.attrCrossings,
       isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
       bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) },
     },

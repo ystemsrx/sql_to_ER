@@ -4086,68 +4086,122 @@ function placeAttributesModerate(state) {
   const hits = (x, y, w, h, skipId) => obstacles.some(
     (o) => o.id !== skipId && Math.abs(x - o.x) < (w + o.w) / 2 - 2 && Math.abs(y - o.y) < (h + o.h) / 2 - 2
   );
-  attrsByEntity.forEach((attrs, eid) => {
+  const centre = /* @__PURE__ */ new Map();
+  state.nodes.forEach((n) => {
+    if (n.nodeType === "entity" || n.nodeType === "relationship")
+      centre.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+  });
+  const relSegs = [];
+  state.edges.forEach((e) => {
+    if (e.edgeType === "entity-relationship" || e.edgeType === "relationship-entity") {
+      const s = centre.get(e.source);
+      const t = centre.get(e.target);
+      if (s && t) relSegs.push({ s, t, a: e.source, b: e.target });
+    }
+  });
+  const properCross = (a1, a2, b1, b2) => {
+    const eq = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+    if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
+    const c = (o, p, q) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+    const d1 = c(b1, b2, a1);
+    const d2 = c(b1, b2, a2);
+    const d3 = c(a1, a2, b1);
+    const d4 = c(a1, a2, b2);
+    return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+  };
+  const connectorCrosses = (ex, ey, x, y, eid) => relSegs.some(
+    (seg) => seg.a !== eid && seg.b !== eid && properCross({ x: ex, y: ey }, { x, y }, seg.s, seg.t)
+  );
+  const angleOf = (m, cx, cy) => normAngle(Math.atan2((m.y ?? 0) - cy, (m.x ?? 0) - cx));
+  const order = [...attrsByEntity.keys()].sort(
+    (a, b) => (attrsByEntity.get(b)?.length ?? 0) - (attrsByEntity.get(a)?.length ?? 0)
+  );
+  order.forEach((eid) => {
+    const attrs = attrsByEntity.get(eid);
     const ent = entById.get(eid);
     const ecx = ent.x ?? 0;
     const ecy = ent.y ?? 0;
     const entR = radiusOf(ent);
     const maxAttrR = Math.max(...attrs.map(radiusOf));
-    const n = attrs.length;
-    const step = TAU2 / n;
-    const radial = entR + maxAttrR + 12;
-    const tangential = n > 1 ? (maxAttrR + 6) / Math.sin(Math.min(Math.PI / 2, step / 2)) : radial;
-    const R = Math.max(radial, tangential);
-    const sorted = attrs.slice().sort(
-      (a, b) => normAngle(Math.atan2((a.y ?? 0) - ecy, (a.x ?? 0) - ecx)) - normAngle(Math.atan2((b.y ?? 0) - ecy, (b.x ?? 0) - ecx))
-    );
     const rels = relAngles.get(eid) ?? [];
-    let phase = 0;
-    if (rels.length) {
-      const TRIES = 24;
-      let best = -Infinity;
-      for (let t = 0; t < TRIES; t++) {
-        const ph = t / TRIES * step;
-        let minGap = Infinity;
-        for (let i = 0; i < n; i++) {
-          const slot = normAngle(ph + i * step);
-          for (const r of rels) {
-            let d = Math.abs(slot - r);
-            d = Math.min(d, TAU2 - d);
-            if (d < minGap) minGap = d;
+    const ordered = attrs.slice().sort((a, b) => angleOf(a, ecx, ecy) - angleOf(b, ecx, ecy));
+    const baseR = entR + maxAttrR + 10;
+    const rowGap = 2 * maxAttrR + 8;
+    const rings = [];
+    let rest = ordered.slice();
+    let ri = 0;
+    while (rest.length) {
+      const R = baseR + ri * rowGap;
+      const sinHalf = Math.min(0.9, (maxAttrR + 4) / R);
+      const cap = Math.max(1, Math.floor(Math.PI / Math.asin(sinHalf)));
+      const take = ri >= 6 ? rest.length : Math.min(cap, rest.length);
+      rings.push({ R, items: rest.splice(0, take) });
+      ri++;
+    }
+    rings.forEach((ring) => {
+      const n = ring.items.length;
+      const step = TAU2 / n;
+      let phase = 0;
+      if (rels.length) {
+        const TRIES = 24;
+        let best = -Infinity;
+        for (let t = 0; t < TRIES; t++) {
+          const ph = t / TRIES * step;
+          let minGap = Infinity;
+          for (let i = 0; i < n; i++) {
+            const slot = normAngle(ph + i * step);
+            for (const r of rels) {
+              let d = Math.abs(slot - r);
+              d = Math.min(d, TAU2 - d);
+              if (d < minGap) minGap = d;
+            }
+          }
+          if (minGap > best) {
+            best = minGap;
+            phase = ph;
           }
         }
-        if (minGap > best) {
-          best = minGap;
-          phase = ph;
+      } else if (ring.items.length) {
+        phase = angleOf(ring.items[0], ecx, ecy);
+      }
+      ring.items.forEach((at, i) => {
+        const baseAng = phase + i * step;
+        const s = measureNodeSize(at);
+        const offsets = [0];
+        const SLIDE = 6;
+        for (let k = 1; k <= SLIDE; k++) {
+          const off = k / SLIDE * (step / 2);
+          offsets.push(off, -off);
         }
-      }
-    } else if (sorted.length) {
-      phase = normAngle(Math.atan2((sorted[0].y ?? 0) - ecy, (sorted[0].x ?? 0) - ecx));
-    }
-    sorted.forEach((at, i) => {
-      const baseAng = phase + i * step;
-      const s = measureNodeSize(at);
-      const offsets = [0];
-      const SLIDE = 8;
-      for (let k = 1; k <= SLIDE; k++) {
-        const off = k / SLIDE * (step / 2);
-        offsets.push(off, -off);
-      }
-      let bx = ecx + R * Math.cos(baseAng);
-      let by = ecy + R * Math.sin(baseAng);
-      for (const off of offsets) {
-        const ang = baseAng + off;
-        const x = ecx + R * Math.cos(ang);
-        const y = ecy + R * Math.sin(ang);
-        if (!hits(x, y, s.width, s.height, eid)) {
-          bx = x;
-          by = y;
-          break;
+        let bx = ecx + ring.R * Math.cos(baseAng);
+        let by = ecy + ring.R * Math.sin(baseAng);
+        let placed = false;
+        for (const off of offsets) {
+          const a2 = baseAng + off;
+          const x = ecx + ring.R * Math.cos(a2);
+          const y = ecy + ring.R * Math.sin(a2);
+          if (!hits(x, y, s.width, s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid)) {
+            bx = x;
+            by = y;
+            placed = true;
+            break;
+          }
         }
-      }
-      at.x = bx;
-      at.y = by;
-      obstacles.push({ id: at.id, x: bx, y: by, w: s.width, h: s.height });
+        if (!placed)
+          for (const off of offsets) {
+            const a2 = baseAng + off;
+            const x = ecx + ring.R * Math.cos(a2);
+            const y = ecy + ring.R * Math.sin(a2);
+            if (!hits(x, y, s.width, s.height, eid)) {
+              bx = x;
+              by = y;
+              break;
+            }
+          }
+        at.x = bx;
+        at.y = by;
+        obstacles.push({ id: at.id, x: bx, y: by, w: s.width, h: s.height });
+      });
     });
   });
 }
@@ -4454,6 +4508,27 @@ function buildScene(graph) {
         attrOverlaps++;
     }
   }
+  const centerOf = (id) => {
+    const b = bboxOf.get(id);
+    return b ? { x: b.centerX, y: b.centerY } : null;
+  };
+  const edgeSegs = edges.map((e) => {
+    const m = e.getModel();
+    const s = centerOf(m.source);
+    const t = centerOf(m.target);
+    return s && t ? { s, t, source: m.source, target: m.target, type: m.edgeType } : null;
+  }).filter((x) => !!x);
+  let attrCrossings = 0;
+  for (let i = 0; i < edgeSegs.length; i++) {
+    for (let j = i + 1; j < edgeSegs.length; j++) {
+      const a = edgeSegs[i];
+      const b = edgeSegs[j];
+      if (a.type !== "entity-attribute" && b.type !== "entity-attribute") continue;
+      if (a.source === b.source || a.source === b.target || a.target === b.source || a.target === b.target)
+        continue;
+      if (segCross(a.s, a.t, b.s, b.t)) attrCrossings++;
+    }
+  }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   coreInfos.forEach((c) => {
     minX = Math.min(minX, c.x - c.w / 2);
@@ -4477,6 +4552,7 @@ function buildScene(graph) {
     crossings,
     overlaps,
     attrOverlaps,
+    attrCrossings,
     bbox: { minX, minY, maxX, maxY }
   };
 }
@@ -4576,9 +4652,9 @@ function describe(graph, opts = {}) {
   }
   scene.isolated.forEach((id) => L.push(`  \u26A0 isolated: ${scene.entityById.get(id)?.label ?? id}`));
   if (scene.attrOverlaps > 0)
-    L.push(
-      `  \u26A0 attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\` or \`attrs moderate\`)`
-    );
+    L.push(`  \u26A0 attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\`)`);
+  if (scene.attrCrossings > 0)
+    L.push(`  \u26A0 attribute-line crossings: ${scene.attrCrossings}  (try \`attrs compact\`)`);
   const w = Math.round(scene.bbox.maxX - scene.bbox.minX);
   const h = Math.round(scene.bbox.maxY - scene.bbox.minY);
   const aspect = h > 0 ? (w / h).toFixed(2) : "\u2014";
@@ -4591,7 +4667,7 @@ function describe(graph, opts = {}) {
     }
   });
   L.push(
-    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} bbox=${w}\xD7${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`
+    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} attrCrossings=${scene.attrCrossings} bbox=${w}\xD7${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`
   );
   L.push("");
   L.push("MAP  (coarse 2D placement; authoritative coords above)");
@@ -4660,6 +4736,7 @@ function describeJson(graph) {
       crossings: s.crossings.length,
       overlaps: s.overlaps.length,
       attrOverlaps: s.attrOverlaps,
+      attrCrossings: s.attrCrossings,
       isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
       bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) }
     }
