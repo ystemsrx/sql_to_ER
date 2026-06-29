@@ -75,7 +75,7 @@ MAP
   ... entities by label, diamonds as relationship labels, coarsely placed in a grid ...
 ```
 
-`overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers an attribute connector crossing a relationship line, or a relationship line passing through an attribute ellipse.
+`overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers attribute connector crossings, an attribute connector crossing a relationship line, or a relationship line passing through an attribute ellipse.
 
 ## layout `<optimal|arrange>`
 

@@ -89,12 +89,9 @@ export interface GenerateOptions {
   layout?: LayoutKind;
 }
 
-// Run a layout on a styled graph. `optimal` stress-spaces the skeleton (room for
-// attribute rings); `arrange` settles current positions with springs. forceAlignLayout
-// is used ONLY as the deterministic structural seed (not an agent-facing layout) — it
-// gives the stress solver / spring settle a sane starting point; without it `optimal`
-// finds a worse local minimum and a bare `arrange` collapses. The caller then places
-// attributes.
+// Run a layout on a styled graph. `optimal` force-aligns as a deterministic seed,
+// then stress-spaces the skeleton (room for attribute rings). `arrange` settles the
+// current positions only, so manual edits keep their coarse structure.
 function runLayoutOnGraph(
   kind: LayoutKind,
   graph: ReturnType<typeof styleAndSize>,
@@ -102,9 +99,12 @@ function runLayoutOnGraph(
   edges: EREdgeModel[],
 ): void {
   if (kind === "none") return;
-  forceAlignLayout(graph, CANVAS_W); // internal seed only
-  if (kind === "optimal") stressLayout(nodes, edges);
-  else if (kind === "arrange") arrangeLayout(graph);
+  if (kind === "optimal") {
+    forceAlignLayout(graph, CANVAS_W);
+    stressLayout(nodes, edges);
+  } else if (kind === "arrange") {
+    arrangeLayout(graph);
+  }
 }
 
 export function generate(opts: GenerateOptions): State {

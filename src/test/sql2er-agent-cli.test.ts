@@ -53,7 +53,7 @@ type AgentState = {
     parentEntity?: string;
     keyType?: string;
   }>;
-  edges: Array<{ id: string; source: string; target: string; edgeType: string }>;
+  edges: Array<{ id: string; source: string; target: string; edgeType: string; label?: string }>;
 };
 
 function readState(path: string): AgentState {
@@ -166,6 +166,65 @@ describe("sql2er agent CLI export formats", () => {
       const bytes = readFileSync(out);
       expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
       expect(bytes.length).toBeGreaterThan(1000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sql2er agent CLI layout modes", () => {
+  it("arranges from current positions without first force-aligning", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: true,
+            fontScale: 1,
+            attrMode: "auto",
+          },
+          nodes: [
+            { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 1000, y: 1000 },
+            {
+              id: "rel-a-b",
+              type: "relationship",
+              label: "a_b",
+              nodeType: "relationship",
+              x: 1150,
+              y: 1000,
+            },
+            { id: "entity-b", type: "entity", label: "b", nodeType: "entity", x: 1300, y: 1000 },
+          ],
+          edges: [
+            {
+              id: "edge-a-rel",
+              source: "entity-a",
+              target: "rel-a-b",
+              edgeType: "entity-relationship",
+              label: "N",
+            },
+            {
+              id: "edge-rel-b",
+              source: "rel-a-b",
+              target: "entity-b",
+              edgeType: "relationship-entity",
+              label: "1",
+            },
+          ],
+        } satisfies AgentState),
+      );
+
+      const arranged = runAgent(["layout", "arrange", "--state", state]);
+
+      expect(arranged.status).toBe(0);
+      expect(readState(state).nodes.find((n) => n.id === "entity-a")?.x).toBeGreaterThan(900);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

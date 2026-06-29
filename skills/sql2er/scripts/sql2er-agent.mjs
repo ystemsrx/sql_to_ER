@@ -4430,9 +4430,12 @@ function styleAndSize(nodes, edges, settings) {
 }
 function runLayoutOnGraph(kind, graph, nodes, edges) {
   if (kind === "none") return;
-  forceAlignLayout(graph, CANVAS_W);
-  if (kind === "optimal") stressLayout(nodes, edges);
-  else if (kind === "arrange") arrangeLayout(graph);
+  if (kind === "optimal") {
+    forceAlignLayout(graph, CANVAS_W);
+    stressLayout(nodes, edges);
+  } else if (kind === "arrange") {
+    arrangeLayout(graph);
+  }
 }
 function generate(opts) {
   const settings = { ...DEFAULT_SETTINGS, ...opts.settings ?? {} };
