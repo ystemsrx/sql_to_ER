@@ -1,6 +1,6 @@
 # Command reference
 
-Invoke: `node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [--flags]`
+Invoke: `node skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [--flags]`
 
 `--state <path>` is global (default `./sql2er-state.json`). Every command except a fresh `generate` reads it; mutating commands write it back and print a fresh `describe`.
 
@@ -16,9 +16,12 @@ Parse, build, lay out, save state.
 | `--format auto\|sql\|dbml`               | `auto`    | `auto` tries SQL, falls back to DBML                        |
 | `--colored true\|false`                  | `true`    | colored fills vs black/white                                |
 | `--comment`                              | off       | label nodes with comments (falls back to names when absent) |
-| `--hide-attrs`                           | off       | skeleton only — no attribute ellipses                       |
+| `--hide-attrs`                           | off       | generation-only skeleton mode — no attribute ellipses        |
 | `--attrs auto\|compact\|moderate`        | `auto`    | attribute orbit mode (see `attrs` below)                    |
-| `--layout optimal\|align\|arrange\|none` | `optimal` | initial layout (see `layout` below)                         |
+| `--layout optimal\|arrange\|none`        | `optimal` | initial layout (see `layout` below)                         |
+
+`--hide-attrs` is decided only on `generate`. Later `layout`, `attrs`, and `export`
+commands keep the saved state as-is; export has no attribute visibility toggle.
 
 ## describe
 
@@ -61,10 +64,9 @@ MAP
 
 The MAP is a quick visual; act on coordinates and DIAGNOSTICS.
 
-## layout `<optimal|align|arrange>`
+## layout `<optimal|arrange>`
 
 - `optimal` — **the default and recommended layout.** Treats the entities + relationship diamonds as a graph and lays out the skeleton by **stress majorization**: each relationship's desired edge length is sized to hold both entities' attribute rings plus the diamond (an entity with more attributes gets more room, within bounds), so distances are as uniform as that allows. Then a **2-opt** pass uncrosses the (planar) skeleton, overlaps are removed, and disconnected components are packed near each other. Because it reserves ring-sized room, attributes placed afterward don't overlap — `optimal` typically reaches `crossings=0 overlaps=0 attrOverlaps=0 attrCrossings=0`. **Resets positions.**
-- `align` — topological re-layout from scratch. Places the longest entity/relationship chain horizontally; fans branches out as subtrees. Deterministic. **Resets positions.** Best for pure trees/chains.
 - `arrange` — settle current positions: springs + 2-opt crossing removal + overlap separation. Preserves the coarse structure you set but does **not** pin exact coordinates — nodes drift as springs balance. Use after edits or on cyclic graphs. A dense graph may leave one residual overlap; running `arrange` again usually clears it.
 
 ## attrs `<auto|compact|moderate>`
@@ -105,6 +107,9 @@ Rotate all node positions about the diagram centre. Shapes/text stay upright. Po
 
 `--split` — one file **per disconnected component**. With `--out base.ext` writes `base-<name>.ext` per component (named after each component's most-connected table; dupes get a numeric suffix). Without `--out`, prints each separated by `=== component: <name> ===`. A single-component schema exports normally (with a note).
 
+Export only writes the saved graph. To change whether attributes exist, regenerate
+with or without `--hide-attrs`; do not try to hide/show attributes during export.
+
 ## Recipes
 
 **Clean diagram**
@@ -114,23 +119,26 @@ generate --input schema.sql
 describe                       # check DIAGNOSTICS
 # crossings → swap the two crossing entities
 # overlaps  → layout arrange
+export svg --out er.svg        # inspect the image: clear, attractive, no overlap
 export drawio --out er.drawio
 ```
 
-**Large schema: skeleton first**
+If a dense schema necessarily keeps crossings/overlaps, minimize them and make each
+remaining crossing readable instead of chasing zero forever.
+
+**Skeleton-only diagram**
 
 ```
 generate --input big.sql --hide-attrs
-# move/swap until crossings=0 and the MAP is balanced
-generate --input big.sql       # regenerate with attributes
-layout arrange                 # settle attributes around the skeleton
+# tune this skeleton-only state; attributes cannot be added back except by regenerating
+export svg --out er-skeleton.svg
 ```
 
 **Compare layouts**
 
 ```
-layout align    && describe    # note crossings
-layout arrange  && describe    # keep whichever is lower (state holds the last run)
+layout optimal  && describe    # reset and minimize skeleton crossings
+layout arrange  && describe    # settle current positions after manual edits
 ```
 
 **Pin a table to an exact spot**

@@ -60,6 +60,9 @@ const boolFlag = (v: string | boolean | undefined, def = false): boolean => {
   return v === "true" || v === "1" || v === "yes";
 };
 
+const hasFlag = (flags: Record<string, string | boolean>, name: string): boolean =>
+  Object.prototype.hasOwnProperty.call(flags, name);
+
 function statePath(flags: Record<string, string | boolean>): string {
   const p = typeof flags.state === "string" ? flags.state : "sql2er-state.json";
   return resolve(process.cwd(), p);
@@ -107,16 +110,17 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --format auto|sql|dbml         (default auto)
       --colored true|false           (default true)
       --comment                      show column/table comments instead of names
-      --hide-attrs                   skeleton only (no attribute ellipses)
+      --hide-attrs                   skeleton only — generate NO attributes (tighter,
+                                     cleaner layout); decided here, not at export
       --attrs auto|compact|moderate  attribute orbit mode (default auto)
-      --layout optimal|align|arrange|none  (default optimal)
+      --layout optimal|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
       --focus <id|label>             zoom into one entity
       --json                         machine-readable scene
-  layout <optimal|align|arrange>  Re-run a layout. optimal = stress-spaced skeleton
+  layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
                            (rooms for attribute rings; the recommended default);
-                           align = topological tree; arrange = settle current.
+                           arrange = settle current positions.
   move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
                            with one arrange pass unless --raw.
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
@@ -148,7 +152,7 @@ function main(): void {
         format: (typeof flags.format === "string" ? flags.format : "auto") as
           "auto" | "sql" | "dbml",
         layout: (typeof flags.layout === "string" ? flags.layout : "optimal") as
-          "optimal" | "align" | "arrange" | "none",
+          "optimal" | "arrange" | "none",
         settings: {
           ...DEFAULT_SETTINGS,
           colored: boolFlag(flags.colored, true),
@@ -183,8 +187,8 @@ function main(): void {
     }
     case "layout": {
       const kind = _[1];
-      if (kind !== "optimal" && kind !== "align" && kind !== "arrange")
-        throw new Error("layout <optimal|align|arrange>");
+      if (kind !== "optimal" && kind !== "arrange")
+        throw new Error("layout <optimal|arrange>");
       const next = runLayout(loadState(flags), kind);
       saveState(flags, next);
       printState(next, flags);
@@ -242,6 +246,11 @@ function main(): void {
       break;
     }
     case "export": {
+      if (hasFlag(flags, "hide-attrs")) {
+        throw new Error(
+          "--hide-attrs is only valid on generate; export writes whatever the saved state contains.",
+        );
+      }
       const fmt = _[1];
       const state = loadState(flags);
       const render = (s: State): { out: string; ext: string } => {

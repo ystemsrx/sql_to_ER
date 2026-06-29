@@ -1,4 +1,4 @@
-// .claude/skills/sql2er/scripts/engine/shims.ts
+// skills/sql2er/scripts/engine/shims.ts
 var g = globalThis;
 var clock = 1e9;
 g.requestAnimationFrame = (cb) => {
@@ -9,7 +9,7 @@ g.requestAnimationFrame = (cb) => {
 g.cancelAnimationFrame = () => {
 };
 
-// .claude/skills/sql2er/scripts/engine/cli.ts
+// skills/sql2er/scripts/engine/cli.ts
 import { readFileSync, writeFileSync, existsSync, readFileSync as rf } from "node:fs";
 import { resolve } from "node:path";
 
@@ -3829,7 +3829,7 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
   graphInstance.setAutoPaint(true);
 };
 
-// .claude/skills/sql2er/scripts/engine/adapter.ts
+// skills/sql2er/scripts/engine/adapter.ts
 var makeBBox = (model) => {
   const { width, height } = measureNodeSize(model);
   const x = typeof model.x === "number" ? model.x : 0;
@@ -3910,7 +3910,7 @@ function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800)
   return graph;
 }
 
-// .claude/skills/sql2er/scripts/engine/skeleton.ts
+// skills/sql2er/scripts/engine/skeleton.ts
 var TAU2 = Math.PI * 2;
 var GAP = 8;
 var halfDiag = (m) => {
@@ -4398,7 +4398,7 @@ function stressLayout(nodes, edges, ringOverride) {
   }
 }
 
-// .claude/skills/sql2er/scripts/engine/ops.ts
+// skills/sql2er/scripts/engine/ops.ts
 var CANVAS_W = 1200;
 var CANVAS_H = 800;
 var DEFAULT_SETTINGS = {
@@ -4431,8 +4431,8 @@ function styleAndSize(nodes, edges, settings) {
 function runLayoutOnGraph(kind, graph, nodes, edges) {
   if (kind === "none") return;
   forceAlignLayout(graph, CANVAS_W);
-  if (kind === "arrange") arrangeLayout(graph);
-  else if (kind === "optimal") stressLayout(nodes, edges);
+  if (kind === "optimal") stressLayout(nodes, edges);
+  else if (kind === "arrange") arrangeLayout(graph);
 }
 function generate(opts) {
   const settings = { ...DEFAULT_SETTINGS, ...opts.settings ?? {} };
@@ -4732,6 +4732,44 @@ function placeAttributesModerate(state) {
       obstacles.push({ id: it.at.id, x: bx, y: by, w: it.s.width, h: it.s.height });
     });
   });
+  const obById = new Map(obstacles.map((o) => [o.id, o]));
+  state.nodes.forEach((at) => {
+    if (at.nodeType !== "attribute" || typeof at.parentEntity !== "string") return;
+    const ent = entById.get(at.parentEntity);
+    if (!ent) return;
+    const s = measureNodeSize(at);
+    const cx = at.x ?? 0;
+    const cy = at.y ?? 0;
+    if (!boxPierced(cx, cy, s.width, s.height) && !hits(cx, cy, s.width, s.height, at.id)) return;
+    const ecx = ent.x ?? 0;
+    const ecy = ent.y ?? 0;
+    const half = Math.max(s.width, s.height) / 2;
+    const curR = Math.hypot(cx - ecx, cy - ecy) || radiusOf(ent) + half;
+    let best = null;
+    for (let dr = 0; dr <= 8 && !best; dr++) {
+      const R2 = curR + dr * (half * 0.6 + 6);
+      const steps = Math.max(36, Math.round(TAU3 * R2 / (half + 6)));
+      for (let k = 0; k < steps; k++) {
+        const ang = k / steps * TAU3;
+        const x = ecx + R2 * Math.cos(ang);
+        const y = ecy + R2 * Math.sin(ang);
+        if (hits(x, y, s.width, s.height, at.id)) continue;
+        if (boxPierced(x, y, s.width, s.height)) continue;
+        if (connectorCrosses(ecx, ecy, x, y, at.parentEntity)) continue;
+        const d = Math.hypot(x - cx, y - cy);
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    }
+    if (best) {
+      at.x = best.x;
+      at.y = best.y;
+      const ob = obById.get(at.id);
+      if (ob) {
+        ob.x = best.x;
+        ob.y = best.y;
+      }
+    }
+  });
 }
 function applyAttrMode(state) {
   if (state.settings.attrMode === "compact") placeAttributesCompact(state);
@@ -4895,10 +4933,10 @@ function splitComponents(state) {
   });
 }
 
-// .claude/skills/sql2er/scripts/engine/cli.ts
+// skills/sql2er/scripts/engine/cli.ts
 import { parse as parsePath } from "node:path";
 
-// .claude/skills/sql2er/scripts/engine/describe.ts
+// skills/sql2er/scripts/engine/describe.ts
 var num = (v, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? v : fallback;
 var short = (s, n) => s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
 var segCross2 = (a1, a2, b1, b2) => {
@@ -5421,7 +5459,7 @@ function buildDrawioXML(graph) {
   return xml;
 }
 
-// .claude/skills/sql2er/scripts/engine/exporters.ts
+// skills/sql2er/scripts/engine/exporters.ts
 var esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 function exportDrawio(state) {
   const graph = createHeadlessGraph(state.nodes, state.edges);
@@ -5565,7 +5603,7 @@ function exportSvg(state) {
   return parts.join("\n");
 }
 
-// .claude/skills/sql2er/scripts/engine/cli.ts
+// skills/sql2er/scripts/engine/cli.ts
 var ATTR_MODES = ["auto", "compact", "moderate"];
 function parseArgs(argv) {
   const _ = [];
@@ -5597,6 +5635,7 @@ var boolFlag = (v, def = false) => {
   if (typeof v === "boolean") return v;
   return v === "true" || v === "1" || v === "yes";
 };
+var hasFlag = (flags, name) => Object.prototype.hasOwnProperty.call(flags, name);
 function statePath(flags) {
   const p = typeof flags.state === "string" ? flags.state : "sql2er-state.json";
   return resolve(process.cwd(), p);
@@ -5638,16 +5677,17 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --format auto|sql|dbml         (default auto)
       --colored true|false           (default true)
       --comment                      show column/table comments instead of names
-      --hide-attrs                   skeleton only (no attribute ellipses)
+      --hide-attrs                   skeleton only \u2014 generate NO attributes (tighter,
+                                     cleaner layout); decided here, not at export
       --attrs auto|compact|moderate  attribute orbit mode (default auto)
-      --layout optimal|align|arrange|none  (default optimal)
+      --layout optimal|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
       --focus <id|label>             zoom into one entity
       --json                         machine-readable scene
-  layout <optimal|align|arrange>  Re-run a layout. optimal = stress-spaced skeleton
+  layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
                            (rooms for attribute rings; the recommended default);
-                           align = topological tree; arrange = settle current.
+                           arrange = settle current positions.
   move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
                            with one arrange pass unless --raw.
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
@@ -5707,8 +5747,8 @@ function main() {
     }
     case "layout": {
       const kind = _[1];
-      if (kind !== "optimal" && kind !== "align" && kind !== "arrange")
-        throw new Error("layout <optimal|align|arrange>");
+      if (kind !== "optimal" && kind !== "arrange")
+        throw new Error("layout <optimal|arrange>");
       const next = runLayout(loadState(flags), kind);
       saveState(flags, next);
       printState(next, flags);
@@ -5770,6 +5810,11 @@ function main() {
       break;
     }
     case "export": {
+      if (hasFlag(flags, "hide-attrs")) {
+        throw new Error(
+          "--hide-attrs is only valid on generate; export writes whatever the saved state contains."
+        );
+      }
       const fmt = _[1];
       const state = loadState(flags);
       const render = (s) => {

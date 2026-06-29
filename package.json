@@ -16,7 +16,7 @@
     "check": "pnpm run typecheck && pnpm run format:check && pnpm run test",
     "test": "vitest run",
     "test:watch": "vitest",
-    "skill:build": "node .claude/skills/sql2er/scripts/build.mjs"
+    "skill:build": "node skills/sql2er/scripts/build.mjs"
   },
   "dependencies": {
     "@antv/g6": "4.8.25",

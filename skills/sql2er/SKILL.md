@@ -10,7 +10,7 @@ Pipeline: parse SQL/DBML → build Chen model → lay out → describe → edit 
 State lives in a JSON file passed via `--state <path>` (default `./sql2er-state.json`); every command in a session uses the same path.
 
 ```
-node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [--flags]
+node skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [--flags]
 ```
 
 Runs with just Node ≥18 — the bundle has no npm deps. To rebuild after changing `src/`: `corepack enable && pnpm install && pnpm skill:build` from the repo root.
@@ -18,7 +18,7 @@ Runs with just Node ≥18 — the bundle has no npm deps. To rebuild after chang
 ## Quickstart
 
 ```bash
-AGENT=.claude/skills/sql2er/scripts/sql2er-agent.mjs
+AGENT=skills/sql2er/scripts/sql2er-agent.mjs
 node $AGENT generate --input schema.sql --state er.json
 node $AGENT describe --state er.json
 node $AGENT swap users orders --state er.json
@@ -29,7 +29,9 @@ node $AGENT export drawio --out er.drawio --state er.json
 
 A Chen ER diagram is a **skeleton** (entity rectangles + relationship diamonds) plus **attribute ellipses** orbiting each entity. Attribute placement, diamond placement, and overlap separation are computed automatically — only **entity positions** are yours to set.
 
-Decisions come from `describe`, not from rendered images. Its `DIAGNOSTICS` list (crossings, overlaps, isolated tables) is pre-computed — act on it.
+Attributes are optional: `generate --hide-attrs` builds the **skeleton only** (no ellipses), which lays out tighter and cleaner. Whether the diagram has attributes is fixed **at generate time** — export never adds or drops them.
+
+Structural decisions (crossings, overlaps, isolated tables) come from `describe`'s pre-computed `DIAGNOSTICS` — act on those numbers, not on pixel-counting. But once the diagnostics are clean, do a final **visual** pass: export an image and look at it (see "How to clean up", last step).
 
 Labels default to raw table/column names. For semantic Chen labels (relationships as verbs like "belongs to"), put the term in a COMMENT and use `--comment`, or rename the field in the schema — see `references/data-model.md`.
 
@@ -37,9 +39,9 @@ Labels default to raw table/column names. For semantic Chen labels (relationship
 
 | Command                          | Purpose                                                                                                                                                                                                                                                                       |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate`                       | Parse + build + lay out. Input via `--input <file>`, `--text "<sql>"`, or stdin. Flags: `--format auto\|sql\|dbml`, `--colored`, `--comment`, `--hide-attrs`, `--attrs auto\|compact\|moderate`, `--layout optimal\|align\|arrange\|none`.                                    |
+| `generate`                       | Parse + build + lay out. Input via `--input <file>`, `--text "<sql>"`, or stdin. Flags: `--format auto\|sql\|dbml`, `--colored`, `--comment`, `--hide-attrs` (skeleton only — no attributes, tighter layout), `--attrs auto\|compact\|moderate`, `--layout optimal\|arrange\|none`. |
 | `describe`                       | Print components, entities (id, pos, size, degree, attr counts), relationships (from→to, cardinality), DIAGNOSTICS, ASCII map. Flags: `--full`, `--focus <id\|label>`, `--json`.                                                                                              |
-| `layout optimal\|align\|arrange` | `optimal` (default) = stress-majorize the skeleton with attribute-ring-aware spacing + 2-opt uncross; reserves room so attributes don't overlap — the recommended layout. `align` = topological tree (pure trees/chains). `arrange` = settle current positions (after edits). |
+| `layout optimal\|arrange`        | `optimal` (default) = stress-majorize the skeleton with attribute-ring-aware spacing + 2-opt uncross; reserves room so attributes don't overlap — the recommended layout. `arrange` = settle current positions (after edits).                                                |
 | `attrs auto\|compact\|moderate`  | How attribute ellipses orbit their entity. `auto` = layout-native; `compact` = tightest non-overlapping pack (hugs the entity, varied distance); `moderate` = one uniform ring (every attribute equidistant). Persists across later layouts/edits.                            |
 | `move <id\|label> <x> <y>`       | Place an entity at (x,y); its attributes follow. Runs one `arrange` pass; `--raw` skips it.                                                                                                                                                                                   |
 | `nudge <id\|label> <dx> <dy>`    | Shift by delta. `--raw` skips settle.                                                                                                                                                                                                                                         |
@@ -56,10 +58,10 @@ Address entities by exact `id` (from `describe`) or by table name/label if unamb
 
 1. `describe` and read DIAGNOSTICS.
 2. **crossings / overlaps after manual edits** → `layout optimal` re-tidies from scratch; or `swap` the two entities of a crossing relationship for a local fix.
-3. **multiple disconnected clusters** (`COMPONENTS: N > 1`) → packed near each other, not stacked. If they're truly separate diagrams, `export <fmt> --split` → one file per cluster.
-4. **attribute look** → `attrs compact` (tight, hugs the entity) vs `attrs moderate` (uniform rings); both stay overlap-free on an `optimal` skeleton.
+3. **multiple disconnected clusters** (`COMPONENTS: N > 1`) → stacked top-to-bottom. If they're truly separate diagrams, `export <fmt> --split` → one file per cluster.
+4. **attribute look** → `attrs compact` (tight, hugs the entity) vs `attrs moderate` (uniform rings; a pierced ellipse auto-escapes to the nearest clear spot). Both stay overlap-free on an `optimal` skeleton. If a diagram is busy with attributes, consider `generate --hide-attrs` for a skeleton-only view.
 5. **aspect ratio off** → `rotate 90`.
-6. Stop at all-zero diagnostics. Optionally `export svg` to view once.
+6. **Final visual review:** always `export svg` and look at the image before finishing. Ensure it is clear, attractive, legible, and non-overlapping. If overlap is provably unavoidable, minimize it and make each remaining overlap/crossing easy to read.
 
 ## References
 

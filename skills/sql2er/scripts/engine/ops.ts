@@ -18,7 +18,7 @@ import type { EREdgeModel, ERNodeModel, ParseResult } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import { stressLayout, ringRadiusFor } from "./skeleton";
 
-export type LayoutKind = "optimal" | "align" | "arrange" | "none";
+export type LayoutKind = "optimal" | "arrange" | "none";
 
 export const CANVAS_W = 1200;
 export const CANVAS_H = 800;
@@ -31,7 +31,7 @@ export interface Settings {
   hideAttrs: boolean;
   fontScale: number;
   // How attribute ellipses orbit their entity:
-  //   auto     — whatever the layout (align/arrange) produced
+  //   auto     — whatever the active layout produced
   //   compact  — reuse the app's show-attributes packer (shortest non-overlapping)
   //   moderate — one uniform ring (every attribute the same distance from the entity)
   attrMode: AttrMode;
@@ -90,7 +90,11 @@ export interface GenerateOptions {
 }
 
 // Run a layout on a styled graph. `optimal` stress-spaces the skeleton (room for
-// attribute rings) on top of a forceAlign seed; the caller then places attributes.
+// attribute rings); `arrange` settles current positions with springs. forceAlignLayout
+// is used ONLY as the deterministic structural seed (not an agent-facing layout) — it
+// gives the stress solver / spring settle a sane starting point; without it `optimal`
+// finds a worse local minimum and a bare `arrange` collapses. The caller then places
+// attributes.
 function runLayoutOnGraph(
   kind: LayoutKind,
   graph: ReturnType<typeof styleAndSize>,
@@ -98,9 +102,9 @@ function runLayoutOnGraph(
   edges: EREdgeModel[],
 ): void {
   if (kind === "none") return;
-  forceAlignLayout(graph, CANVAS_W); // deterministic structural seed
-  if (kind === "arrange") arrangeLayout(graph);
-  else if (kind === "optimal") stressLayout(nodes, edges);
+  forceAlignLayout(graph, CANVAS_W); // internal seed only
+  if (kind === "optimal") stressLayout(nodes, edges);
+  else if (kind === "arrange") arrangeLayout(graph);
 }
 
 export function generate(opts: GenerateOptions): State {
@@ -502,6 +506,49 @@ function placeAttributesModerate(state: State): void {
       it.at.y = by;
       obstacles.push({ id: it.at.id, x: bx, y: by, w: it.s.width, h: it.s.height });
     });
+  });
+
+  // per-ellipse escape: if a relationship line still passes through an attribute (or it
+  // overlaps a node), THAT one ellipse leaves the uniform ring and takes the nearest
+  // clear spot — every other attribute keeps its ring position. Tries the same radius
+  // all the way around first, then steps outward, and picks the closest clear candidate.
+  const obById = new Map(obstacles.map((o) => [o.id, o]));
+  state.nodes.forEach((at) => {
+    if (at.nodeType !== "attribute" || typeof at.parentEntity !== "string") return;
+    const ent = entById.get(at.parentEntity);
+    if (!ent) return;
+    const s = measureNodeSize(at);
+    const cx = at.x ?? 0;
+    const cy = at.y ?? 0;
+    if (!boxPierced(cx, cy, s.width, s.height) && !hits(cx, cy, s.width, s.height, at.id)) return;
+    const ecx = ent.x ?? 0;
+    const ecy = ent.y ?? 0;
+    const half = Math.max(s.width, s.height) / 2;
+    const curR = Math.hypot(cx - ecx, cy - ecy) || radiusOf(ent) + half;
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let dr = 0; dr <= 8 && !best; dr++) {
+      const R2 = curR + dr * (half * 0.6 + 6);
+      const steps = Math.max(36, Math.round((TAU * R2) / (half + 6)));
+      for (let k = 0; k < steps; k++) {
+        const ang = (k / steps) * TAU;
+        const x = ecx + R2 * Math.cos(ang);
+        const y = ecy + R2 * Math.sin(ang);
+        if (hits(x, y, s.width, s.height, at.id)) continue;
+        if (boxPierced(x, y, s.width, s.height)) continue;
+        if (connectorCrosses(ecx, ecy, x, y, at.parentEntity)) continue;
+        const d = Math.hypot(x - cx, y - cy);
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    }
+    if (best) {
+      at.x = best.x;
+      at.y = best.y;
+      const ob = obById.get(at.id);
+      if (ob) {
+        ob.x = best.x;
+        ob.y = best.y;
+      }
+    }
   });
 }
 
