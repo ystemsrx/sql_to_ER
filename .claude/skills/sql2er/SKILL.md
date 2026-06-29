@@ -1,121 +1,64 @@
 ---
 name: sql2er
-description: >-
-  Turn SQL CREATE TABLE statements or DBML into a Chen-model ER diagram and lay it
-  out automatically — headless, no browser. Use when the user wants an ER diagram
-  from a schema, or wants to auto-arrange / adjust node positions / export an ER
-  diagram (drawio, svg, json) without manually dragging anything. The tool reuses
-  this repo's real parser + layout engine, so results match the web app.
+description: Convert SQL CREATE TABLE statements or DBML into a Chen-model ER diagram (entities, relationships, attributes), auto-lay it out, adjust node positions, and export to drawio/svg/json. Use when the user wants to generate or rearrange an ER diagram from a schema.
 ---
 
-# sql2er — agent-driven ER diagram layout
+# sql2er
 
-This skill drives the project's ER pipeline (parse → build Chen model → layout →
-export) from one headless CLI. It is built **for an agent**, not a human: there is
-no scroll-zoom, no undo history, no continuous drag. You observe the diagram as
-**structured text**, adjust positions with commands, and let one layout pass settle
-the result.
+Pipeline: parse SQL/DBML → build Chen model → lay out → describe → edit → export.
 
-## The mental model (read this first)
-
-A Chen ER diagram is a **skeleton** (entity rectangles + relationship diamonds)
-with **satellites** (attribute ellipses) hanging off each entity. Satellites,
-diamond placement, and overlap separation are _mechanical_ — the engine does them.
-Your only real job is the **coarse position of the entities**.
-
-So the loop is:
+State lives in a JSON file passed via `--state <path>` (default `./sql2er-state.json`); every command in a session uses the same path.
 
 ```
-generate  →  describe  →  (move/swap/nudge entities)  →  settles automatically  →  describe  →  … → export
+node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [--flags]
 ```
 
-**Do not render an image to decide what to move.** Read `describe`: it gives exact
-coordinates, stable ids, and a PRE-COMPUTED problem list (crossings, overlaps,
-isolated tables). Export an SVG only at the end if you want a visual sanity check.
-
-## Prerequisites & setup
-
-**To run the skill you need only Node ≥ 18.** The committed bundle
-`scripts/sql2er-agent.mjs` is fully self-contained: esbuild has inlined the repo's
-parser/builder/layout, it imports nothing but `node:fs` / `node:path`, and it runs
-with **no `node_modules` and no project install**. Just call it:
-
-```
-node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [...] --state <path>
-```
-
-State lives in a JSON file (`--state`, default `./sql2er-state.json`); pass the same
-path to every command in a session.
-
-**You only need to install/build when the bundle is missing or you changed `src/`**
-(the parser/builder/layout the skill reuses). That requires the sql2er repo checked
-out, then — from the repo root:
-
-```
-corepack enable        # one-time: lets pnpm self-manage its pinned version
-pnpm install           # installs devDeps incl. esbuild (the bundler)
-pnpm skill:build       # = node .claude/skills/sql2er/scripts/build.mjs → rebuilds the bundle
-```
-
-Notes for a clean machine: this is a pnpm project (version pinned via
-`packageManager`); `corepack enable` makes `pnpm` available without a manual install.
-Node ≥ 18 is required for both running and building. The skill lives inside the
-sql2er repo and rebuilds from it, but the bundle is the only artifact needed at run
-time — copy `sql2er-agent.mjs` out and it still works with just Node.
+Runs with just Node ≥18 — the bundle has no npm deps. To rebuild after changing `src/`: `corepack enable && pnpm install && pnpm skill:build` from the repo root.
 
 ## Quickstart
 
 ```bash
 AGENT=.claude/skills/sql2er/scripts/sql2er-agent.mjs
-node $AGENT generate --input schema.sql --state er.json     # parse + auto layout
-node $AGENT describe --state er.json                        # read skeleton + diagnostics
-node $AGENT swap users orders --state er.json               # fix a crossing (auto-settles)
-node $AGENT export drawio --out er.drawio --state er.json   # editable diagram
+node $AGENT generate --input schema.sql --state er.json
+node $AGENT describe --state er.json
+node $AGENT swap users orders --state er.json
+node $AGENT export drawio --out er.drawio --state er.json
 ```
 
-## Commands (summary)
+## Model
 
-| Command                       | What it does                                                                                                                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate`                    | Parse `--input <file>` / `--text "<sql>"` / stdin, build, lay out. Flags: `--format auto\|sql\|dbml`, `--colored true\|false`, `--comment`, `--hide-attrs`, `--layout align\|arrange\|none`.                   |
-| `describe`                    | Print skeleton + diagnostics + ASCII map. `--full` adds attributes, `--focus <id\|label>` zooms one entity, `--json` machine output.                                                                           |
-| `layout <align\|arrange>`     | `align` = topological layout from scratch (best first pass / reset). `arrange` = settle current positions (springs + crossing removal; keeps the coarse structure you set but does not pin exact coordinates). |
-| `move <id\|label> <x> <y>`    | Place an entity (its attributes follow), then run one `arrange` settle pass. `--raw` skips the settle.                                                                                                         |
-| `nudge <id\|label> <dx> <dy>` | Shift by a delta; settles unless `--raw`.                                                                                                                                                                      |
-| `swap <a> <b>`                | Exchange two entities' positions; settles unless `--raw`. The cleanest fix for edge crossings.                                                                                                                 |
-| `rotate <degrees>`            | Rotate the whole diagram about its centre (shapes/text stay upright).                                                                                                                                          |
-| `fontsize <delta>`            | Global font size. `0` = default; negative = smaller, positive = larger (≈ ±0.1 scale per step, clamped 0.4–1.6).                                                                                               |
-| `export <drawio\|svg\|json>`  | Write output (`--out <file>`, else stdout). `--split` writes one diagram per disconnected component. drawio = editable in diagrams.net; svg = visual check; json = machine round-trip.                         |
+A Chen ER diagram is a **skeleton** (entity rectangles + relationship diamonds) plus **attribute ellipses** orbiting each entity. Attribute placement, diamond placement, and overlap separation are computed automatically — only **entity positions** are yours to set.
 
-Entities can be addressed by **exact id** (from `describe`) or by **table name/label**
-when unambiguous.
+Decisions come from `describe`, not from rendered images. Its `DIAGNOSTICS` list (crossings, overlaps, isolated tables) is pre-computed — act on it.
 
-## How to get a clean diagram automatically
+## Commands
 
-`generate` already lays out with `align` (deterministic, good for trees/chains).
-Then iterate against the diagnostics — you have an objective, so you don't need to
-eyeball anything:
+| Command                       | Purpose                                                                                                                                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generate`                    | Parse + build + lay out. Input via `--input <file>`, `--text "<sql>"`, or stdin. Flags: `--format auto\|sql\|dbml`, `--colored`, `--comment`, `--hide-attrs`, `--layout align\|arrange\|none`.       |
+| `describe`                    | Print components, entities (id, pos, size, degree, attr counts), relationships (from→to, cardinality), DIAGNOSTICS, ASCII map. Flags: `--full`, `--focus <id\|label>`, `--json`.                     |
+| `layout align\|arrange`       | `align` = topological re-layout from scratch (resets positions; best for trees/chains). `arrange` = settle current positions (springs + crossing removal; for organic/cyclic graphs or after edits). |
+| `move <id\|label> <x> <y>`    | Place an entity at (x,y); its attributes follow. Runs one `arrange` pass; `--raw` skips it.                                                                                                          |
+| `nudge <id\|label> <dx> <dy>` | Shift by delta. `--raw` skips settle.                                                                                                                                                                |
+| `swap <a> <b>`                | Exchange two entities' positions. `--raw` skips settle.                                                                                                                                              |
+| `rotate <degrees>`            | Rotate the diagram about its centre (shapes/text stay upright; positive = clockwise).                                                                                                                |
+| `fontsize <delta>`            | Global font size. `0` = default; ±1 ≈ ±0.1 scale; clamped 0.4–1.6.                                                                                                                                   |
+| `export drawio\|svg\|json`    | Write output (`--out <file>`, else stdout). `--split` writes one file per disconnected component.                                                                                                    |
 
-1. `describe` → look at `DIAGNOSTICS`.
-2. **Crossings?** `swap` the two entities on one of the crossing relationships, or
-   `move` one to the other side. Each edit auto-settles. Re-`describe`.
-3. **Overlaps?** Run `layout arrange` (separates nodes while keeping layout), or
-   `nudge` the offender. On dense graphs one pass may leave a single reported
-   overlap — running `layout arrange` again (a discrete op, not a loop) usually
-   clears it.
-4. **Several unrelated tables/clusters** (`COMPONENTS: N > 1`)? They're already tiled
-   apart, not stacked. If they're truly separate diagrams, `export <fmt> --split` to
-   get one file per component instead of cramming them into one image.
-5. **Aspect too wide/tall** for the target page? `rotate 90`, or re-`layout align`.
-6. Stop when `crossings=0`, `overlaps=0`, and the `MAP` looks balanced. Optionally
-   `export svg` and view it once to confirm.
+Address entities by exact `id` (from `describe`) or by table name/label if unambiguous.
 
-Try `layout arrange` vs a fresh `layout align` and keep whichever has fewer
-crossings — they suit different topologies (arrange = organic/cyclic, align =
-tree/chain).
+## How to clean up a diagram
+
+1. `describe` and read DIAGNOSTICS.
+2. **crossings** → `swap` the two entities of one crossing relationship, or `move` one to the other side.
+3. **overlaps** → `layout arrange`. On dense graphs, run it again if a residual remains.
+4. **multiple disconnected clusters** (`COMPONENTS: N > 1`) → already tiled apart, not stacked. If they're truly separate diagrams, `export <fmt> --split` → one file per cluster.
+5. **aspect ratio off** → `rotate 90` or re-run `layout align`.
+6. Stop at `crossings=0`, `overlaps=0`. Optionally `export svg` to view once.
+
+When `align` and `arrange` disagree, keep whichever has fewer crossings — `align` favours trees/chains, `arrange` favours organic/cyclic.
 
 ## References
 
 - `references/commands.md` — full flag reference, `describe` output schema, recipes.
-- `references/data-model.md` — node/edge/id conventions, Chen-model semantics,
-  cardinality rules, what each setting changes.
+- `references/data-model.md` — node/edge/id conventions, Chen-model semantics, cardinality.

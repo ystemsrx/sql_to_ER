@@ -4,64 +4,52 @@
 
 ```
 SQL / DBML text
-  → parse        (src/parser/sql.ts → fallback src/parser/dbml.ts)
-  → ParseResult  { tables: ParsedTable[], relationships: ParsedRelationship[] }
-  → build        (generateChenModelData)  →  { nodes, edges }   (no positions yet)
-  → layout       (forceAlignLayout / arrangeLayout)  →  writes x/y onto every node
-  → export       (drawio / svg / json)
+  → parse     ParseResult { tables, relationships }
+  → build     { nodes, edges }    (no positions yet)
+  → layout    writes x/y onto every node
+  → export    drawio / svg / json
 ```
-
-The CLI runs the **real** `src/` parser, builder, and layout against a headless
-`GraphLike` adapter (`scripts/engine/adapter.ts`) — there is no second
-implementation to drift. Node sizes come from `measureNodeSize()` in
-`src/builder.ts`, the same function the renderer uses, so headless geometry is
-identical to the web app.
 
 ## Node types
 
-| nodeType       | shape     | maps to       | notes                                                                                                   |
-| -------------- | --------- | ------------- | ------------------------------------------------------------------------------------------------------- |
-| `entity`       | rectangle | a table       | `isPlaceholder: true` (dashed) when a FK references a table not in the input                            |
-| `attribute`    | ellipse   | a column      | `keyType: "pk"` → underlined; a column that is _only_ a FK is shown as a relationship, not an attribute |
-| `relationship` | diamond   | a foreign key | connects exactly two entities (or one, for a self-reference)                                            |
+| nodeType       | shape     | maps to       | notes                                                                                                     |
+| -------------- | --------- | ------------- | --------------------------------------------------------------------------------------------------------- |
+| `entity`       | rectangle | a table       | `isPlaceholder: true` (dashed) when a FK references a table not in the input                              |
+| `attribute`    | ellipse   | a column      | `keyType: "pk"` → underlined. A column that is **only** a FK is shown as a relationship, not an attribute |
+| `relationship` | diamond   | a foreign key | connects two entities (or one entity for a self-reference)                                                |
 
-Edges:
+## Edge types
 
-| edgeType              | connects                                   | carries                                             |
-| --------------------- | ------------------------------------------ | --------------------------------------------------- |
-| `entity-attribute`    | entity → attribute                         | —                                                   |
-| `entity-relationship` | entity (FK / "many" side) → diamond        | cardinality label on the many side (`N` by default) |
-| `relationship-entity` | diamond → entity (referenced / "one" side) | cardinality label on the one side (`1` by default)  |
+| edgeType              | connects                              | carries                                       |
+| --------------------- | ------------------------------------- | --------------------------------------------- |
+| `entity-attribute`    | entity → attribute                    | —                                             |
+| `entity-relationship` | entity (FK / "many" side) → diamond   | cardinality on the many side (`N` by default) |
+| `relationship-entity` | diamond → entity (referenced / "one") | cardinality on the one side (`1` by default)  |
 
-## Node id conventions (stable — use them to address nodes)
+## Node ids
+
+Stable and deterministic — use them in `move`/`nudge`/`swap`. You may also use the entity's table name or label if it's unambiguous.
 
 - entity: `entity-<table>-<index>`
 - attribute: `attr-<table>-<column>-<tableIndex>-<colIndex>`
 - relationship: `rel-<from>-<to>-<label>-<relIndex>`
 
-`describe` prints these ids. In `move`/`nudge`/`swap` you may use the exact id, or
-an entity's table name / label when it is unambiguous.
-
 ## Cardinality
 
-Defaults follow SQL FK / DBML `>` semantics: many-to-one, so the FK side is `N` and
-the referenced side is `1`. A FK column that is itself UNIQUE or a single-column PK
-is inferred as `1:1`. `describe` shows each relationship as `from→to  cardFrom:cardTo`.
+Defaults follow SQL FK / DBML `>` semantics: many-to-one. The FK-holding side is `N`; the referenced side is `1`. A FK column that is itself UNIQUE or a single-column PK is inferred as `1:1`. `describe` prints each relationship as `from→to  cardFrom:cardTo`.
 
-## Settings (chosen at `generate`, except font)
+## Settings
 
-| setting   | flag                       | effect                                                                                                       |
-| --------- | -------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| colored   | `--colored true\|false`    | colored fills vs black/white. Cosmetic; affects exports only.                                                |
-| comment   | `--comment`                | label nodes with table/column comments instead of names (falls back to name when no comment).                |
-| hideAttrs | `--hide-attrs`             | skeleton only — no attribute ellipses. Useful for laying out large schemas before attributes are added back. |
-| fontScale | `fontsize <delta>` command | global text size; changes node sizes (and therefore spacing). `0` delta = scale `1.0`.                       |
+| setting   | flag                       | effect                                                                |
+| --------- | -------------------------- | --------------------------------------------------------------------- |
+| colored   | `--colored true\|false`    | colored fills vs black/white (cosmetic; affects exports)              |
+| comment   | `--comment`                | use table/column comments as labels (falls back to names when absent) |
+| hideAttrs | `--hide-attrs`             | skeleton only — no attribute ellipses                                 |
+| fontScale | `fontsize <delta>` command | global text size; changes node sizes and therefore spacing            |
 
-To change colored / comment / hideAttrs after generating, re-run `generate` (positions reset).
+`--colored`, `--comment`, `--hide-attrs` are chosen at `generate`. To change them, re-`generate` (positions reset).
 
-## Differences from strict Chen notation
+## Notes
 
-The tool favors usability over textbook strictness (same as the web app):
-relationship diamonds are labeled with the FK column name (not a verb like
-"owns"), and entities/attributes use raw table/column names. Re-label by editing the
-SQL/DBML and regenerating, or accept the defaults.
+- Relationship diamonds are labelled with the FK column name, not a verb. Entities and attributes use raw table/column names. To rename, edit the SQL/DBML and regenerate.
+- Self-referencing FKs render as a single self-loop with a lens-shaped arc.
