@@ -49,7 +49,17 @@ Defaults follow SQL FK / DBML `>` semantics: many-to-one. The FK-holding side is
 
 `--colored`, `--comment`, `--hide-attrs` are chosen at `generate`. To change them, re-`generate` (positions reset).
 
+## Semantic labels
+
+A Chen diagram reads best when nodes carry business terms — entities as concepts, **relationships as verbs** ("属于" / "owns"), attributes as readable names. By default the tool labels nodes with raw schema identifiers: an entity is the table name, an attribute is the column name, and a relationship diamond is the FK **column** name (`author_id`, not "属于"). There is no relabel command — labels come from the input, so set them there:
+
+1. **Comments + `--comment`** (keeps the SQL valid). Put the term in a COMMENT, then `generate --comment`. Labels use the comment and fall back to the name where none exists; toggle by regenerating with/without the flag.
+   - SQL: `author_id INT COMMENT '属于'`, and `... ) COMMENT='文章';` for the entity
+   - DBML: `author_id int [note: '属于']`, or `Ref: posts.author_id > users.id [note: '属于']`
+2. **Rename the field** (non-standard — mutates the schema). Name the FK column itself with the verb so the diamond reads it directly: `CREATE TABLE 文章 (…, 属于 INT, FOREIGN KEY (属于) REFERENCES 用户(id));` → diamond "属于". Simplest, but the column no longer matches a real database column.
+
+Set labels before tuning the layout — regenerating resets positions.
+
 ## Notes
 
-- Relationship diamonds are labelled with the FK column name, not a verb. Entities and attributes use raw table/column names. To rename, edit the SQL/DBML and regenerate.
 - Self-referencing FKs render as a single self-loop with a lens-shaped arc.

@@ -31,6 +31,8 @@ A Chen ER diagram is a **skeleton** (entity rectangles + relationship diamonds) 
 
 Decisions come from `describe`, not from rendered images. Its `DIAGNOSTICS` list (crossings, overlaps, isolated tables) is pre-computed — act on it.
 
+Labels default to raw table/column names. For semantic Chen labels (relationships as verbs like "属于"), put the term in a COMMENT and use `--comment`, or rename the field in the schema — see `references/data-model.md`.
+
 ## Commands
 
 | Command                       | Purpose                                                                                                                                                                                              |
