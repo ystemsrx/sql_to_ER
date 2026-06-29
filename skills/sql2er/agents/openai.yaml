@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQL2ER"
+  short_description: "Generate and tidy Chen ER diagrams"
+  default_prompt: "Use $sql2er to generate a clear ER diagram from this schema."
