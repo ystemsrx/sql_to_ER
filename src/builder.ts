@@ -400,16 +400,7 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 实体节点（矩形）
   const drawEntity = (cfg: any, group: any) => {
     const fontSize = resolveLabelFontSize(cfg, 18);
-    const scale = getShrinkOnlyScale(fontSize, 18);
-    const text = cfg.label || '';
-
-    const textWidth = getTextWidth(text, fontSize);
-    const padding = 10 * scale;
-    const minWidth = 80 * scale;
-    const minHeight = 50 * scale;
-
-    const width = Math.max(minWidth, textWidth + padding * 2);
-    const height = Math.max(minHeight, fontSize + 20 * scale);
+    const { width, height } = measureEntitySize(cfg.label || '', fontSize);
 
     const rectAttrs: {
       x: number;
@@ -476,14 +467,7 @@ const registerCustomNodes = (G6: G6Like): void => {
     update(cfg: any, node: any) {
       const group = node.getContainer();
       const fontSize = resolveLabelFontSize(cfg, 18);
-      const scale = getShrinkOnlyScale(fontSize, 18);
-      const textStr = cfg.label || '';
-      const textWidth = getTextWidth(textStr, fontSize);
-      const padding = 10 * scale;
-      const minWidth = 80 * scale;
-      const minHeight = 50 * scale;
-      const width = Math.max(minWidth, textWidth + padding * 2);
-      const height = Math.max(minHeight, fontSize + 20 * scale);
+      const { width, height } = measureEntitySize(cfg.label || '', fontSize);
 
       const shape = group.find((e: any) => e.get('name') === 'entity-shape');
       if (shape) {
@@ -539,16 +523,9 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 属性节点（椭圆）
   const drawAttribute = (cfg: any, group: any) => {
     const fontSize = resolveLabelFontSize(cfg, 15);
-    const scale = getShrinkOnlyScale(fontSize, 15);
     const text = cfg.label || '';
-
-    const textWidth = getTextWidth(text, fontSize);
-    const padding = 16 * scale;
-    const minWidth = 60 * scale;
     const isPrimaryKey = cfg.keyType === 'pk';
-
-    const width = Math.max(minWidth, textWidth + padding * 2);
-    const height = getAttributeHeight(fontSize, isPrimaryKey);
+    const { width, height } = measureAttributeSize(text, fontSize, isPrimaryKey);
 
     const shape = group.addShape('ellipse', {
       attrs: {
@@ -607,14 +584,9 @@ const registerCustomNodes = (G6: G6Like): void => {
     update(cfg: any, node: any) {
       const group = node.getContainer();
       const fontSize = resolveLabelFontSize(cfg, 15);
-      const scale = getShrinkOnlyScale(fontSize, 15);
       const textStr = cfg.label || '';
-      const textWidth = getTextWidth(textStr, fontSize);
-      const padding = 16 * scale;
-      const minWidth = 60 * scale;
       const isPrimaryKey = cfg.keyType === 'pk';
-      const width = Math.max(minWidth, textWidth + padding * 2);
-      const height = getAttributeHeight(fontSize, isPrimaryKey);
+      const { width, height } = measureAttributeSize(textStr, fontSize, isPrimaryKey);
 
       const shape = group.find((e: any) => e.get('name') === 'attribute-shape');
       if (shape) {
@@ -695,20 +667,9 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 关系节点（菱形）
   const drawRelationship = (cfg: any, group: any) => {
     const fontSize = resolveLabelFontSize(cfg, 16);
-    const scale = getShrinkOnlyScale(fontSize, 16);
-    const text = cfg.label || '';
-
-    const textWidth = getTextWidth(text, fontSize);
-    const horizontalPadding = 24 * scale;
-    const verticalPadding = 16 * scale;
-    const minWidth = 80 * scale;
-    const minHeight = 40 * scale;
-
-    const requiredWidth = textWidth + horizontalPadding * 2;
-    const requiredHeight = fontSize + verticalPadding * 2;
-
-    const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
-    const halfHeight = Math.max(minHeight / 2, Math.min(halfWidth * 0.6, requiredHeight / 2));
+    const relSize = measureRelationshipSize(cfg.label || '', fontSize);
+    const halfWidth = relSize.width / 2;
+    const halfHeight = relSize.height / 2;
 
     const shape = group.addShape('polygon', {
       attrs: {
@@ -754,18 +715,9 @@ const registerCustomNodes = (G6: G6Like): void => {
     update(cfg: any, node: any) {
       const group = node.getContainer();
       const fontSize = resolveLabelFontSize(cfg, 16);
-      const scale = getShrinkOnlyScale(fontSize, 16);
-      const textStr = cfg.label || '';
-      const textWidth = getTextWidth(textStr, fontSize);
-      const horizontalPadding = 24 * scale;
-      const verticalPadding = 16 * scale;
-      const minWidth = 80 * scale;
-      const minHeight = 40 * scale;
-
-      const requiredWidth = textWidth + horizontalPadding * 2;
-      const requiredHeight = fontSize + verticalPadding * 2;
-      const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
-      const halfHeight = Math.max(minHeight / 2, Math.min(halfWidth * 0.6, requiredHeight / 2));
+      const relSize = measureRelationshipSize(cfg.label || '', fontSize);
+      const halfWidth = relSize.width / 2;
+      const halfHeight = relSize.height / 2;
 
       const shape = group.find((e: any) => e.get('name') === 'relationship-shape');
       if (shape) {
@@ -963,10 +915,84 @@ const estimateAttributeHalfSize = (
   return { halfW: width / 2, halfH: height / 2 };
 };
 
+// ========================================
+// 节点尺寸：单一事实来源
+// ========================================
+// 下面三个 measure* 与 registerCustomNodes 里 draw/update 的尺寸公式必须一致，
+// 因此 draw/update 直接调用它们。无浏览器环境（如 agent skill 的无头 GraphLike
+// 适配器）也用同一套函数复现 getBBox，保证渲染与无头计算的尺寸完全相同。
+
+interface NodeSize {
+  width: number;
+  height: number;
+}
+
+const measureEntitySize = (label: string | undefined | null, fontSize: number = 18): NodeSize => {
+  const scale = getShrinkOnlyScale(fontSize, 18);
+  const textWidth = getTextWidth(label || '', fontSize);
+  const padding = 10 * scale;
+  const width = Math.max(80 * scale, textWidth + padding * 2);
+  const height = Math.max(50 * scale, fontSize + 20 * scale);
+  return { width, height };
+};
+
+const measureAttributeSize = (
+  label: string | undefined | null,
+  fontSize: number = 15,
+  isPrimaryKey: boolean = false,
+): NodeSize => {
+  const { halfW, halfH } = estimateAttributeHalfSize(label, fontSize, isPrimaryKey);
+  return { width: halfW * 2, height: halfH * 2 };
+};
+
+const measureRelationshipSize = (
+  label: string | undefined | null,
+  fontSize: number = 16,
+): NodeSize => {
+  const scale = getShrinkOnlyScale(fontSize, 16);
+  const textWidth = getTextWidth(label || '', fontSize);
+  const horizontalPadding = 24 * scale;
+  const verticalPadding = 16 * scale;
+  const minWidth = 80 * scale;
+  const minHeight = 40 * scale;
+  const requiredWidth = textWidth + horizontalPadding * 2;
+  const requiredHeight = fontSize + verticalPadding * 2;
+  const halfWidth = Math.max(minWidth / 2, requiredWidth / 2);
+  const halfHeight = Math.max(minHeight / 2, Math.min(halfWidth * 0.6, requiredHeight / 2));
+  return { width: halfWidth * 2, height: halfHeight * 2 };
+};
+
+const NODE_FONT_BASE: Record<string, number> = { entity: 18, relationship: 16, attribute: 15 };
+
+/**
+ * 按节点模型计算渲染尺寸。读取 labelCfg.style.fontSize（updateGraphStyles 写入的
+ * 字号），缺省时回退到该类型的基准字号。供无头 GraphLike 适配器的 getBBox 使用。
+ */
+const measureNodeSize = (model: {
+  nodeType?: string;
+  label?: unknown;
+  keyType?: string;
+  labelCfg?: { style?: { fontSize?: number | string } };
+}): NodeSize => {
+  const type = model.nodeType || 'entity';
+  const base = NODE_FONT_BASE[type] ?? 15;
+  const raw = model.labelCfg?.style?.fontSize;
+  const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number.parseFloat(raw) : NaN;
+  const fontSize = Number.isFinite(parsed) && parsed > 0 ? parsed : base;
+  const label = model.label == null ? '' : String(model.label);
+  if (type === 'entity') return measureEntitySize(label, fontSize);
+  if (type === 'relationship') return measureRelationshipSize(label, fontSize);
+  return measureAttributeSize(label, fontSize, model.keyType === 'pk');
+};
+
 export {
   generateChenModelData,
   buildAttributeData,
   estimateAttributeHalfSize,
+  measureEntitySize,
+  measureAttributeSize,
+  measureRelationshipSize,
+  measureNodeSize,
   registerCustomNodes,
   patchRelationshipLinkPoints,
   calculateDiamondLinkPoint,

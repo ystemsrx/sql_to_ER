@@ -1,0 +1,255 @@
+import "./shims"; // MUST be first: installs rAF so headless layout runs to completion
+
+import { readFileSync, writeFileSync, existsSync, readFileSync as rf } from "node:fs";
+import { resolve } from "node:path";
+import {
+  generate,
+  runLayout,
+  rotate,
+  setFontScale,
+  move,
+  nudge,
+  swap,
+  DEFAULT_SETTINGS,
+  type State,
+} from "./ops";
+import { describe, describeJson } from "./describe";
+import { exportDrawio, exportJson, exportSvg } from "./exporters";
+import { createHeadlessGraph } from "./adapter";
+
+interface Args {
+  _: string[];
+  flags: Record<string, string | boolean>;
+}
+
+function parseArgs(argv: string[]): Args {
+  const _: string[] = [];
+  const flags: Record<string, string | boolean> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      if (eq >= 0) {
+        flags[a.slice(2, eq)] = a.slice(eq + 1);
+      } else {
+        const key = a.slice(2);
+        const next = argv[i + 1];
+        if (next !== undefined && !next.startsWith("--")) {
+          flags[key] = next;
+          i++;
+        } else {
+          flags[key] = true;
+        }
+      }
+    } else {
+      _.push(a);
+    }
+  }
+  return { _, flags };
+}
+
+const boolFlag = (v: string | boolean | undefined, def = false): boolean => {
+  if (v === undefined) return def;
+  if (typeof v === "boolean") return v;
+  return v === "true" || v === "1" || v === "yes";
+};
+
+function statePath(flags: Record<string, string | boolean>): string {
+  const p = typeof flags.state === "string" ? flags.state : "sql2er-state.json";
+  return resolve(process.cwd(), p);
+}
+
+function loadState(flags: Record<string, string | boolean>): State {
+  const p = statePath(flags);
+  if (!existsSync(p)) throw new Error(`No state at ${p}. Run \`generate\` first.`);
+  return JSON.parse(readFileSync(p, "utf8")) as State;
+}
+
+function saveState(flags: Record<string, string | boolean>, state: State): void {
+  writeFileSync(statePath(flags), JSON.stringify(state), "utf8");
+}
+
+function readInput(flags: Record<string, string | boolean>): string {
+  if (typeof flags.input === "string") return rf(resolve(process.cwd(), flags.input), "utf8");
+  if (typeof flags.text === "string") return flags.text;
+  if (flags.stdin || !process.stdin.isTTY) {
+    try {
+      return rf(0, "utf8");
+    } catch {
+      /* no stdin */
+    }
+  }
+  throw new Error("Provide input via --input <file>, --text <inline>, or piped stdin.");
+}
+
+function printState(state: State, flags: Record<string, string | boolean>): void {
+  const graph = createHeadlessGraph(state.nodes, state.edges);
+  process.stdout.write(
+    describe(graph, {
+      full: boolFlag(flags.full),
+      focus: typeof flags.focus === "string" ? flags.focus : undefined,
+    }) + "\n",
+  );
+}
+
+const HELP = `sql2er-agent — headless SQL/DBML → Chen-model ER layout for agents
+
+Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-state.json)
+
+  generate                 Parse input, build the ER graph, lay it out.
+      --input <file> | --text "<sql>" | (piped stdin)
+      --format auto|sql|dbml         (default auto)
+      --colored true|false           (default true)
+      --comment                      show column/table comments instead of names
+      --hide-attrs                   skeleton only (no attribute ellipses)
+      --layout align|arrange|none    (default align)
+  describe                 Print skeleton + diagnostics + ASCII map.
+      --full                         also list attributes
+      --focus <id|label>             zoom into one entity
+      --json                         machine-readable scene
+  layout <align|arrange>   Re-run a layout pass. align = topological from scratch;
+                           arrange = settle current positions (use after edits).
+  move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
+                           with one arrange pass unless --raw.
+  nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
+  swap <a> <b>             Exchange two entities' positions. --raw to skip settle.
+  rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
+  fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
+  export <drawio|svg|json> Write output. --out <file> (else stdout).
+  help
+`;
+
+function main(): void {
+  const { _, flags } = parseArgs(process.argv.slice(2));
+  const cmd = _[0];
+
+  if (!cmd || cmd === "help" || flags.help) {
+    process.stdout.write(HELP);
+    return;
+  }
+
+  switch (cmd) {
+    case "generate": {
+      const input = readInput(flags);
+      const state = generate({
+        input,
+        format: (typeof flags.format === "string" ? flags.format : "auto") as
+          "auto" | "sql" | "dbml",
+        layout: (typeof flags.layout === "string" ? flags.layout : "align") as
+          "align" | "arrange" | "none",
+        settings: {
+          ...DEFAULT_SETTINGS,
+          colored: boolFlag(flags.colored, true),
+          comment: boolFlag(flags.comment),
+          hideAttrs: boolFlag(flags["hide-attrs"]),
+        },
+      });
+      saveState(flags, state);
+      printState(state, flags);
+      break;
+    }
+    case "describe": {
+      const state = loadState(flags);
+      const graph = createHeadlessGraph(state.nodes, state.edges);
+      if (boolFlag(flags.json)) {
+        process.stdout.write(JSON.stringify(describeJson(graph), null, 2) + "\n");
+      } else {
+        printState(state, flags);
+      }
+      break;
+    }
+    case "layout": {
+      const kind = _[1];
+      if (kind !== "align" && kind !== "arrange") throw new Error("layout <align|arrange>");
+      const next = runLayout(loadState(flags), kind);
+      saveState(flags, next);
+      printState(next, flags);
+      break;
+    }
+    case "move": {
+      const id = _[1];
+      const x = Number(_[2]);
+      const y = Number(_[3]);
+      if (!id || !Number.isFinite(x) || !Number.isFinite(y))
+        throw new Error("move <id|label> <x> <y>");
+      const { state, resolved } = move(loadState(flags), id, x, y, boolFlag(flags.raw));
+      saveState(flags, state);
+      process.stdout.write(`moved ${resolved.map((r) => r.label).join(", ")}\n`);
+      printState(state, flags);
+      break;
+    }
+    case "nudge": {
+      const id = _[1];
+      const dx = Number(_[2]);
+      const dy = Number(_[3]);
+      if (!id || !Number.isFinite(dx) || !Number.isFinite(dy))
+        throw new Error("nudge <id|label> <dx> <dy>");
+      const { state, resolved } = nudge(loadState(flags), id, dx, dy, boolFlag(flags.raw));
+      saveState(flags, state);
+      process.stdout.write(`nudged ${resolved.map((r) => r.label).join(", ")}\n`);
+      printState(state, flags);
+      break;
+    }
+    case "swap": {
+      const a = _[1];
+      const b = _[2];
+      if (!a || !b) throw new Error("swap <a> <b>");
+      const { state, resolved } = swap(loadState(flags), a, b, boolFlag(flags.raw));
+      saveState(flags, state);
+      process.stdout.write(`swapped ${resolved.map((r) => r.label).join(" ↔ ")}\n`);
+      printState(state, flags);
+      break;
+    }
+    case "rotate": {
+      const deg = Number(_[1]);
+      if (!Number.isFinite(deg)) throw new Error("rotate <degrees>");
+      const next = rotate(loadState(flags), deg);
+      saveState(flags, next);
+      printState(next, flags);
+      break;
+    }
+    case "fontsize": {
+      const delta = Number(_[1]);
+      if (!Number.isFinite(delta)) throw new Error("fontsize <delta>  (0=default)");
+      const next = setFontScale(loadState(flags), delta);
+      saveState(flags, next);
+      process.stdout.write(`fontScale=${next.settings.fontScale.toFixed(2)}\n`);
+      printState(next, flags);
+      break;
+    }
+    case "export": {
+      const fmt = _[1];
+      const state = loadState(flags);
+      let out: string;
+      let ext: string;
+      if (fmt === "drawio") {
+        out = exportDrawio(state);
+        ext = "drawio";
+      } else if (fmt === "svg") {
+        out = exportSvg(state);
+        ext = "svg";
+      } else if (fmt === "json") {
+        out = exportJson(state);
+        ext = "json";
+      } else {
+        throw new Error("export <drawio|svg|json>");
+      }
+      if (typeof flags.out === "string") {
+        writeFileSync(resolve(process.cwd(), flags.out), out, "utf8");
+        process.stdout.write(`wrote ${flags.out} (${ext}, ${out.length} bytes)\n`);
+      } else {
+        process.stdout.write(out + "\n");
+      }
+      break;
+    }
+    default:
+      throw new Error(`Unknown command: ${cmd}. Run \`help\`.`);
+  }
+}
+
+try {
+  main();
+} catch (err) {
+  process.stderr.write("error: " + (err instanceof Error ? err.message : String(err)) + "\n");
+  process.exit(1);
+}
