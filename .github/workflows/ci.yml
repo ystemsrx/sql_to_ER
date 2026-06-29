@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # pnpm 必须先于 setup-node，否则 setup-node 的 cache: pnpm 找不到可执行文件
       - name: Setup pnpm
