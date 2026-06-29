@@ -7,8 +7,11 @@
  *   - 多行属性 [ ... ]、嵌套 Note { ... }、indexes { ... } 块
  *   - Ref 短语句、Ref 块（多条）、内联 ref 属性
  *   - 反引号 / 双引号 / 方括号 / 中文标识符
- *   - schema.table.column 的多段限定符（取最后两段）
+ *   - schema.table.column 的多段限定符（取最后两段；引号 / 括号感知，
+ *     "my.table" 这种带点引用名整体保留，不被误拆）
  *   - 复合类型 decimal(10,2) / varchar(255)
+ *   - 数组类型后缀 int[] / int[][] / decimal(10,2)[]（与列尾设置块 [...] 区分）
+ *   - indexes { (a,b) [pk] / col [unique] } 块里的复合主键与单列唯一约束
  */
 
 import type {
@@ -23,13 +26,84 @@ const IDENT = String.raw`(?:\`[^\`]+\`|"[^"]+"|\[[^\]]+\]|[\w一-龥]+)`;
 // schema-qualified 标识符：a / a.b / a.b.c。每段都允许带引号 / 反引号 / 方括号。
 const QUALIFIED_IDENT = String.raw`${IDENT}(?:\.${IDENT})*`;
 
+// 去掉一段标识符外层的引号 / 反引号 / 方括号。
+const stripOuterQuotes = (seg: string): string => seg.trim().replace(/^[`"\[]|[`"\]]$/g, "");
+
+// 按 `.` 切分限定标识符，但 `.` 出现在引号 / 反引号 / 方括号 / 圆括号内部时不切。
+// => `"my.table"` 是一段而非两段；复合列 `(a, b)` 也保持完整。
+const splitQualified = (raw: string): string[] => {
+  const parts: string[] = [];
+  let cur = "";
+  let i = 0;
+  let paren = 0;
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === "'" || ch === '"' || ch === "`") {
+      const q = ch;
+      cur += ch;
+      i++;
+      while (i < raw.length) {
+        if (raw[i] === "\\" && i + 1 < raw.length) {
+          cur += raw[i] + raw[i + 1];
+          i += 2;
+          continue;
+        }
+        if (raw[i] === q) {
+          cur += q;
+          i++;
+          break;
+        }
+        cur += raw[i++];
+      }
+      continue;
+    }
+    if (ch === "[") {
+      cur += ch;
+      i++;
+      while (i < raw.length) {
+        if (raw[i] === "]" && raw[i + 1] === "]") {
+          cur += "]]";
+          i += 2;
+          continue;
+        }
+        if (raw[i] === "]") {
+          cur += "]";
+          i++;
+          break;
+        }
+        cur += raw[i++];
+      }
+      continue;
+    }
+    if (ch === "(") {
+      paren++;
+      cur += ch;
+      i++;
+      continue;
+    }
+    if (ch === ")") {
+      paren--;
+      cur += ch;
+      i++;
+      continue;
+    }
+    if (ch === "." && paren === 0) {
+      parts.push(cur);
+      cur = "";
+      i++;
+      continue;
+    }
+    cur += ch;
+    i++;
+  }
+  parts.push(cur);
+  return parts.map((p) => p.trim()).filter(Boolean);
+};
+
 const cleanIdentifier = (raw: string): string => {
-  const last = raw
-    .split(".")
-    .map((p) => p.trim().replace(/^[`"\[]|[`"\]]$/g, ""))
-    .filter(Boolean)
-    .pop();
-  return last ?? raw.trim();
+  const parts = splitQualified(raw);
+  const last = parts.length ? parts[parts.length - 1] : raw.trim();
+  return stripOuterQuotes(last) || raw.trim();
 };
 
 const stripQuotes = (s: string): string => {
@@ -51,10 +125,7 @@ const stripQuotes = (s: string): string => {
 const skipString = (src: string, i: number): number => {
   if (src[i] === "'" && src[i + 1] === "'" && src[i + 2] === "'") {
     let j = i + 3;
-    while (
-      j < src.length &&
-      !(src[j] === "'" && src[j + 1] === "'" && src[j + 2] === "'")
-    ) {
+    while (j < src.length && !(src[j] === "'" && src[j + 1] === "'" && src[j + 2] === "'")) {
       j++;
     }
     return Math.min(src.length, j + 3);
@@ -256,7 +327,10 @@ const parseRefTarget = (raw: string): RefTarget | null => {
   // 仅去掉首尾游离的逗号（来自 splitTopLevelCommas 拆开内联 ref 时残留）。
   // 不要再剥圆括号 —— 复合外键 `table.(col_a, col_b)` 的右括号会被误吃，
   // 历史上写过 `^[(,]|[),]$` 是按"防御性清洗"思路写的，现在已无必要。
-  let cleaned = raw.trim().replace(/^,+|,+$/g, "").trim();
+  let cleaned = raw
+    .trim()
+    .replace(/^,+|,+$/g, "")
+    .trim();
   // 去掉尾部 `[delete: cascade, update: cascade]` 这类设置块。
   // Ref: a.b > c.d [...] 时，右目标会粘上 `[...]`，必须先剥掉再分段。
   const lb = indexOfUnquoted(cleaned, "[");
@@ -267,11 +341,9 @@ const parseRefTarget = (raw: string): RefTarget | null => {
     }
   }
   if (!cleaned) return null;
-  const segs = cleaned
-    .split(".")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => s.replace(/^[`"\[]|[`"\]]$/g, ""));
+  // 用引号 / 括号感知的切分：`"my.tbl".col` 取 my.tbl + col；
+  // 复合列 `(a, b)` 保持完整不被 `.` 或逗号拆散。
+  const segs = splitQualified(cleaned).map(stripOuterQuotes).filter(Boolean);
   if (segs.length < 2) return null;
   // 复合列 `(col_a, col_b)` —— 去掉外层括号当作 label，避免出现 `(col_a, col_b)`
   // 这种带括号的边标签。table 与 column 仍按原始 segs 取，column 拿掉括号后
@@ -288,9 +360,7 @@ const parseRefTarget = (raw: string): RefTarget | null => {
   return { table: segs[segs.length - 2], column };
 };
 
-const parseInlineRef = (
-  refValue: string,
-): { op: string; target: RefTarget } | null => {
+const parseInlineRef = (refValue: string): { op: string; target: RefTarget } | null => {
   const m = refValue.match(/^\s*(<>|[<>\-])\s*(.+)$/);
   if (!m) return null;
   const target = parseRefTarget(m[2]);
@@ -322,16 +392,44 @@ interface ColumnLineResult {
   inlineRef: { target: RefTarget; op: string } | null;
 }
 
+// 找列定义末尾的设置块 `[...]`。难点是要把它和两类“看起来像方括号”的东西区分开：
+//   1. 数组类型后缀 `int[]` / `int[3]`（内容为空或纯数字）—— 属于类型，不是设置块。
+//   2. 行首的方括号引用标识符 `[my col]`（前面没有 name+type）—— 是列名，不是设置块。
+// 取“最后一个、且前面有非空头部、内容不像数组后缀”的顶层方括号作为设置块。
+const findSettingsBracket = (s: string): { lb: number; rb: number } | null => {
+  let i = 0;
+  let last: { lb: number; rb: number } | null = null;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "'" || ch === '"' || ch === "`") {
+      i = skipString(s, i);
+      continue;
+    }
+    if (ch === "[") {
+      const rb = findMatchingBracket(s, i);
+      if (rb === -1) break;
+      // 设置块前必须有“name type”这段头部，排除行首的方括号标识符。
+      if (s.slice(0, i).trim() !== "") last = { lb: i, rb };
+      i = rb + 1;
+      continue;
+    }
+    i++;
+  }
+  if (!last) return null;
+  const content = s.slice(last.lb + 1, last.rb).trim();
+  if (content === "" || /^\d+$/.test(content)) return null; // 数组后缀，非设置块
+  return last;
+};
+
 const parseColumnLine = (line: string): ColumnLineResult => {
   const trimmed = line.trim();
   // 头部 = 'name type'，尾部可选 [attrs]
-  const lb = indexOfUnquoted(trimmed, "[");
+  const sb = findSettingsBracket(trimmed);
   let head: string;
   let attrsRaw = "";
-  if (lb !== -1) {
-    const rb = findMatchingBracket(trimmed, lb);
-    head = trimmed.slice(0, lb).trim();
-    if (rb !== -1) attrsRaw = trimmed.slice(lb + 1, rb);
+  if (sb) {
+    head = trimmed.slice(0, sb.lb).trim();
+    attrsRaw = trimmed.slice(sb.lb + 1, sb.rb);
   } else {
     head = trimmed;
   }
@@ -375,9 +473,7 @@ interface ParsedRefStatement {
 
 // Ref 顶层 settings 块 `[delete: cascade, note: 'xxx']` 中的 note 是关系注释。
 // 拆出来：返回 (剥掉外层 [...] 后的 body, 提取到的 note 字符串)。
-const stripRefSettings = (
-  body: string,
-): { body: string; comment?: string } => {
+const stripRefSettings = (body: string): { body: string; comment?: string } => {
   let cleaned = body;
   let comment: string | undefined;
   const lb = indexOfUnquoted(cleaned, "[");
@@ -414,17 +510,14 @@ const parseRefBody = (rawBody: string): ParsedRefStatement | null => {
       const right = body.slice(i + 2).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      return from && to
-        ? { from, to, op: "<>", ...(comment ? { comment } : {}) }
-        : null;
+      return from && to ? { from, to, op: "<>", ...(comment ? { comment } : {}) } : null;
     }
     if (ch === "<" || ch === ">" || ch === "-") {
       const left = body.slice(0, i).trim();
       const right = body.slice(i + 1).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      if (from && to)
-        return { from, to, op: ch, ...(comment ? { comment } : {}) };
+      if (from && to) return { from, to, op: ch, ...(comment ? { comment } : {}) };
     }
     i++;
   }
@@ -432,14 +525,7 @@ const parseRefBody = (rawBody: string): ParsedRefStatement | null => {
 };
 
 interface TopStatement {
-  kind:
-    | "table"
-    | "ref"
-    | "refblock"
-    | "enum"
-    | "project"
-    | "tablegroup"
-    | "unknown";
+  kind: "table" | "ref" | "refblock" | "enum" | "project" | "tablegroup" | "unknown";
   header: string;
   body: string | null;
 }
@@ -527,10 +613,7 @@ const tokenizeTopLevel = (src: string): TopStatement[] => {
       // Ref 短句的关系运算符（仅在顶层、未在 [...] 设置块里时计数）。
       // 多行 `Ref name:\n  a > b [...]` 形式时：`:` 后面的换行不能立刻
       // 终止语句 —— 至少要等到运算符出现，才认为左 / 右目标都已就位。
-      if (
-        bracketDepth === 0 &&
-        (ch === "<" || ch === ">" || ch === "-")
-      ) {
+      if (bracketDepth === 0 && (ch === "<" || ch === ">" || ch === "-")) {
         seenOperator = true;
       }
       if (ch === "\n" && bracketDepth === 0 && seenOperator) {
@@ -568,9 +651,7 @@ const tokenizeTopLevel = (src: string): TopStatement[] => {
   return out;
 };
 
-const parseTableHeader = (
-  header: string,
-): { name: string; alias?: string } | null => {
+const parseTableHeader = (header: string): { name: string; alias?: string } | null => {
   // 去掉头部 [headercolor: #abc] 之类的 settings
   let h = header;
   const lb = indexOfUnquoted(h, "[");
@@ -579,10 +660,7 @@ const parseTableHeader = (
     if (rb !== -1) h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
   }
   const m = h.match(
-    new RegExp(
-      String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`,
-      "i",
-    ),
+    new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "i"),
   );
   if (!m) return null;
   return {
@@ -660,6 +738,51 @@ const extractTableNote = (body: string): string | undefined => {
   return undefined;
 };
 
+// indexes 块里一条索引的列：单列 / `(a, b)` 复合 / `` `expr` `` 表达式（返回 null）。
+const parseIndexColumns = (head: string): string[] | null => {
+  const h = head.trim();
+  if (h.startsWith("`")) return null; // 表达式索引，无对应列
+  if (h.startsWith("(")) {
+    const inner = h.replace(/^\(|\)$/g, "");
+    return splitTopLevelCommas(inner).map(cleanIdentifier).filter(Boolean);
+  }
+  const c = cleanIdentifier(h);
+  return c ? [c] : null;
+};
+
+// 解析表内 `indexes { ... }` 块，抽取复合主键与单列唯一约束。dbdiagram 导出的
+// DBML 常把复合主键写成 `(a, b) [pk]`，把唯一约束写成 `col [unique]`。
+//   indexes {
+//     (a, b) [pk]        -> 复合主键 a, b
+//     email [unique]     -> email 列唯一（参与 1:1 推断）
+//   }
+const extractIndexesConstraints = (
+  blockBody: string,
+): { pkCols: string[]; uniqueCols: string[] } => {
+  const pkCols: string[] = [];
+  const uniqueCols: string[] = [];
+  for (const raw of splitLogicalLines(blockBody)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const sb = findSettingsBracket(line);
+    if (!sb) continue; // 没有 [settings] -> 没有 pk/unique 可抽取
+    const head = line.slice(0, sb.lb).trim();
+    let isPk = false;
+    let isUnique = false;
+    for (const attr of parseColumnAttrs(line.slice(sb.lb + 1, sb.rb))) {
+      if (attr.key === "pk" || attr.key === "primary key") isPk = true;
+      else if (attr.key === "unique") isUnique = true;
+    }
+    if (!isPk && !isUnique) continue;
+    const cols = parseIndexColumns(head);
+    if (!cols || !cols.length) continue;
+    if (isPk) pkCols.push(...cols);
+    // 仅单列唯一索引才让列本身唯一（复合唯一不代表任一列单独唯一）。
+    if (isUnique && cols.length === 1) uniqueCols.push(cols[0]);
+  }
+  return { pkCols, uniqueCols };
+};
+
 export const parseDBML = (dbml: string): ParseResult => {
   const tables: ParsedTable[] = [];
   const relationships: ParsedRelationship[] = [];
@@ -674,19 +797,32 @@ export const parseDBML = (dbml: string): ParseResult => {
       const columns: ParsedColumn[] = [];
       const primaryKeys: string[] = [];
       const foreignKeys: ParsedForeignKey[] = [];
+      // indexes 块抽取到的复合主键 / 单列唯一约束，循环结束后统一应用。
+      const indexPkCols: string[] = [];
+      const indexUniqueCols: string[] = [];
 
       for (const line of splitLogicalLines(stmt.body)) {
         const trimmed = line.trim();
         if (!trimmed) continue;
         // 跳过嵌套块 / 非列声明：
         //   Note { ... } / Note: '...'
-        //   indexes { ... }
         //   checks { ... }                    DBML 校验约束块
         //   records { ... } / records (cols) { ... }   插桩示例数据块
         //   ~partial_name                     TablePartial 注入；不展开，仅跳过
         // 不跳过会被 parseColumnLine 错认为以 `checks` / `records` 命名的列。
+        // indexes { ... } 不再整体跳过 —— 复合主键 (a,b)[pk] / 唯一 col[unique]
+        // 写在这里，对 ER 图的主键标记与 1:1 推断都有用。
         if (/^Note\s*[:{]/i.test(trimmed)) continue;
-        if (/^indexes\s*\{/i.test(trimmed)) continue;
+        if (/^indexes\s*\{/i.test(trimmed)) {
+          const open = trimmed.indexOf("{");
+          const close = findMatchingBrace(trimmed, open);
+          if (open !== -1 && close !== -1) {
+            const got = extractIndexesConstraints(trimmed.slice(open + 1, close));
+            indexPkCols.push(...got.pkCols);
+            indexUniqueCols.push(...got.uniqueCols);
+          }
+          continue;
+        }
         if (/^checks\s*\{/i.test(trimmed)) continue;
         if (/^records\b/i.test(trimmed)) continue;
         if (trimmed.startsWith("~")) continue;
@@ -710,6 +846,15 @@ export const parseDBML = (dbml: string): ParseResult => {
           });
         }
         columns.push(column);
+      }
+
+      // 应用 indexes 块抽取的复合主键与单列唯一约束。
+      for (const c of indexPkCols) {
+        if (!primaryKeys.includes(c)) primaryKeys.push(c);
+      }
+      for (const c of indexUniqueCols) {
+        const col = columns.find((x) => x.name === c);
+        if (col && !col.isPrimaryKey) col.isUnique = true;
       }
 
       const tableNote = extractTableNote(stmt.body);
@@ -760,8 +905,7 @@ export const parseDBML = (dbml: string): ParseResult => {
     const col = fromTable.columns.find((c) => c.name === rel.label);
     if (!col) continue;
     const isOnlySinglePk =
-      fromTable.primaryKeys.length === 1 &&
-      fromTable.primaryKeys[0] === col.name;
+      fromTable.primaryKeys.length === 1 && fromTable.primaryKeys[0] === col.name;
     if (col.isUnique || isOnlySinglePk) {
       rel.fromCardinality = "1";
     }
