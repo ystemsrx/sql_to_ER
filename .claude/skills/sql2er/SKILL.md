@@ -33,21 +33,35 @@ generate  →  describe  →  (move/swap/nudge entities)  →  settles automatic
 coordinates, stable ids, and a PRE-COMPUTED problem list (crossings, overlaps,
 isolated tables). Export an SVG only at the end if you want a visual sanity check.
 
-## Setup (once)
+## Prerequisites & setup
 
-The runnable bundle `scripts/sql2er-agent.mjs` is committed. If you changed any
-`src/` parser/builder/layout code, rebuild it:
-
-```
-pnpm skill:build      # = node .claude/skills/sql2er/scripts/build.mjs
-```
-
-Run the CLI with Node. State lives in a JSON file (`--state`, default
-`./sql2er-state.json`); pass the same path to every command in a session.
+**To run the skill you need only Node ≥ 18.** The committed bundle
+`scripts/sql2er-agent.mjs` is fully self-contained: esbuild has inlined the repo's
+parser/builder/layout, it imports nothing but `node:fs` / `node:path`, and it runs
+with **no `node_modules` and no project install**. Just call it:
 
 ```
 node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [...] --state <path>
 ```
+
+State lives in a JSON file (`--state`, default `./sql2er-state.json`); pass the same
+path to every command in a session.
+
+**You only need to install/build when the bundle is missing or you changed `src/`**
+(the parser/builder/layout the skill reuses). That requires the sql2er repo checked
+out, then — from the repo root:
+
+```
+corepack enable        # one-time: lets pnpm self-manage its pinned version
+pnpm install           # installs devDeps incl. esbuild (the bundler)
+pnpm skill:build       # = node .claude/skills/sql2er/scripts/build.mjs → rebuilds the bundle
+```
+
+Notes for a clean machine: this is a pnpm project (version pinned via
+`packageManager`); `corepack enable` makes `pnpm` available without a manual install.
+Node ≥ 18 is required for both running and building. The skill lives inside the
+sql2er repo and rebuilds from it, but the bundle is the only artifact needed at run
+time — copy `sql2er-agent.mjs` out and it still works with just Node.
 
 ## Quickstart
 
@@ -61,17 +75,17 @@ node $AGENT export drawio --out er.drawio --state er.json   # editable diagram
 
 ## Commands (summary)
 
-| Command                       | What it does                                                                                                                                                                                 |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate`                    | Parse `--input <file>` / `--text "<sql>"` / stdin, build, lay out. Flags: `--format auto\|sql\|dbml`, `--colored true\|false`, `--comment`, `--hide-attrs`, `--layout align\|arrange\|none`. |
-| `describe`                    | Print skeleton + diagnostics + ASCII map. `--full` adds attributes, `--focus <id\|label>` zooms one entity, `--json` machine output.                                                         |
-| `layout <align\|arrange>`     | `align` = topological layout from scratch (best first pass / reset). `arrange` = settle current positions (springs with a deadband that preserves your intent).                              |
-| `move <id\|label> <x> <y>`    | Place an entity (its attributes follow), then run one `arrange` settle pass. `--raw` skips the settle.                                                                                       |
-| `nudge <id\|label> <dx> <dy>` | Shift by a delta; settles unless `--raw`.                                                                                                                                                    |
-| `swap <a> <b>`                | Exchange two entities' positions; settles unless `--raw`. The cleanest fix for edge crossings.                                                                                               |
-| `rotate <degrees>`            | Rotate the whole diagram about its centre (shapes/text stay upright).                                                                                                                        |
-| `fontsize <delta>`            | Global font size. `0` = default; negative = smaller, positive = larger (≈ ±0.1 scale per step, clamped 0.4–1.6).                                                                             |
-| `export <drawio\|svg\|json>`  | Write output (`--out <file>`, else stdout). drawio = editable in diagrams.net; svg = visual check; json = machine round-trip.                                                                |
+| Command                       | What it does                                                                                                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generate`                    | Parse `--input <file>` / `--text "<sql>"` / stdin, build, lay out. Flags: `--format auto\|sql\|dbml`, `--colored true\|false`, `--comment`, `--hide-attrs`, `--layout align\|arrange\|none`.                   |
+| `describe`                    | Print skeleton + diagnostics + ASCII map. `--full` adds attributes, `--focus <id\|label>` zooms one entity, `--json` machine output.                                                                           |
+| `layout <align\|arrange>`     | `align` = topological layout from scratch (best first pass / reset). `arrange` = settle current positions (springs + crossing removal; keeps the coarse structure you set but does not pin exact coordinates). |
+| `move <id\|label> <x> <y>`    | Place an entity (its attributes follow), then run one `arrange` settle pass. `--raw` skips the settle.                                                                                                         |
+| `nudge <id\|label> <dx> <dy>` | Shift by a delta; settles unless `--raw`.                                                                                                                                                                      |
+| `swap <a> <b>`                | Exchange two entities' positions; settles unless `--raw`. The cleanest fix for edge crossings.                                                                                                                 |
+| `rotate <degrees>`            | Rotate the whole diagram about its centre (shapes/text stay upright).                                                                                                                                          |
+| `fontsize <delta>`            | Global font size. `0` = default; negative = smaller, positive = larger (≈ ±0.1 scale per step, clamped 0.4–1.6).                                                                                               |
+| `export <drawio\|svg\|json>`  | Write output (`--out <file>`, else stdout). `--split` writes one diagram per disconnected component. drawio = editable in diagrams.net; svg = visual check; json = machine round-trip.                         |
 
 Entities can be addressed by **exact id** (from `describe`) or by **table name/label**
 when unambiguous.
@@ -86,9 +100,12 @@ eyeball anything:
 2. **Crossings?** `swap` the two entities on one of the crossing relationships, or
    `move` one to the other side. Each edit auto-settles. Re-`describe`.
 3. **Overlaps?** Run `layout arrange` (separates nodes while keeping layout), or
-   `nudge` the offender.
-4. **Isolated tables** (no FKs)? `move` them to an empty corner so they don't sit on
-   the connected cluster.
+   `nudge` the offender. On dense graphs one pass may leave a single reported
+   overlap — running `layout arrange` again (a discrete op, not a loop) usually
+   clears it.
+4. **Several unrelated tables/clusters** (`COMPONENTS: N > 1`)? They're already tiled
+   apart, not stacked. If they're truly separate diagrams, `export <fmt> --split` to
+   get one file per component instead of cramming them into one image.
 5. **Aspect too wide/tall** for the target page? `rotate 90`, or re-`layout align`.
 6. Stop when `crossings=0`, `overlaps=0`, and the `MAP` looks balanced. Optionally
    `export svg` and view it once to confirm.

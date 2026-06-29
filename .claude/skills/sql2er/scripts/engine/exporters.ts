@@ -4,7 +4,7 @@
  * for machine round-trip.
  */
 import { buildDrawioXML } from "@app/exporter";
-import { measureNodeSize } from "@app/builder";
+import { measureNodeSize, getTextWidth } from "@app/builder";
 import type { ERNodeModel, GraphLike } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import type { State } from "./ops";
@@ -138,7 +138,7 @@ export function exportSvg(state: State): string {
       `<text x="${cx.toFixed(1)}" y="${(cy + Number(fontSize) * 0.34).toFixed(1)}" font-size="${fontSize}" fill="${fontFill}"${fw} text-anchor="middle">${label}</text>`,
     );
     if (n.nodeType === "attribute" && n.keyType === "pk") {
-      const tw = String(n.label ?? "").length * Number(fontSize) * 0.55;
+      const tw = getTextWidth(String(n.label ?? ""), Number(fontSize));
       const uy = cy + Number(fontSize) * 0.62;
       parts.push(
         `<line x1="${(cx - tw / 2).toFixed(1)}" y1="${uy.toFixed(1)}" x2="${(cx + tw / 2).toFixed(1)}" y2="${uy.toFixed(1)}" stroke="${fontFill}" stroke-width="1"/>`,

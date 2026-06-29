@@ -56,7 +56,10 @@ import { deterministicHash, normalizeAngle } from "./utils";
             coreAdj.get(source).add(target);
             coreAdj.get(target).add(source);
         });
-        if (!coreAdj.size) return;
+        // 不在 coreAdj 为空时提前返回：没有任何关系的纯实体（互不相连的表）
+        // 仍应被布局。下面的连通分量基于 coreNodes 计算，与 coreAdj 是否为空无关，
+        // 每个孤立实体会成为单独的分量并被多分量平铺铺开，而不是全部堆在 (0,0)。
+        // 真正的空图已由上方 `if (!coreNodes.length) return;` 处理。
 
         // 连通分量
         const visited = new Set();

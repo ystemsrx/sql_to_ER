@@ -60,10 +60,13 @@ The MAP is a gestalt aid only; act on the coordinates and the DIAGNOSTICS list.
 - `align` — topological layout from scratch. Lays the longest entity/relationship
   chain horizontally and fans branches out as subtrees. Deterministic. Best first
   pass and best for trees/chains. Resets positions.
-- `arrange` — "smart" settle of the **current** positions: spring forces with a
-  deadband that keeps user-set positions within ~1.5× of target, plus 2-opt
-  crossing removal and overlap separation. Use after manual edits, or to tidy an
-  organic/cyclic graph.
+- `arrange` — "smart" settle of the **current** positions: spring forces whose
+  deadband preserves the _edge length_ between connected entities (roughly 1×–1.5× of
+  the desired spacing), plus 2-opt crossing removal and overlap separation. It keeps
+  the coarse structure you set but does **not** pin a node to an exact coordinate —
+  nodes drift as the springs balance. Use after manual edits, or to tidy an
+  organic/cyclic graph. On dense graphs a single pass can leave one reported overlap;
+  running `arrange` again (a discrete op, not a continuous loop) usually clears it.
 
 ## move / nudge / swap
 
@@ -101,6 +104,14 @@ spacing — after a large change, run `layout arrange` to re-pack.
 - `svg` — clean standalone SVG for a visual check.
 - `json` — `{ nodes:[{id,type,label,x,y,w,h,pk?,parent?,placeholder?}], edges:[{source,target,label,type}] }`.
 
+`--split` — export one diagram **per disconnected component** (unrelated tables or
+clusters) instead of one combined image. With `--out base.ext` it writes
+`base-<name>.ext` for each component (named after the component's most-connected
+table; duplicates get a numeric suffix). Without `--out` it prints each component's
+output separated by `=== component: <name> ===`. A schema with a single connected
+component exports normally (and prints a note). Each component keeps its absolute
+positions and is framed on its own, so no re-layout is needed.
+
 ## Recipes
 
 **Clean diagram, zero fuss**
@@ -129,9 +140,21 @@ layout align    && describe   # note crossings
 layout arrange  && describe   # note crossings — keep whichever is lower (state holds the last run)
 ```
 
-**Pin one table, let the rest flow**
+**Pin a table to an exact spot**
 
 ```
-move users 600 400 --raw      # exact placement, no settle
-layout arrange                # everything else packs around it (deadband keeps users near 600,400)
+move users 600 400 --raw      # exact placement, no settle — users stays at (600,400)
+```
+
+`--raw` is the only way to keep a node at an exact coordinate. A following
+`layout arrange` will let the springs move it (the deadband preserves edge _spacing_,
+not absolute position). To tidy neighbours without disturbing a pinned node, `nudge`
+them individually rather than running a global `arrange`.
+
+**Disconnected tables → separate diagrams**
+
+```
+generate --input schema.sql        # unrelated tables are tiled apart, not stacked at origin
+describe                           # COMPONENTS: N shows the clusters
+export svg --split --out er.svg    # → er-<table>.svg, one per component
 ```

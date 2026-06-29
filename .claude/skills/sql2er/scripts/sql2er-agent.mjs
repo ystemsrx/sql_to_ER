@@ -2061,7 +2061,6 @@ var forceAlignLayout = (graph, containerWidth) => {
     coreAdj.get(source).add(target);
     coreAdj.get(target).add(source);
   });
-  if (!coreAdj.size) return;
   const visited = /* @__PURE__ */ new Set();
   const components = [];
   coreNodes.forEach((n) => {
@@ -3699,6 +3698,85 @@ function unresolved(state, arg) {
   const ents = state.nodes.filter((n) => n.nodeType === "entity").map((n) => String(n.label));
   return `Could not resolve "${arg}" to a unique node. Entities: ${ents.join(", ")}. Use an exact node id from describe.`;
 }
+function splitComponents(state) {
+  const entities = state.nodes.filter((n) => n.nodeType === "entity");
+  const rels = state.nodes.filter((n) => n.nodeType === "relationship");
+  const relEnts = /* @__PURE__ */ new Map();
+  rels.forEach((r) => relEnts.set(r.id, []));
+  state.edges.forEach((e) => {
+    if (e.edgeType === "entity-relationship" && relEnts.has(e.target))
+      relEnts.get(e.target).push(e.source);
+    if (e.edgeType === "relationship-entity" && relEnts.has(e.source))
+      relEnts.get(e.source).push(e.target);
+  });
+  const adj = /* @__PURE__ */ new Map();
+  entities.forEach((e) => adj.set(e.id, /* @__PURE__ */ new Set()));
+  relEnts.forEach((ids) => {
+    const uniq = [...new Set(ids)];
+    for (let i = 0; i < uniq.length; i++) {
+      for (let j = i + 1; j < uniq.length; j++) {
+        if (adj.has(uniq[i]) && adj.has(uniq[j])) {
+          adj.get(uniq[i]).add(uniq[j]);
+          adj.get(uniq[j]).add(uniq[i]);
+        }
+      }
+    }
+  });
+  const seen = /* @__PURE__ */ new Set();
+  const comps = [];
+  entities.map((e) => e.id).sort().forEach((id) => {
+    if (seen.has(id)) return;
+    const stack = [id];
+    const comp = [];
+    seen.add(id);
+    while (stack.length) {
+      const cur = stack.pop();
+      comp.push(cur);
+      (adj.get(cur) ?? []).forEach((nb) => {
+        if (!seen.has(nb)) {
+          seen.add(nb);
+          stack.push(nb);
+        }
+      });
+    }
+    comps.push(comp);
+  });
+  const usedNames = /* @__PURE__ */ new Map();
+  const nameFor = (entIds) => {
+    const labelOf = (id) => {
+      const n2 = state.nodes.find((x) => x.id === id);
+      return String(n2?.nameLabel ?? n2?.label ?? id);
+    };
+    const rep = entIds.slice().sort(
+      (a, b) => (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0) || labelOf(a).localeCompare(labelOf(b))
+    )[0];
+    let base = labelOf(rep).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!base) base = "component";
+    const n = usedNames.get(base) ?? 0;
+    usedNames.set(base, n + 1);
+    return n === 0 ? base : `${base}_${n + 1}`;
+  };
+  return comps.map((entIds) => {
+    const entSet = new Set(entIds);
+    const relIds = new Set(
+      rels.filter((r) => {
+        const ids = [...new Set(relEnts.get(r.id) ?? [])];
+        return ids.length > 0 && ids.every((id) => entSet.has(id));
+      }).map((r) => r.id)
+    );
+    const nodeSet = /* @__PURE__ */ new Set([...entSet, ...relIds]);
+    state.nodes.forEach((n) => {
+      if (n.nodeType === "attribute" && n.parentEntity && entSet.has(n.parentEntity))
+        nodeSet.add(n.id);
+    });
+    const nodes = state.nodes.filter((n) => nodeSet.has(n.id));
+    const edges = state.edges.filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target));
+    return { name: nameFor(entIds), state: { ...state, nodes, edges } };
+  });
+}
+
+// .claude/skills/sql2er/scripts/engine/cli.ts
+import { parse as parsePath } from "node:path";
 
 // .claude/skills/sql2er/scripts/engine/describe.ts
 var num = (v, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -3800,7 +3878,12 @@ function buildScene(graph) {
     }
     components.push(comp.sort());
   });
-  const isolated = entities.filter((e) => (adj.get(e.id)?.size ?? 0) === 0).map((e) => e.id);
+  const hasRel = /* @__PURE__ */ new Set();
+  relationships.forEach((r) => {
+    if (r.fromId) hasRel.add(r.fromId);
+    if (r.toId) hasRel.add(r.toId);
+  });
+  const isolated = entities.filter((e) => !hasRel.has(e.id)).map((e) => e.id);
   const segs = relationships.filter((r) => r.fromId && r.toId && !r.selfLoop).map((r) => ({ r, a: entityById.get(r.fromId), b: entityById.get(r.toId) })).filter((s) => s.a && s.b);
   const crossings = [];
   for (let i = 0; i < segs.length; i++) {
@@ -4012,10 +4095,11 @@ function describeFocus(scene, focusArg) {
   const rels = scene.relationships.filter((r) => r.fromId === ent.id || r.toId === ent.id);
   L.push(`  relations: ${rels.length}`);
   rels.forEach((r) => {
-    const otherId = r.fromId === ent.id ? r.toId : r.fromId;
-    const other = otherId ? scene.entityById.get(otherId)?.label ?? otherId : "self";
+    const fromL = r.fromId ? scene.entityById.get(r.fromId)?.label ?? r.fromId : "?";
+    const toL = r.toId ? scene.entityById.get(r.toId)?.label ?? r.toId : "?";
+    const self = r.selfLoop ? " [self]" : "";
     L.push(
-      `    ${r.id}  ${r.label} \u2192 ${other}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`
+      `    ${r.id}  ${r.label}  ${fromL}\u2192${toL}${self}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`
     );
   });
   const attrs = scene.attrsByEntity.get(ent.id) ?? [];
@@ -4238,7 +4322,7 @@ function exportSvg(state) {
       `<text x="${cx.toFixed(1)}" y="${(cy + Number(fontSize) * 0.34).toFixed(1)}" font-size="${fontSize}" fill="${fontFill}"${fw} text-anchor="middle">${label}</text>`
     );
     if (n.nodeType === "attribute" && n.keyType === "pk") {
-      const tw = String(n.label ?? "").length * Number(fontSize) * 0.55;
+      const tw = getTextWidth(String(n.label ?? ""), Number(fontSize));
       const uy = cy + Number(fontSize) * 0.62;
       parts.push(
         `<line x1="${(cx - tw / 2).toFixed(1)}" y1="${uy.toFixed(1)}" x2="${(cx + tw / 2).toFixed(1)}" y2="${uy.toFixed(1)}" stroke="${fontFill}" stroke-width="1"/>`
@@ -4350,6 +4434,8 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   fontsize <delta>         0 = default; negative = smaller, positive = larger (\u2248\xB10.1/step).
   export <drawio|svg|json> Write output. --out <file> (else stdout).
+      --split                        one diagram per disconnected component
+                                     (--out base.ext -> base-<name>.ext per component)
   help
 `;
 function main() {
@@ -4453,20 +4539,38 @@ function main() {
     case "export": {
       const fmt = _[1];
       const state = loadState(flags);
-      let out;
-      let ext;
-      if (fmt === "drawio") {
-        out = exportDrawio(state);
-        ext = "drawio";
-      } else if (fmt === "svg") {
-        out = exportSvg(state);
-        ext = "svg";
-      } else if (fmt === "json") {
-        out = exportJson(state);
-        ext = "json";
-      } else {
+      const render = (s) => {
+        if (fmt === "drawio") return { out: exportDrawio(s), ext: "drawio" };
+        if (fmt === "svg") return { out: exportSvg(s), ext: "svg" };
+        if (fmt === "json") return { out: exportJson(s), ext: "json" };
         throw new Error("export <drawio|svg|json>");
+      };
+      if (boolFlag(flags.split)) {
+        const comps = splitComponents(state);
+        if (comps.length <= 1) {
+          process.stdout.write(`only 1 component \u2014 nothing to split; exporting whole diagram
+`);
+        } else if (typeof flags.out === "string") {
+          const p = parsePath(flags.out);
+          comps.forEach((c) => {
+            const { out: out2, ext: ext2 } = render(c.state);
+            const file = `${p.dir ? p.dir + "/" : ""}${p.name}-${c.name}.${ext2}`;
+            writeFileSync(resolve(process.cwd(), file), out2, "utf8");
+            process.stdout.write(`wrote ${file} (${ext2}, ${out2.length} bytes)
+`);
+          });
+          break;
+        } else {
+          comps.forEach((c) => {
+            const { out: out2 } = render(c.state);
+            process.stdout.write(`=== component: ${c.name} ===
+${out2}
+`);
+          });
+          break;
+        }
       }
+      const { out, ext } = render(state);
       if (typeof flags.out === "string") {
         writeFileSync(resolve(process.cwd(), flags.out), out, "utf8");
         process.stdout.write(`wrote ${flags.out} (${ext}, ${out.length} bytes)

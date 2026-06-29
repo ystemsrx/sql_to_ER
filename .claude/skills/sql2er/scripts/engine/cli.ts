@@ -10,9 +10,11 @@ import {
   move,
   nudge,
   swap,
+  splitComponents,
   DEFAULT_SETTINGS,
   type State,
 } from "./ops";
+import { parse as parsePath } from "node:path";
 import { describe, describeJson } from "./describe";
 import { exportDrawio, exportJson, exportSvg } from "./exporters";
 import { createHeadlessGraph } from "./adapter";
@@ -116,6 +118,8 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
   export <drawio|svg|json> Write output. --out <file> (else stdout).
+      --split                        one diagram per disconnected component
+                                     (--out base.ext -> base-<name>.ext per component)
   help
 `;
 
@@ -220,20 +224,37 @@ function main(): void {
     case "export": {
       const fmt = _[1];
       const state = loadState(flags);
-      let out: string;
-      let ext: string;
-      if (fmt === "drawio") {
-        out = exportDrawio(state);
-        ext = "drawio";
-      } else if (fmt === "svg") {
-        out = exportSvg(state);
-        ext = "svg";
-      } else if (fmt === "json") {
-        out = exportJson(state);
-        ext = "json";
-      } else {
+      const render = (s: State): { out: string; ext: string } => {
+        if (fmt === "drawio") return { out: exportDrawio(s), ext: "drawio" };
+        if (fmt === "svg") return { out: exportSvg(s), ext: "svg" };
+        if (fmt === "json") return { out: exportJson(s), ext: "json" };
         throw new Error("export <drawio|svg|json>");
+      };
+
+      // --split: one diagram per disconnected component (unrelated tables/clusters)
+      if (boolFlag(flags.split)) {
+        const comps = splitComponents(state);
+        if (comps.length <= 1) {
+          process.stdout.write(`only 1 component — nothing to split; exporting whole diagram\n`);
+        } else if (typeof flags.out === "string") {
+          const p = parsePath(flags.out);
+          comps.forEach((c) => {
+            const { out, ext } = render(c.state);
+            const file = `${p.dir ? p.dir + "/" : ""}${p.name}-${c.name}.${ext}`;
+            writeFileSync(resolve(process.cwd(), file), out, "utf8");
+            process.stdout.write(`wrote ${file} (${ext}, ${out.length} bytes)\n`);
+          });
+          break;
+        } else {
+          comps.forEach((c) => {
+            const { out } = render(c.state);
+            process.stdout.write(`=== component: ${c.name} ===\n${out}\n`);
+          });
+          break;
+        }
       }
+
+      const { out, ext } = render(state);
       if (typeof flags.out === "string") {
         writeFileSync(resolve(process.cwd(), flags.out), out, "utf8");
         process.stdout.write(`wrote ${flags.out} (${ext}, ${out.length} bytes)\n`);

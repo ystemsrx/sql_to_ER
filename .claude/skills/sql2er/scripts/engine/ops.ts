@@ -231,3 +231,112 @@ function unresolved(state: State, arg: string): string {
   const ents = state.nodes.filter((n) => n.nodeType === "entity").map((n) => String(n.label));
   return `Could not resolve "${arg}" to a unique node. Entities: ${ents.join(", ")}. Use an exact node id from describe.`;
 }
+
+/**
+ * Split a graph into one sub-state per connected component (entities linked via
+ * relationships). A schema with several unrelated tables/clusters becomes several
+ * independent diagrams. Each component keeps its absolute positions, so exporters
+ * frame it on its own bbox — no re-layout needed.
+ */
+export interface Component {
+  name: string;
+  state: State;
+}
+
+export function splitComponents(state: State): Component[] {
+  const entities = state.nodes.filter((n) => n.nodeType === "entity");
+  const rels = state.nodes.filter((n) => n.nodeType === "relationship");
+
+  // relationship -> the entity ids it connects, from the two ER edges
+  const relEnts = new Map<string, string[]>();
+  rels.forEach((r) => relEnts.set(r.id, []));
+  state.edges.forEach((e) => {
+    if (e.edgeType === "entity-relationship" && relEnts.has(e.target))
+      relEnts.get(e.target)!.push(e.source);
+    if (e.edgeType === "relationship-entity" && relEnts.has(e.source))
+      relEnts.get(e.source)!.push(e.target);
+  });
+
+  // entity adjacency (binary relationships connect their two entities)
+  const adj = new Map<string, Set<string>>();
+  entities.forEach((e) => adj.set(e.id, new Set()));
+  relEnts.forEach((ids) => {
+    const uniq = [...new Set(ids)];
+    for (let i = 0; i < uniq.length; i++) {
+      for (let j = i + 1; j < uniq.length; j++) {
+        if (adj.has(uniq[i]) && adj.has(uniq[j])) {
+          adj.get(uniq[i])!.add(uniq[j]);
+          adj.get(uniq[j])!.add(uniq[i]);
+        }
+      }
+    }
+  });
+
+  // connected components over entities (stable order)
+  const seen = new Set<string>();
+  const comps: string[][] = [];
+  entities
+    .map((e) => e.id)
+    .sort()
+    .forEach((id) => {
+      if (seen.has(id)) return;
+      const stack = [id];
+      const comp: string[] = [];
+      seen.add(id);
+      while (stack.length) {
+        const cur = stack.pop()!;
+        comp.push(cur);
+        (adj.get(cur) ?? []).forEach((nb) => {
+          if (!seen.has(nb)) {
+            seen.add(nb);
+            stack.push(nb);
+          }
+        });
+      }
+      comps.push(comp);
+    });
+
+  const usedNames = new Map<string, number>();
+  const nameFor = (entIds: string[]): string => {
+    // representative = highest-degree entity (tie → alphabetical by table name)
+    const labelOf = (id: string) => {
+      const n = state.nodes.find((x) => x.id === id);
+      return String((n as { nameLabel?: string })?.nameLabel ?? n?.label ?? id);
+    };
+    const rep = entIds
+      .slice()
+      .sort(
+        (a, b) =>
+          (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0) || labelOf(a).localeCompare(labelOf(b)),
+      )[0];
+    let base = labelOf(rep)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (!base) base = "component";
+    const n = usedNames.get(base) ?? 0;
+    usedNames.set(base, n + 1);
+    return n === 0 ? base : `${base}_${n + 1}`;
+  };
+
+  return comps.map((entIds) => {
+    const entSet = new Set(entIds);
+    // relationships whose connected entities are all within this component
+    const relIds = new Set(
+      rels
+        .filter((r) => {
+          const ids = [...new Set(relEnts.get(r.id) ?? [])];
+          return ids.length > 0 && ids.every((id) => entSet.has(id));
+        })
+        .map((r) => r.id),
+    );
+    const nodeSet = new Set<string>([...entSet, ...relIds]);
+    state.nodes.forEach((n) => {
+      if (n.nodeType === "attribute" && n.parentEntity && entSet.has(n.parentEntity))
+        nodeSet.add(n.id);
+    });
+    const nodes = state.nodes.filter((n) => nodeSet.has(n.id));
+    const edges = state.edges.filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target));
+    return { name: nameFor(entIds), state: { ...state, nodes, edges } };
+  });
+}

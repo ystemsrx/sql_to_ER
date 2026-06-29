@@ -166,7 +166,15 @@ function buildScene(graph: HeadlessGraph): Scene {
       }
       components.push(comp.sort());
     });
-  const isolated = entities.filter((e) => (adj.get(e.id)?.size ?? 0) === 0).map((e) => e.id);
+  // "isolated" = participates in no relationship at all. A self-loop is still a
+  // relationship (deg ≥ 1) even though it adds no entity-to-entity adjacency, so
+  // it must not be flagged isolated.
+  const hasRel = new Set<string>();
+  relationships.forEach((r) => {
+    if (r.fromId) hasRel.add(r.fromId);
+    if (r.toId) hasRel.add(r.toId);
+  });
+  const isolated = entities.filter((e) => !hasRel.has(e.id)).map((e) => e.id);
 
   // crossings: each binary relationship is a segment entityFrom→entityTo
   const segs = relationships
@@ -427,10 +435,15 @@ function describeFocus(scene: Scene, focusArg: string): string[] {
   const rels = scene.relationships.filter((r) => r.fromId === ent.id || r.toId === ent.id);
   L.push(`  relations: ${rels.length}`);
   rels.forEach((r) => {
-    const otherId = r.fromId === ent.id ? r.toId : r.fromId;
-    const other = otherId ? (scene.entityById.get(otherId)?.label ?? otherId) : "self";
+    // Print the canonical from→to with its cardinality (identical to the main
+    // RELATIONS block) so the arrow always means FK direction. Reorienting the
+    // arrow to the focused entity without flipping the cardinality misreads the
+    // N:1 — keep one consistent convention instead.
+    const fromL = r.fromId ? (scene.entityById.get(r.fromId)?.label ?? r.fromId) : "?";
+    const toL = r.toId ? (scene.entityById.get(r.toId)?.label ?? r.toId) : "?";
+    const self = r.selfLoop ? " [self]" : "";
     L.push(
-      `    ${r.id}  ${r.label} → ${other}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`,
+      `    ${r.id}  ${r.label}  ${fromL}→${toL}${self}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`,
     );
   });
   const attrs = scene.attrsByEntity.get(ent.id) ?? [];
