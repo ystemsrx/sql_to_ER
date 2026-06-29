@@ -2512,7 +2512,7 @@ var arrangeLayout = (graph) => {
     const bbox = node.getBBox();
     return Math.max(bbox.width, bbox.height) / 2;
   };
-  const rectBoundary = (rx, ry, cosT, sinT) => {
+  const rectBoundary2 = (rx, ry, cosT, sinT) => {
     const ac = Math.abs(cosT);
     const as = Math.abs(sinT);
     if (ac < 1e-9) return ry;
@@ -2524,12 +2524,12 @@ var arrangeLayout = (graph) => {
     const denom = Math.sqrt(ry * ry * cosT * cosT + rx * rx * sinT * sinT);
     return denom > 1e-9 ? rx * ry / denom : 0;
   };
-  const diamondBoundary = (rx, ry, cosT, sinT) => {
+  const diamondBoundary2 = (rx, ry, cosT, sinT) => {
     if (rx <= 0 || ry <= 0) return 0;
     const denom = Math.abs(cosT) / rx + Math.abs(sinT) / ry;
     return denom > 1e-9 ? 1 / denom : 0;
   };
-  const normalizeAngle2 = (a) => {
+  const normalizeAngle3 = (a) => {
     let angle = a % (Math.PI * 2);
     if (angle < 0) angle += Math.PI * 2;
     return angle;
@@ -2645,7 +2645,7 @@ var arrangeLayout = (graph) => {
   const clearanceGap = 12;
   const minEntityRelationGap = 28;
   const orbitR = (ehx, ehy, ohx, ohy, cosT, sinT, floor) => {
-    const eOut = rectBoundary(ehx, ehy, cosT, sinT);
+    const eOut = rectBoundary2(ehx, ehy, cosT, sinT);
     const oIn = ellipseBoundary(ohx, ohy, cosT, sinT);
     return Math.max(eOut + oIn + 8, floor);
   };
@@ -2667,7 +2667,7 @@ var arrangeLayout = (graph) => {
     const ehx = entityHalfX.get(id) ?? 30;
     const ehy = entityHalfY.get(id) ?? 30;
     const rh = getRelHalfSize(relNode);
-    return rectBoundary(ehx, ehy, ux, uy) + diamondBoundary(rh.x, rh.y, ux, uy) + minEntityRelationGap;
+    return rectBoundary2(ehx, ehy, ux, uy) + diamondBoundary2(rh.x, rh.y, ux, uy) + minEntityRelationGap;
   };
   const computePairGeometryMinDistance = (idA, idB, relNode, posA, posB) => {
     const dx = posB.x - posA.x;
@@ -2683,11 +2683,11 @@ var arrangeLayout = (graph) => {
     const dist = Math.hypot(dx, dy) || 1;
     const ux = dx / dist;
     const uy = dy / dist;
-    const aEntity = rectBoundary(entityHalfX.get(idA) ?? 30, entityHalfY.get(idA) ?? 30, ux, uy);
-    const bEntity = rectBoundary(entityHalfX.get(idB) ?? 30, entityHalfY.get(idB) ?? 30, -ux, -uy);
+    const aEntity = rectBoundary2(entityHalfX.get(idA) ?? 30, entityHalfY.get(idA) ?? 30, ux, uy);
+    const bEntity = rectBoundary2(entityHalfX.get(idB) ?? 30, entityHalfY.get(idB) ?? 30, -ux, -uy);
     const rh = getRelHalfSize(relNode);
-    const relToA = diamondBoundary(rh.x, rh.y, -ux, -uy);
-    const relToB = diamondBoundary(rh.x, rh.y, ux, uy);
+    const relToA = diamondBoundary2(rh.x, rh.y, -ux, -uy);
+    const relToB = diamondBoundary2(rh.x, rh.y, ux, uy);
     const free = dist - aEntity - relToA - bEntity - relToB;
     const gap = Math.max(minEntityRelationGap, free / 2);
     const minFromA = aEntity + relToA + minEntityRelationGap;
@@ -3005,7 +3005,7 @@ var arrangeLayout = (graph) => {
       if (s.type === "rel" && s.otherEntity) {
         const otherPos = entityPositions.get(s.otherEntity.getModel().id);
         if (otherPos) {
-          const angle = normalizeAngle2(Math.atan2(otherPos.y - center.y, otherPos.x - center.x));
+          const angle = normalizeAngle3(Math.atan2(otherPos.y - center.y, otherPos.x - center.x));
           avoidAngles.push(angle);
         }
       }
@@ -3036,8 +3036,8 @@ var arrangeLayout = (graph) => {
     const sortedSatellites = orbitalSatellites.slice().sort((a, b) => {
       const ma = a.node.getModel();
       const mb = b.node.getModel();
-      const angleA = normalizeAngle2(Math.atan2(ma.y - center.y, ma.x - center.x));
-      const angleB = normalizeAngle2(Math.atan2(mb.y - center.y, mb.x - center.x));
+      const angleA = normalizeAngle3(Math.atan2(ma.y - center.y, ma.x - center.x));
+      const angleB = normalizeAngle3(Math.atan2(mb.y - center.y, mb.x - center.x));
       return angleA - angleB;
     });
     const totalCount = sortedSatellites.length;
@@ -3077,7 +3077,7 @@ var arrangeLayout = (graph) => {
       const step = (s.end - s.start) / count;
       for (let i = 0; i < count; i++) {
         const angle = s.start + step * (i + 0.5);
-        const useAngle = normalizeAngle2(angle);
+        const useAngle = normalizeAngle3(angle);
         const cosA = Math.cos(useAngle);
         const sinA = Math.sin(useAngle);
         const satellite = sortedSatellites[nodeIdx++];
@@ -3085,7 +3085,7 @@ var arrangeLayout = (graph) => {
         const sb = satellite.node.getBBox();
         const shx = sb.width / 2;
         const shy = sb.height / 2;
-        const eOut = rectBoundary(ehx, ehy, cosA, sinA);
+        const eOut = rectBoundary2(ehx, ehy, cosA, sinA);
         const sIn = ellipseBoundary(shx, shy, cosA, sinA);
         const r = Math.max(eOut + sIn + 8, floor);
         const targetX = center.x + r * cosA;
@@ -3829,6 +3829,217 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
   graphInstance.setAutoPaint(true);
 };
 
+// src/graph/entityMoveSync.ts
+var DEFAULT_SIZES = {
+  entity: { width: 120, height: 52 },
+  relationship: { width: 82, height: 52 },
+  attribute: { width: 90, height: 44 }
+};
+var FALLBACK_SIZE = { width: 80, height: 40 };
+var MIN_ENTITY_RELATION_GAP = 28;
+var ATTRIBUTE_DIAMOND_GAP = 8;
+var TAU2 = Math.PI * 2;
+var positionOf = (node) => ({
+  x: typeof node.x === "number" ? node.x : 0,
+  y: typeof node.y === "number" ? node.y : 0
+});
+var fallbackSize = (node) => DEFAULT_SIZES[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE;
+var safeSize = (node, sizeOf) => {
+  const measured = sizeOf?.(node) ?? fallbackSize(node);
+  const fallback = fallbackSize(node);
+  return {
+    width: Number.isFinite(measured.width) && measured.width > 0 ? measured.width : fallback.width,
+    height: Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height
+  };
+};
+var rectBoundary = (rx, ry, ux, uy) => {
+  const ax = Math.abs(ux);
+  const ay = Math.abs(uy);
+  if (ax < 1e-9) return ry;
+  if (ay < 1e-9) return rx;
+  return Math.min(rx / ax, ry / ay);
+};
+var diamondBoundary = (rx, ry, ux, uy) => {
+  if (rx <= 0 || ry <= 0) return 0;
+  const denom = Math.abs(ux) / rx + Math.abs(uy) / ry;
+  return denom > 1e-9 ? 1 / denom : 0;
+};
+var normalizeAngle2 = (angle) => {
+  let x = angle % TAU2;
+  if (x < 0) x += TAU2;
+  return x;
+};
+var centerDistance = (a, b) => {
+  const pa = positionOf(a);
+  const pb = positionOf(b);
+  return Math.hypot(pa.x - pb.x, pa.y - pb.y);
+};
+var boxesOverlap = (a, as, b, bs, gap = 0) => Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap && Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
+function entityIdsForRelationship(relId, nodeById, edges) {
+  const ids = [];
+  edges.forEach((edge) => {
+    if (edge.edgeType !== "entity-relationship" && edge.edgeType !== "relationship-entity") {
+      return;
+    }
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!source || !target) return;
+    if (source.id === relId && target.nodeType === "entity") ids.push(target.id);
+    if (target.id === relId && source.nodeType === "entity") ids.push(source.id);
+  });
+  return [...new Set(ids)];
+}
+function computeRelationshipAnchor(entityA, entityB, relationship, sizeOf) {
+  const a = positionOf(entityA);
+  const b = positionOf(entityB);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const sizeA = safeSize(entityA, sizeOf);
+  const sizeB = safeSize(entityB, sizeOf);
+  const sizeR = safeSize(relationship, sizeOf);
+  const aBoundary = rectBoundary(sizeA.width / 2, sizeA.height / 2, ux, uy);
+  const bBoundary = rectBoundary(sizeB.width / 2, sizeB.height / 2, -ux, -uy);
+  const relTowardA = diamondBoundary(sizeR.width / 2, sizeR.height / 2, -ux, -uy);
+  const relTowardB = diamondBoundary(sizeR.width / 2, sizeR.height / 2, ux, uy);
+  const free = dist - aBoundary - relTowardA - bBoundary - relTowardB;
+  const equalGap = Math.max(MIN_ENTITY_RELATION_GAP, free / 2);
+  const minFromA = aBoundary + relTowardA + MIN_ENTITY_RELATION_GAP;
+  const maxFromA = dist - bBoundary - relTowardB - MIN_ENTITY_RELATION_GAP;
+  const idealFromA = aBoundary + relTowardA + equalGap;
+  const fromA = maxFromA > minFromA ? Math.min(Math.max(idealFromA, minFromA), maxFromA) : dist / 2;
+  return {
+    x: a.x + ux * fromA,
+    y: a.y + uy * fromA
+  };
+}
+function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, sizeOf) {
+  const movedIds = new Set(movedEntityIds);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const relationshipTargets = /* @__PURE__ */ new Map();
+  const affectedEntityIds = /* @__PURE__ */ new Set();
+  nodes.forEach((relationship) => {
+    if (relationship.nodeType !== "relationship") return;
+    const entityIds = entityIdsForRelationship(relationship.id, nodeById, edges);
+    if (entityIds.length !== 2 || !entityIds.some((id) => movedIds.has(id))) return;
+    const entityA = nodeById.get(entityIds[0]);
+    const entityB = nodeById.get(entityIds[1]);
+    if (!entityA || !entityB) return;
+    relationshipTargets.set(
+      relationship.id,
+      computeRelationshipAnchor(entityA, entityB, relationship, sizeOf)
+    );
+    affectedEntityIds.add(entityA.id);
+    affectedEntityIds.add(entityB.id);
+  });
+  return { relationshipTargets, affectedEntityIds };
+}
+function applyNodePositionTargets(nodes, targets) {
+  if (!targets.size) return;
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  targets.forEach((target, id) => {
+    const node = nodeById.get(id);
+    if (!node) return;
+    node.x = target.x;
+    node.y = target.y;
+  });
+}
+function computeAttributeRotationTargets(nodes, edges, entityIds, sizeOf) {
+  const targets = /* @__PURE__ */ new Map();
+  const entityIdSet = new Set(entityIds);
+  if (!entityIdSet.size) return targets;
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const relationshipIdsByEntity = /* @__PURE__ */ new Map();
+  edges.forEach((edge) => {
+    if (edge.edgeType !== "entity-relationship" && edge.edgeType !== "relationship-entity") {
+      return;
+    }
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!source || !target) return;
+    const entity = source.nodeType === "entity" ? source : target.nodeType === "entity" ? target : null;
+    const relationship = source.nodeType === "relationship" ? source : target.nodeType === "relationship" ? target : null;
+    if (!entity || !relationship || !entityIdSet.has(entity.id)) return;
+    if (!relationshipIdsByEntity.has(entity.id)) relationshipIdsByEntity.set(entity.id, /* @__PURE__ */ new Set());
+    relationshipIdsByEntity.get(entity.id).add(relationship.id);
+  });
+  const attrsByEntity = /* @__PURE__ */ new Map();
+  nodes.forEach((node) => {
+    if (node.nodeType === "attribute" && typeof node.parentEntity === "string" && entityIdSet.has(node.parentEntity)) {
+      if (!attrsByEntity.has(node.parentEntity)) attrsByEntity.set(node.parentEntity, []);
+      attrsByEntity.get(node.parentEntity).push(node);
+    }
+  });
+  const relationshipObstacles = nodes.filter((node) => node.nodeType === "relationship").map((node) => ({ node, pos: positionOf(node), size: safeSize(node, sizeOf) }));
+  const attributeObstacles = nodes.filter((node) => node.nodeType === "attribute").map((node) => ({
+    node,
+    pos: positionOf(node),
+    size: safeSize(node, sizeOf)
+  }));
+  const pointFor = (entity, radius, angle) => {
+    const c = positionOf(entity);
+    return {
+      x: c.x + radius * Math.cos(angle),
+      y: c.y + radius * Math.sin(angle)
+    };
+  };
+  const candidateOverlaps = (attr, point, attrSize, relatedRelationshipIds) => {
+    let hard = 0;
+    let soft = 0;
+    relationshipObstacles.forEach((obstacle) => {
+      const gap = relatedRelationshipIds.has(obstacle.node.id) ? ATTRIBUTE_DIAMOND_GAP : 2;
+      if (boxesOverlap(point, attrSize, obstacle.pos, obstacle.size, gap)) hard++;
+    });
+    attributeObstacles.forEach((obstacle) => {
+      if (obstacle.node.id === attr.id) return;
+      const target = targets.get(obstacle.node.id);
+      const obstaclePos = target ?? obstacle.pos;
+      if (boxesOverlap(point, attrSize, obstaclePos, obstacle.size, 4)) soft++;
+    });
+    return { hard, soft };
+  };
+  entityIdSet.forEach((entityId) => {
+    const entity = nodeById.get(entityId);
+    if (!entity) return;
+    const attrs = attrsByEntity.get(entityId) ?? [];
+    const relatedRelationshipIds = relationshipIdsByEntity.get(entityId) ?? /* @__PURE__ */ new Set();
+    if (!attrs.length || !relatedRelationshipIds.size) return;
+    attrs.forEach((attr) => {
+      const center = positionOf(entity);
+      const current = positionOf(attr);
+      const radius = centerDistance(entity, attr);
+      if (radius < 1e-6) return;
+      const attrSize = safeSize(attr, sizeOf);
+      const currentScore = candidateOverlaps(attr, current, attrSize, relatedRelationshipIds);
+      if (currentScore.hard === 0) return;
+      const currentAngle = normalizeAngle2(Math.atan2(current.y - center.y, current.x - center.x));
+      let best = null;
+      const consider = (angleDelta) => {
+        const point = pointFor(entity, radius, currentAngle + angleDelta);
+        const score = candidateOverlaps(attr, point, attrSize, relatedRelationshipIds);
+        if (!best || score.hard < best.score.hard || score.hard === best.score.hard && score.soft < best.score.soft || score.hard === best.score.hard && score.soft === best.score.soft && Math.abs(angleDelta) < Math.abs(best.angleDelta)) {
+          best = { point, score, angleDelta };
+        }
+      };
+      consider(0);
+      const STEPS = 72;
+      for (let step = 1; step <= STEPS / 2; step++) {
+        const delta = step / STEPS * TAU2;
+        consider(delta);
+        consider(-delta);
+        if (best?.score.hard === 0 && best.score.soft === 0) break;
+      }
+      if (!best || best.score.hard >= currentScore.hard && best.score.soft >= currentScore.soft) {
+        return;
+      }
+      targets.set(attr.id, best.point);
+    });
+  });
+  return targets;
+}
+
 // skills/sql2er/scripts/engine/adapter.ts
 var makeBBox = (model) => {
   const { width, height } = measureNodeSize(model);
@@ -3911,7 +4122,7 @@ function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800)
 }
 
 // skills/sql2er/scripts/engine/skeleton.ts
-var TAU2 = Math.PI * 2;
+var TAU3 = Math.PI * 2;
 var GAP = 8;
 var halfDiag = (m) => {
   const s = measureNodeSize(m);
@@ -3927,7 +4138,7 @@ function ringRadiusFor(entity, attrs) {
   const halves = attrs.map(maxHalfOf);
   const maxHalf = Math.max(...halves);
   const radialMin = entR + maxHalf + GAP;
-  const target = TAU2 * 0.92;
+  const target = TAU3 * 0.92;
   const sum = (R) => halves.reduce((s, h) => s + 2 * Math.asin(Math.min(0.999, (h + GAP / 2) / R)), 0);
   let lo = radialMin;
   let hi = radialMin;
@@ -4096,8 +4307,8 @@ function balanceTwoDiamondEntities(pos, ring, foot, incident, E, rounds) {
       let bx = ox;
       let by = oy;
       for (let d = 0; d < DIRS; d++) {
-        const ux = Math.cos(d / DIRS * TAU2);
-        const uy = Math.sin(d / DIRS * TAU2);
+        const ux = Math.cos(d / DIRS * TAU3);
+        const uy = Math.sin(d / DIRS * TAU3);
         for (const st of steps) {
           pos[i].x = ox + ux * st;
           pos[i].y = oy + uy * st;
@@ -4256,8 +4467,8 @@ function stressLayout(nodes, edges, ringOverride) {
       for (let i = 0; i < m; i++)
         for (let j = 0; j < m; j++) if (D[i][k] + D[k][j] < D[i][j]) D[i][j] = D[i][k] + D[k][j];
     const pos = local.map((e, i) => ({
-      x: typeof e.x === "number" ? e.x : Math.cos(i / m * TAU2) * 200,
-      y: typeof e.y === "number" ? e.y : Math.sin(i / m * TAU2) * 200
+      x: typeof e.x === "number" ? e.x : Math.cos(i / m * TAU3) * 200,
+      y: typeof e.y === "number" ? e.y : Math.sin(i / m * TAU3) * 200
     }));
     const rads = local.map((e) => footprint.get(e.id));
     const idSet = new Set(ids);
@@ -4530,10 +4741,26 @@ function translateCluster(state, node, dx, dy) {
     });
   }
 }
-var TAU3 = Math.PI * 2;
+function syncMovedEntities(state, entityIds) {
+  const { relationshipTargets, affectedEntityIds } = computeMovedEntityRelationshipTargets(
+    state.nodes,
+    state.edges,
+    entityIds,
+    measureNodeSize
+  );
+  applyNodePositionTargets(state.nodes, relationshipTargets);
+  const attrTargets = computeAttributeRotationTargets(
+    state.nodes,
+    state.edges,
+    affectedEntityIds,
+    measureNodeSize
+  );
+  applyNodePositionTargets(state.nodes, attrTargets);
+}
+var TAU4 = Math.PI * 2;
 var normAngle = (a) => {
-  let x = a % TAU3;
-  if (x < 0) x += TAU3;
+  let x = a % TAU4;
+  if (x < 0) x += TAU4;
   return x;
 };
 function placeAttributesCompact(state) {
@@ -4655,7 +4882,7 @@ function placeAttributesModerate(state) {
     const angWidth = (half, R2) => 2 * Math.asin(Math.min(0.999, (half + GAP2 / 2) / R2));
     const angularSum = (R2) => items.reduce((s, it) => s + angWidth(it.half, R2), 0);
     const radialMin = entR + maxHalf + GAP2;
-    const target = TAU3 * 0.92;
+    const target = TAU4 * 0.92;
     let lo = radialMin;
     let hi = radialMin;
     while (angularSum(hi) > target && hi < radialMin + 6e3) hi *= 1.5;
@@ -4667,7 +4894,7 @@ function placeAttributesModerate(state) {
     const R = hi;
     const ordered = items.slice().sort((a, b) => angleOf(a.at, ecx, ecy) - angleOf(b.at, ecx, ecy));
     const widths = ordered.map((it) => angWidth(it.half, R));
-    const slack = Math.max(0, TAU3 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
+    const slack = Math.max(0, TAU4 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
     const baseAngles = [];
     let acc = 0;
     for (let i = 0; i < ordered.length; i++) {
@@ -4680,13 +4907,13 @@ function placeAttributesModerate(state) {
       const TRIES = 36;
       let best = -Infinity;
       for (let t = 0; t < TRIES; t++) {
-        const ph = t / TRIES * TAU3;
+        const ph = t / TRIES * TAU4;
         let minGap = Infinity;
         for (const ba of baseAngles) {
           const slot = normAngle(ph + ba);
           for (const r of rels) {
             let d = Math.abs(slot - r);
-            d = Math.min(d, TAU3 - d);
+            d = Math.min(d, TAU4 - d);
             if (d < minGap) minGap = d;
           }
         }
@@ -4760,18 +4987,18 @@ function placeAttributesModerate(state) {
     const localStep = Math.max(6, Math.min(12, half / 4));
     const localMax = Math.max(220, half * 8);
     for (let r = localStep; r <= localMax; r += localStep) {
-      const steps = Math.max(24, Math.ceil(TAU3 * r / localStep));
+      const steps = Math.max(24, Math.ceil(TAU4 * r / localStep));
       for (let k = 0; k < steps; k++) {
-        const ang = k / steps * TAU3;
+        const ang = k / steps * TAU4;
         consider(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
       }
       if (best && best.d + localStep < r) break;
     }
     for (let dr = 0; dr <= 8; dr++) {
       const R2 = curR + dr * (half * 0.6 + 6);
-      const steps = Math.max(36, Math.round(TAU3 * R2 / (half + 6)));
+      const steps = Math.max(36, Math.round(TAU4 * R2 / (half + 6)));
       for (let k = 0; k < steps; k++) {
-        const ang = curAng + k / steps * TAU3;
+        const ang = curAng + k / steps * TAU4;
         const x = ecx + R2 * Math.cos(ang);
         const y = ecy + R2 * Math.sin(ang);
         consider(x, y);
@@ -4839,6 +5066,7 @@ function move(state, arg, x, y, raw) {
   const dx = x - (typeof node.x === "number" ? node.x : 0);
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
+  syncMovedEntities(state, [node.id]);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -4846,6 +5074,7 @@ function nudge(state, arg, dx, dy, raw) {
   const node = resolveNode(state, arg);
   if (!node) throw new Error(unresolved(state, arg));
   translateCluster(state, node, dx, dy);
+  syncMovedEntities(state, [node.id]);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -4860,6 +5089,7 @@ function swap(state, argA, argB, raw) {
   const by = typeof b.y === "number" ? b.y : 0;
   translateCluster(state, a, bx - ax, by - ay);
   translateCluster(state, b, ax - bx, ay - by);
+  syncMovedEntities(state, [a.id, b.id]);
   if (!raw) settle(state);
   return {
     state: { ...state },
@@ -5741,7 +5971,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
                            (rooms for attribute rings; the recommended default);
                            arrange = settle current positions.
-  move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
+  move <id|label> <x> <y>  Place an entity (attributes and diamonds follow). Then settles
                            with one arrange pass unless --raw.
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
   swap <a> <b>             Exchange two entities' positions. --raw to skip settle.

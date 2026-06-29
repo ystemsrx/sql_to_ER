@@ -14,6 +14,11 @@ import { generateChenModelData, measureNodeSize } from "@app/builder";
 import { forceAlignLayout, arrangeLayout } from "@app/layout";
 import { computeAttributePositions } from "@app/attributeLayout";
 import { updateGraphStyles } from "@app/graph/updateGraphStyles";
+import {
+  applyNodePositionTargets,
+  computeAttributeRotationTargets,
+  computeMovedEntityRelationshipTargets,
+} from "@app/graph/entityMoveSync";
 import type { EREdgeModel, ERNodeModel, ParseResult } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import { stressLayout, ringRadiusFor } from "./skeleton";
@@ -218,6 +223,23 @@ function translateCluster(state: State, node: ERNodeModel, dx: number, dy: numbe
       }
     });
   }
+}
+
+function syncMovedEntities(state: State, entityIds: string[]): void {
+  const { relationshipTargets, affectedEntityIds } = computeMovedEntityRelationshipTargets(
+    state.nodes,
+    state.edges,
+    entityIds,
+    measureNodeSize,
+  );
+  applyNodePositionTargets(state.nodes, relationshipTargets);
+  const attrTargets = computeAttributeRotationTargets(
+    state.nodes,
+    state.edges,
+    affectedEntityIds,
+    measureNodeSize,
+  );
+  applyNodePositionTargets(state.nodes, attrTargets);
 }
 
 // ─── Attribute orbit modes ───────────────────────────────────────────────
@@ -641,6 +663,7 @@ export function move(state: State, arg: string, x: number, y: number, raw: boole
   const dx = x - (typeof node.x === "number" ? node.x : 0);
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
+  syncMovedEntities(state, [node.id]);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -649,6 +672,7 @@ export function nudge(state: State, arg: string, dx: number, dy: number, raw: bo
   const node = resolveNode(state, arg);
   if (!node) throw new Error(unresolved(state, arg));
   translateCluster(state, node, dx, dy);
+  syncMovedEntities(state, [node.id]);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -664,6 +688,7 @@ export function swap(state: State, argA: string, argB: string, raw: boolean): Ed
   const by = typeof b.y === "number" ? b.y : 0;
   translateCluster(state, a, bx - ax, by - ay);
   translateCluster(state, b, ax - bx, ay - by);
+  syncMovedEntities(state, [a.id, b.id]);
   if (!raw) settle(state);
   return {
     state: { ...state },

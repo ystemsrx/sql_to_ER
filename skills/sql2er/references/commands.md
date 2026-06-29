@@ -94,8 +94,8 @@ Check the result with `describe` and compare `attrOverlaps` / `attrCrossings`.
 
 ## move / nudge / swap
 
-- `move <id|label> <x> <y>`: place an entity at absolute coordinates.
-- `nudge <id|label> <dx> <dy>`: shift an entity by delta.
+- `move <id|label> <x> <y>`: place an entity at absolute coordinates; its attributes and connected relationship diamonds follow.
+- `nudge <id|label> <dx> <dy>`: shift an entity by delta; its attributes and connected relationship diamonds follow.
 - `swap <a> <b>`: exchange two entity positions.
 
 Each runs one `arrange` pass afterward. Use `--raw` to skip settling. Coordinates are unbounded; exports fit the view to the graph.

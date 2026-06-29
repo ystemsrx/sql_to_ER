@@ -70,6 +70,28 @@ function distance(a: { x: number; y: number }, b: { x: number; y: number }): num
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function nodePosition(state: AgentState, id: string): { x: number; y: number } {
+  const node = state.nodes.find((n) => n.id === id);
+  if (!node) throw new Error(`missing node ${id}`);
+  return { x: node.x, y: node.y };
+}
+
+function expectPointOnSegment(
+  point: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const area2 = (point.x - a.x) * dy - (point.y - a.y) * dx;
+  const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+
+  expect(Math.abs(area2)).toBeLessThan(1e-6);
+  expect(t).toBeGreaterThan(0);
+  expect(t).toBeLessThan(1);
+}
+
 function makeAttributeRingState(count: number): AgentState {
   const nodes: AgentState["nodes"] = [
     { id: "entity-owner", type: "entity", label: "owner", nodeType: "entity", x: 0, y: 0 },
@@ -225,6 +247,68 @@ describe("sql2er agent CLI layout modes", () => {
 
       expect(arranged.status).toBe(0);
       expect(readState(state).nodes.find((n) => n.id === "entity-a")?.x).toBeGreaterThan(900);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sql2er agent CLI entity edits", () => {
+  it("keeps related relationship diamonds on the line between moved and fixed entities in raw moves", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: true,
+            fontScale: 1,
+            attrMode: "auto",
+          },
+          nodes: [
+            { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+            { id: "entity-b", type: "entity", label: "b", nodeType: "entity", x: 300, y: 100 },
+            {
+              id: "rel-a-b",
+              type: "relationship",
+              label: "a_b",
+              nodeType: "relationship",
+              x: 200,
+              y: 100,
+            },
+          ],
+          edges: [
+            {
+              id: "edge-a-rel",
+              source: "entity-a",
+              target: "rel-a-b",
+              edgeType: "entity-relationship",
+            },
+            {
+              id: "edge-rel-b",
+              source: "rel-a-b",
+              target: "entity-b",
+              edgeType: "relationship-entity",
+            },
+          ],
+        } satisfies AgentState),
+      );
+
+      const moved = runAgent(["move", "entity-a", "160", "180", "--raw", "--state", state]);
+
+      expect(moved.status).toBe(0);
+      const next = readState(state);
+      expectPointOnSegment(
+        nodePosition(next, "rel-a-b"),
+        nodePosition(next, "entity-a"),
+        nodePosition(next, "entity-b"),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

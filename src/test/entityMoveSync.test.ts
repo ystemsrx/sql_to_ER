@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import {
+  applyNodePositionTargets,
+  computeAttributeRotationTargets,
+  computeMovedEntityRelationshipTargets,
+} from "../graph/entityMoveSync";
+import type { EREdgeModel, ERNodeModel } from "../types";
+
+const sizeOf = (node: ERNodeModel) => {
+  if (node.nodeType === "relationship") return { width: 80, height: 48 };
+  if (node.nodeType === "attribute") return { width: 60, height: 40 };
+  return { width: 100, height: 50 };
+};
+
+const distance = (a: { x?: number; y?: number }, b: { x?: number; y?: number }) =>
+  Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? 0) - (b.y ?? 0));
+
+const overlaps = (
+  a: { x?: number; y?: number },
+  as: { width: number; height: number },
+  b: { x?: number; y?: number },
+  bs: { width: number; height: number },
+) =>
+  Math.abs((a.x ?? 0) - (b.x ?? 0)) < (as.width + bs.width) / 2 + 8 &&
+  Math.abs((a.y ?? 0) - (b.y ?? 0)) < (as.height + bs.height) / 2 + 8;
+
+describe("entity move synchronization", () => {
+  it("rotates covered attributes away from moved relationship diamonds without changing radius", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-a", type: "entity", nodeType: "entity", label: "a", x: 160, y: 180 },
+      { id: "entity-b", type: "entity", nodeType: "entity", label: "b", x: 300, y: 100 },
+      {
+        id: "rel-a-b",
+        type: "relationship",
+        nodeType: "relationship",
+        label: "a_b",
+        x: 200,
+        y: 100,
+      },
+      {
+        id: "attr-b",
+        type: "attribute",
+        nodeType: "attribute",
+        label: "b",
+        parentEntity: "entity-b",
+        x: 230,
+        y: 140,
+      },
+    ];
+    const edges: EREdgeModel[] = [
+      {
+        id: "edge-a-rel",
+        source: "entity-a",
+        target: "rel-a-b",
+        edgeType: "entity-relationship",
+      },
+      {
+        id: "edge-rel-b",
+        source: "rel-a-b",
+        target: "entity-b",
+        edgeType: "relationship-entity",
+      },
+      {
+        id: "edge-b-attr",
+        source: "entity-b",
+        target: "attr-b",
+        edgeType: "entity-attribute",
+      },
+    ];
+    const beforeRadius = distance(nodes[1], nodes[3]);
+
+    const relTargets = computeMovedEntityRelationshipTargets(nodes, edges, ["entity-a"], sizeOf);
+    applyNodePositionTargets(nodes, relTargets.relationshipTargets);
+    expect(overlaps(nodes[3], sizeOf(nodes[3]), nodes[2], sizeOf(nodes[2]))).toBe(true);
+
+    const attrTargets = computeAttributeRotationTargets(
+      nodes,
+      edges,
+      relTargets.affectedEntityIds,
+      sizeOf,
+    );
+    applyNodePositionTargets(nodes, attrTargets);
+
+    expect(attrTargets.has("attr-b")).toBe(true);
+    expect(distance(nodes[1], nodes[3])).toBeCloseTo(beforeRadius, 6);
+    expect(overlaps(nodes[3], sizeOf(nodes[3]), nodes[2], sizeOf(nodes[2]))).toBe(false);
+  });
+});

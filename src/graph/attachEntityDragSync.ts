@@ -1,5 +1,11 @@
 import type { GraphLike } from "../types";
 import type { HistoryManager } from "../history";
+import { animateNodesToTargets } from "../layout/animation";
+import {
+  computeAttributeRotationTargets,
+  computeMovedEntityRelationshipTargets,
+  type NodeSize,
+} from "./entityMoveSync";
 
 interface DraggableGraph extends GraphLike {
   on(event: string, handler: (e: any) => void): void;
@@ -31,7 +37,35 @@ export function attachEntityDragSync(
 
   let draggedEntity: any = null;
   let relatedAttributes: any[] = [];
+  let affectedEntityIds = new Set<string>();
   const dragStartPositions = new Map<string, { x: number; y: number }>();
+
+  const graphNodeModels = () => graph.getNodes().map((n: any) => n.getModel());
+  const graphEdgeModels = () => graph.getEdges().map((e: any) => e.getModel());
+  const measureNode = (model: { id?: string; width?: unknown; height?: unknown }): NodeSize => {
+    const item = typeof model.id === "string" ? graph.findById(model.id) : null;
+    const bbox =
+      item && typeof (item as any).getBBox === "function" ? (item as any).getBBox() : null;
+    if (bbox) return { width: bbox.width, height: bbox.height };
+    return {
+      width: typeof model.width === "number" ? model.width : 80,
+      height: typeof model.height === "number" ? model.height : 40,
+    };
+  };
+
+  const syncRelationshipDiamonds = (entityId: string): void => {
+    const result = computeMovedEntityRelationshipTargets(
+      graphNodeModels(),
+      graphEdgeModels(),
+      [entityId],
+      measureNode,
+    );
+    affectedEntityIds = result.affectedEntityIds;
+    result.relationshipTargets.forEach((target, id) => {
+      const item = graph.findById(id);
+      if (item) graph.updateItem(item, { x: target.x, y: target.y }, false);
+    });
+  };
 
   graph.on("node:dragstart", (e: any) => {
     const node = e.item;
@@ -43,6 +77,7 @@ export function attachEntityDragSync(
     if (nodeModel.type === "entity") {
       draggedEntity = node;
       relatedAttributes = [];
+      affectedEntityIds = new Set([nodeModel.id]);
       dragStartPositions.clear();
 
       dragStartPositions.set(nodeModel.id, {
@@ -52,10 +87,7 @@ export function attachEntityDragSync(
 
       graph.getNodes().forEach((n: any) => {
         const model = n.getModel();
-        if (
-          model.type === "attribute" &&
-          model.parentEntity === nodeModel.id
-        ) {
+        if (model.type === "attribute" && model.parentEntity === nodeModel.id) {
           relatedAttributes.push(n);
           dragStartPositions.set(model.id, { x: model.x, y: model.y });
         }
@@ -84,6 +116,7 @@ export function attachEntityDragSync(
             });
           }
         });
+        syncRelationshipDiamonds(nodeModel.id);
       }
     }
   });
@@ -92,8 +125,18 @@ export function attachEntityDragSync(
     const node = e.item;
     const nodeModel = node.getModel();
     if (nodeModel.type === "entity" && draggedEntity === node) {
+      if (!isForceActive || !isForceActive()) {
+        const attrTargets = computeAttributeRotationTargets(
+          graphNodeModels(),
+          graphEdgeModels(),
+          affectedEntityIds,
+          measureNode,
+        );
+        if (attrTargets.size) animateNodesToTargets(graph, attrTargets, 260);
+      }
       draggedEntity = null;
       relatedAttributes = [];
+      affectedEntityIds = new Set();
       dragStartPositions.clear();
     }
   });

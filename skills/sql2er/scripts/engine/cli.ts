@@ -121,7 +121,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
                            (rooms for attribute rings; the recommended default);
                            arrange = settle current positions.
-  move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
+  move <id|label> <x> <y>  Place an entity (attributes and diamonds follow). Then settles
                            with one arrange pass unless --raw.
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
   swap <a> <b>             Exchange two entities' positions. --raw to skip settle.
