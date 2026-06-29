@@ -7,6 +7,7 @@ interface Options {
   containerRef: MutableRefObject<HTMLElement | null>;
   graphRef: MutableRefObject<GraphLike | null>;
   historyRef: MutableRefObject<HistoryManager>;
+  onAfterChange?: () => void;
 }
 
 interface RotPivot {
@@ -17,11 +18,7 @@ interface RotPivot {
 // 自定义滚轮平滑缩放 / Ctrl+滚轮平滑旋转
 // - 仅改变节点位置，不旋转节点本身的形状/文字朝向
 // - 每格累积固定增量，用 rAF 做缓动动画，避免跳变
-export function useWheelZoomRotate({
-  containerRef,
-  graphRef,
-  historyRef,
-}: Options) {
+export function useWheelZoomRotate({ containerRef, graphRef, historyRef, onAfterChange }: Options) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -65,12 +62,7 @@ export function useWheelZoomRotate({
       return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
     };
 
-    const applyRotation = (
-      graph: GraphLike,
-      angle: number,
-      cx: number,
-      cy: number,
-    ) => {
+    const applyRotation = (graph: GraphLike, angle: number, cx: number, cy: number) => {
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
       graph.getNodes().forEach((node) => {
@@ -152,6 +144,7 @@ export function useWheelZoomRotate({
         rotBurstTimer = setTimeout(() => {
           rotBurstActive = false;
           rotBurstTimer = null;
+          if (typeof onAfterChange === "function") onAfterChange();
         }, ROT_BURST_GAP_MS);
         pendingAngle += (e.deltaY > 0 ? 1 : -1) * ROT_STEP;
       } else {
@@ -178,5 +171,5 @@ export function useWheelZoomRotate({
       if (rafId !== null) cancelAnimationFrame(rafId);
       if (rotBurstTimer !== null) clearTimeout(rotBurstTimer);
     };
-  }, [containerRef, graphRef, historyRef]);
+  }, [containerRef, graphRef, historyRef, onAfterChange]);
 }

@@ -20,7 +20,7 @@ import { attachEntityDragSync } from "../graph/attachEntityDragSync";
 import { attachForceLoop } from "../graph/forceLoop";
 import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
-import { useSnapshotPersistence } from "./useSnapshotPersistence";
+import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
 import type { ERNodeModel, GraphLike, ParsedTable, SnapshotRecord } from "../types";
 import type { HistoryManager } from "../history";
 
@@ -76,6 +76,8 @@ export interface UseGraphResult {
     showComment: boolean;
     hideFields: boolean;
   }) => Promise<void>;
+  persistCurrentSnapshot: () => Promise<void>;
+  scheduleCurrentSnapshotPersist: (delayMs?: number) => void;
 }
 
 /**
@@ -132,6 +134,34 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const persistence = useSnapshotPersistence({ graphRef, containerRef });
   const { persistSnapshot, schedulePersist, cancelPendingPersist } = persistence;
+
+  const currentPersistMeta = (): PersistMeta | null => {
+    const graph = graphRef.current;
+    if (!graph || graph.destroyed) return null;
+    const input = lastInputRef.current || stateRef.current.inputText;
+    const trimmed = String(input || "").trim();
+    if (!trimmed) return null;
+    return {
+      id: Snapshots.hashInput(trimmed),
+      inputText: trimmed,
+      isColored: stateRef.current.isColored,
+      showComment: stateRef.current.showComment,
+      hideFields: stateRef.current.hideFields,
+    };
+  };
+
+  const scheduleCurrentSnapshotPersist = (delayMs = 700) => {
+    const meta = currentPersistMeta();
+    if (!meta) return;
+    schedulePersist(meta, delayMs);
+  };
+
+  const persistCurrentSnapshot = (): Promise<void> => {
+    const meta = currentPersistMeta();
+    if (!meta) return Promise.resolve();
+    cancelPendingPersist();
+    return persistSnapshot(meta);
+  };
 
   const applyGraphStyles = (graph: GraphLike | null, colored: boolean, scale: number) => {
     updateGraphStyles(graph, colored, scale);
@@ -308,8 +338,18 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       // 双击编辑 + hover/drag 同步
       setupNodeDoubleClickEdit(graph as any, container, {
         onBeforeChange: () => historyRef.current.record(graph),
+        onAfterChange: () => {
+          void persistCurrentSnapshot();
+        },
       });
-      attachEntityDragSync(graph as any, historyRef.current, () => forceOnRef.current);
+      attachEntityDragSync(
+        graph as any,
+        historyRef.current,
+        () => forceOnRef.current,
+        () => {
+          void persistCurrentSnapshot();
+        },
+      );
 
       // 持续力导向控制器：拖动期间根据斥力 + 连边引力重排其它节点
       const forceCtrl = attachForceLoop(graph as any);
@@ -353,10 +393,12 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setIsColoredState(next);
     if (hasGraph && graphRef.current) {
       applyGraphStyles(graphRef.current, next, stateRef.current.fontScale);
+      scheduleCurrentSnapshotPersist();
     }
   };
 
   const setShowComment = (next: boolean) => {
+    stateRef.current.showComment = next;
     setShowCommentState(next);
     const graph = graphRef.current;
     if (!hasGraph || !graph || graph.destroyed) return;
@@ -382,9 +424,11 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     if (graph.refresh) graph.refresh();
     graph.paint();
     graph.setAutoPaint(true);
+    scheduleCurrentSnapshotPersist();
   };
 
   const setHideFields = (next: boolean) => {
+    stateRef.current.hideFields = next;
     setHideFieldsState(next);
     if (!hasGraph || !graphRef.current || graphRef.current.destroyed) return;
     // 显隐属性会改变节点集合，持续力导向控制器的速度图会失效，先关掉。
@@ -398,6 +442,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         stateRef.current.fontScale,
       );
     }
+    scheduleCurrentSnapshotPersist();
   };
 
   const setFontScale = (next: number) => {
@@ -406,6 +451,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setFontScaleState(safeNext);
     if (hasGraph && graphRef.current) {
       applyGraphStyles(graphRef.current, stateRef.current.isColored, safeNext);
+      scheduleCurrentSnapshotPersist();
     }
   };
 
@@ -480,6 +526,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     historyRef.current.record(graphRef.current);
     const containerWidth = containerRef.current?.offsetWidth || 1200;
     forceAlignLayout(graphRef.current, containerWidth);
+    scheduleCurrentSnapshotPersist(1200);
   };
 
   const handleArrangeLayout = () => {
@@ -487,6 +534,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     disableForceIfOn();
     historyRef.current.record(graphRef.current);
     arrangeLayout(graphRef.current);
+    scheduleCurrentSnapshotPersist(1200);
   };
 
   return {
@@ -515,5 +563,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     handleArrangeLayout,
     restoreFromSnapshot,
     persistSnapshot,
+    persistCurrentSnapshot,
+    scheduleCurrentSnapshotPersist,
   };
 }

@@ -7,6 +7,7 @@ import { patchRelationshipLinkPoints } from "../builder";
 interface Options {
   graphRef: MutableRefObject<GraphLike | null>;
   historyRef: MutableRefObject<HistoryManager>;
+  onAfterChange?: () => void;
 }
 
 const isEditableTarget = (el: EventTarget | null): boolean => {
@@ -20,7 +21,7 @@ const isEditableTarget = (el: EventTarget | null): boolean => {
 
 // 全局快捷键：Ctrl/Cmd+Z 撤销，Ctrl/Cmd+Y 或 Ctrl/Cmd+Shift+Z 重做。
 // 在 CodeMirror、原生 input/textarea、双击编辑框内不拦截（让原生撤销生效）。
-export function useUndoRedoShortcuts({ graphRef, historyRef }: Options) {
+export function useUndoRedoShortcuts({ graphRef, historyRef, onAfterChange }: Options) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -40,6 +41,7 @@ export function useUndoRedoShortcuts({ graphRef, historyRef }: Options) {
         try {
           patchRelationshipLinkPoints(graph);
         } catch (_) {}
+        if (typeof onAfterChange === "function") onAfterChange();
       };
       const action = isRedo ? "redo" : "undo";
       historyRef.current[action](graph, { onFinish });
@@ -47,5 +49,5 @@ export function useUndoRedoShortcuts({ graphRef, historyRef }: Options) {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [graphRef, historyRef]);
+  }, [graphRef, historyRef, onAfterChange]);
 }

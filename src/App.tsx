@@ -72,6 +72,7 @@ const App = () => {
     handleArrangeLayout,
     restoreFromSnapshot,
     persistSnapshot,
+    persistCurrentSnapshot,
   } = useGraph({ t, initialLang });
 
   // 监听语言切换事件（由顶部 vanilla 脚本派发）。
@@ -158,8 +159,21 @@ const App = () => {
     toExportIdle,
   } = useExportButton({ hasGraph, runExport, onError: setError });
 
-  useUndoRedoShortcuts({ graphRef, historyRef });
-  useWheelZoomRotate({ containerRef, graphRef, historyRef });
+  useUndoRedoShortcuts({
+    graphRef,
+    historyRef,
+    onAfterChange: () => {
+      void persistCurrentSnapshot();
+    },
+  });
+  useWheelZoomRotate({
+    containerRef,
+    graphRef,
+    historyRef,
+    onAfterChange: () => {
+      void persistCurrentSnapshot();
+    },
+  });
 
   // 切换背景显示
   const handleToggleBackground = () => {
@@ -208,11 +222,7 @@ const App = () => {
     setHistoryOpen(false);
   };
 
-  const updateFontScaleFromPointer = (
-    clientX: number,
-    clientY: number,
-    el: HTMLDivElement,
-  ) => {
+  const updateFontScaleFromPointer = (clientX: number, clientY: number, el: HTMLDivElement) => {
     const track = el.querySelector(".font-size-slider-track");
     const rect = (track ?? el).getBoundingClientRect();
     const isHorizontal = rect.width > rect.height;
