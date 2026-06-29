@@ -85,4 +85,64 @@ describe("entity move synchronization", () => {
     expect(distance(nodes[1], nodes[3])).toBeCloseTo(beforeRadius, 6);
     expect(overlaps(nodes[3], sizeOf(nodes[3]), nodes[2], sizeOf(nodes[2]))).toBe(false);
   });
+
+  it("translates single-entity relationship diamonds with the moved entity", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-a", type: "entity", nodeType: "entity", label: "a", x: 180, y: 160 },
+      {
+        id: "rel-one-edge",
+        type: "relationship",
+        nodeType: "relationship",
+        label: "single",
+        x: 140,
+        y: 100,
+      },
+      {
+        id: "rel-loop",
+        type: "relationship",
+        nodeType: "relationship",
+        label: "loop",
+        x: 100,
+        y: 40,
+        isSelfLoop: true,
+      },
+    ];
+    const edges: EREdgeModel[] = [
+      {
+        id: "edge-a-single",
+        source: "entity-a",
+        target: "rel-one-edge",
+        edgeType: "entity-relationship",
+      },
+      {
+        id: "edge-a-loop",
+        source: "entity-a",
+        target: "rel-loop",
+        edgeType: "entity-relationship",
+      },
+      {
+        id: "edge-loop-a",
+        source: "rel-loop",
+        target: "entity-a",
+        edgeType: "relationship-entity",
+      },
+    ];
+    const startPositions = new Map<string, { x: number; y: number }>([
+      ["entity-a", { x: 100, y: 100 }],
+      ["rel-one-edge", { x: 140, y: 100 }],
+      ["rel-loop", { x: 100, y: 40 }],
+    ]);
+
+    const relTargets = computeMovedEntityRelationshipTargets(
+      nodes,
+      edges,
+      ["entity-a"],
+      sizeOf,
+      startPositions,
+    );
+
+    expect(relTargets.relationshipTargets.get("rel-one-edge")).toEqual({ x: 220, y: 160 });
+    expect(relTargets.relationshipTargets.get("rel-loop")).toEqual({ x: 180, y: 100 });
+    expect(relTargets.affectedEntityIds.has("entity-a")).toBe(true);
+  });
 });

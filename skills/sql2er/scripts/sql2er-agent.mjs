@@ -3874,6 +3874,15 @@ var centerDistance = (a, b) => {
   const pb = positionOf(b);
   return Math.hypot(pa.x - pb.x, pa.y - pb.y);
 };
+var startPositionOf = (startPositions, node) => {
+  if (!startPositions) return null;
+  const point = startPositions.get(node.id);
+  if (!point) return null;
+  return {
+    x: typeof point.x === "number" ? point.x : positionOf(node).x,
+    y: typeof point.y === "number" ? point.y : positionOf(node).y
+  };
+};
 var boxesOverlap = (a, as, b, bs, gap = 0) => Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap && Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
 function entityIdsForRelationship(relId, nodeById, edges) {
   const ids = [];
@@ -3915,7 +3924,7 @@ function computeRelationshipAnchor(entityA, entityB, relationship, sizeOf) {
     y: a.y + uy * fromA
   };
 }
-function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, sizeOf) {
+function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, sizeOf, startPositions) {
   const movedIds = new Set(movedEntityIds);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const relationshipTargets = /* @__PURE__ */ new Map();
@@ -3923,16 +3932,31 @@ function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, siz
   nodes.forEach((relationship) => {
     if (relationship.nodeType !== "relationship") return;
     const entityIds = entityIdsForRelationship(relationship.id, nodeById, edges);
-    if (entityIds.length !== 2 || !entityIds.some((id) => movedIds.has(id))) return;
-    const entityA = nodeById.get(entityIds[0]);
-    const entityB = nodeById.get(entityIds[1]);
-    if (!entityA || !entityB) return;
-    relationshipTargets.set(
-      relationship.id,
-      computeRelationshipAnchor(entityA, entityB, relationship, sizeOf)
-    );
-    affectedEntityIds.add(entityA.id);
-    affectedEntityIds.add(entityB.id);
+    if (!entityIds.some((id) => movedIds.has(id))) return;
+    if (entityIds.length === 1) {
+      const entity = nodeById.get(entityIds[0]);
+      const entityStart = entity ? startPositionOf(startPositions, entity) : null;
+      const relStart = startPositionOf(startPositions, relationship);
+      if (!entity || !entityStart || !relStart) return;
+      const entityNow = positionOf(entity);
+      relationshipTargets.set(relationship.id, {
+        x: relStart.x + entityNow.x - entityStart.x,
+        y: relStart.y + entityNow.y - entityStart.y
+      });
+      affectedEntityIds.add(entity.id);
+      return;
+    }
+    if (entityIds.length === 2) {
+      const entityA = nodeById.get(entityIds[0]);
+      const entityB = nodeById.get(entityIds[1]);
+      if (!entityA || !entityB) return;
+      relationshipTargets.set(
+        relationship.id,
+        computeRelationshipAnchor(entityA, entityB, relationship, sizeOf)
+      );
+      affectedEntityIds.add(entityA.id);
+      affectedEntityIds.add(entityB.id);
+    }
   });
   return { relationshipTargets, affectedEntityIds };
 }
@@ -4741,12 +4765,24 @@ function translateCluster(state, node, dx, dy) {
     });
   }
 }
-function syncMovedEntities(state, entityIds) {
+function captureNodePositions(nodes) {
+  return new Map(
+    nodes.map((node) => [
+      node.id,
+      {
+        x: typeof node.x === "number" ? node.x : 0,
+        y: typeof node.y === "number" ? node.y : 0
+      }
+    ])
+  );
+}
+function syncMovedEntities(state, entityIds, startPositions) {
   const { relationshipTargets, affectedEntityIds } = computeMovedEntityRelationshipTargets(
     state.nodes,
     state.edges,
     entityIds,
-    measureNodeSize
+    measureNodeSize,
+    startPositions
   );
   applyNodePositionTargets(state.nodes, relationshipTargets);
   const attrTargets = computeAttributeRotationTargets(
@@ -5063,18 +5099,20 @@ function settle(state) {
 function move(state, arg, x, y, raw) {
   const node = resolveNode(state, arg);
   if (!node) throw new Error(unresolved(state, arg));
+  const startPositions = captureNodePositions(state.nodes);
   const dx = x - (typeof node.x === "number" ? node.x : 0);
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
-  syncMovedEntities(state, [node.id]);
+  syncMovedEntities(state, [node.id], startPositions);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 function nudge(state, arg, dx, dy, raw) {
   const node = resolveNode(state, arg);
   if (!node) throw new Error(unresolved(state, arg));
+  const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, node, dx, dy);
-  syncMovedEntities(state, [node.id]);
+  syncMovedEntities(state, [node.id], startPositions);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -5087,9 +5125,10 @@ function swap(state, argA, argB, raw) {
   const ay = typeof a.y === "number" ? a.y : 0;
   const bx = typeof b.x === "number" ? b.x : 0;
   const by = typeof b.y === "number" ? b.y : 0;
+  const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, a, bx - ax, by - ay);
   translateCluster(state, b, ax - bx, ay - by);
-  syncMovedEntities(state, [a.id, b.id]);
+  syncMovedEntities(state, [a.id, b.id], startPositions);
   if (!raw) settle(state);
   return {
     state: { ...state },

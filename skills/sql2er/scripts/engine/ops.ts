@@ -225,12 +225,29 @@ function translateCluster(state: State, node: ERNodeModel, dx: number, dy: numbe
   }
 }
 
-function syncMovedEntities(state: State, entityIds: string[]): void {
+function captureNodePositions(nodes: ERNodeModel[]): Map<string, { x: number; y: number }> {
+  return new Map(
+    nodes.map((node) => [
+      node.id,
+      {
+        x: typeof node.x === "number" ? node.x : 0,
+        y: typeof node.y === "number" ? node.y : 0,
+      },
+    ]),
+  );
+}
+
+function syncMovedEntities(
+  state: State,
+  entityIds: string[],
+  startPositions: Map<string, { x: number; y: number }>,
+): void {
   const { relationshipTargets, affectedEntityIds } = computeMovedEntityRelationshipTargets(
     state.nodes,
     state.edges,
     entityIds,
     measureNodeSize,
+    startPositions,
   );
   applyNodePositionTargets(state.nodes, relationshipTargets);
   const attrTargets = computeAttributeRotationTargets(
@@ -660,10 +677,11 @@ function settle(state: State) {
 export function move(state: State, arg: string, x: number, y: number, raw: boolean): EditResult {
   const node = resolveNode(state, arg);
   if (!node) throw new Error(unresolved(state, arg));
+  const startPositions = captureNodePositions(state.nodes);
   const dx = x - (typeof node.x === "number" ? node.x : 0);
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
-  syncMovedEntities(state, [node.id]);
+  syncMovedEntities(state, [node.id], startPositions);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -671,8 +689,9 @@ export function move(state: State, arg: string, x: number, y: number, raw: boole
 export function nudge(state: State, arg: string, dx: number, dy: number, raw: boolean): EditResult {
   const node = resolveNode(state, arg);
   if (!node) throw new Error(unresolved(state, arg));
+  const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, node, dx, dy);
-  syncMovedEntities(state, [node.id]);
+  syncMovedEntities(state, [node.id], startPositions);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -686,9 +705,10 @@ export function swap(state: State, argA: string, argB: string, raw: boolean): Ed
   const ay = typeof a.y === "number" ? a.y : 0;
   const bx = typeof b.x === "number" ? b.x : 0;
   const by = typeof b.y === "number" ? b.y : 0;
+  const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, a, bx - ax, by - ay);
   translateCluster(state, b, ax - bx, ay - by);
-  syncMovedEntities(state, [a.id, b.id]);
+  syncMovedEntities(state, [a.id, b.id], startPositions);
   if (!raw) settle(state);
   return {
     state: { ...state },

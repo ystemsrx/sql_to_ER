@@ -11,6 +11,7 @@ export interface NodeSize {
 }
 
 export type NodeSizeResolver = (node: ERNodeModel) => NodeSize;
+export type NodeStartPositions = ReadonlyMap<string, Point>;
 
 export interface RelationshipSyncResult {
   relationshipTargets: Map<string, Point>;
@@ -70,6 +71,19 @@ const centerDistance = (a: ERNodeModel, b: ERNodeModel): number => {
   const pa = positionOf(a);
   const pb = positionOf(b);
   return Math.hypot(pa.x - pb.x, pa.y - pb.y);
+};
+
+const startPositionOf = (
+  startPositions: NodeStartPositions | undefined,
+  node: ERNodeModel,
+): Point | null => {
+  if (!startPositions) return null;
+  const point = startPositions.get(node.id);
+  if (!point) return null;
+  return {
+    x: typeof point.x === "number" ? point.x : positionOf(node).x,
+    y: typeof point.y === "number" ? point.y : positionOf(node).y,
+  };
 };
 
 const boxesOverlap = (a: Point, as: NodeSize, b: Point, bs: NodeSize, gap = 0): boolean =>
@@ -134,6 +148,7 @@ export function computeMovedEntityRelationshipTargets(
   edges: EREdgeModel[],
   movedEntityIds: Iterable<string>,
   sizeOf?: NodeSizeResolver,
+  startPositions?: NodeStartPositions,
 ): RelationshipSyncResult {
   const movedIds = new Set(movedEntityIds);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -143,17 +158,33 @@ export function computeMovedEntityRelationshipTargets(
   nodes.forEach((relationship) => {
     if (relationship.nodeType !== "relationship") return;
     const entityIds = entityIdsForRelationship(relationship.id, nodeById, edges);
-    if (entityIds.length !== 2 || !entityIds.some((id) => movedIds.has(id))) return;
+    if (!entityIds.some((id) => movedIds.has(id))) return;
 
-    const entityA = nodeById.get(entityIds[0]);
-    const entityB = nodeById.get(entityIds[1]);
-    if (!entityA || !entityB) return;
-    relationshipTargets.set(
-      relationship.id,
-      computeRelationshipAnchor(entityA, entityB, relationship, sizeOf),
-    );
-    affectedEntityIds.add(entityA.id);
-    affectedEntityIds.add(entityB.id);
+    if (entityIds.length === 1) {
+      const entity = nodeById.get(entityIds[0]);
+      const entityStart = entity ? startPositionOf(startPositions, entity) : null;
+      const relStart = startPositionOf(startPositions, relationship);
+      if (!entity || !entityStart || !relStart) return;
+      const entityNow = positionOf(entity);
+      relationshipTargets.set(relationship.id, {
+        x: relStart.x + entityNow.x - entityStart.x,
+        y: relStart.y + entityNow.y - entityStart.y,
+      });
+      affectedEntityIds.add(entity.id);
+      return;
+    }
+
+    if (entityIds.length === 2) {
+      const entityA = nodeById.get(entityIds[0]);
+      const entityB = nodeById.get(entityIds[1]);
+      if (!entityA || !entityB) return;
+      relationshipTargets.set(
+        relationship.id,
+        computeRelationshipAnchor(entityA, entityB, relationship, sizeOf),
+      );
+      affectedEntityIds.add(entityA.id);
+      affectedEntityIds.add(entityB.id);
+    }
   });
 
   return { relationshipTargets, affectedEntityIds };

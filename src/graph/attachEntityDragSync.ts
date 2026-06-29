@@ -27,6 +27,7 @@ export function attachEntityDragSync(
   graph: DraggableGraph,
   history: HistoryManager,
   isForceActive?: () => boolean,
+  onAfterChange?: () => void,
 ): void {
   graph.on("node:mouseenter", (e: any) => {
     graph.setItemState(e.item, "hover", true);
@@ -35,10 +36,20 @@ export function attachEntityDragSync(
     graph.setItemState(e.item, "hover", false);
   });
 
+  let draggedNode: any = null;
+  let draggedNodeStart: { x: number; y: number } | null = null;
   let draggedEntity: any = null;
   let relatedAttributes: any[] = [];
   let affectedEntityIds = new Set<string>();
+  let relationshipReturnOffsets = new Map<string, { dx: number; dy: number; startTime: number }>();
+  let didDragNode = false;
+  let didDragEntity = false;
   const dragStartPositions = new Map<string, { x: number; y: number }>();
+  const RELATIONSHIP_SMOOTH_THRESHOLD = 2;
+  const RELATIONSHIP_RETURN_DURATION = 280;
+
+  const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+  const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
   const graphNodeModels = () => graph.getNodes().map((n: any) => n.getModel());
   const graphEdgeModels = () => graph.getEdges().map((e: any) => e.getModel());
@@ -59,12 +70,89 @@ export function attachEntityDragSync(
       graphEdgeModels(),
       [entityId],
       measureNode,
+      dragStartPositions,
     );
     affectedEntityIds = result.affectedEntityIds;
     result.relationshipTargets.forEach((target, id) => {
       const item = graph.findById(id);
-      if (item) graph.updateItem(item, { x: target.x, y: target.y }, false);
+      if (!item) return;
+      const returnOffset = relationshipReturnOffsets.get(id);
+      if (!returnOffset) {
+        graph.updateItem(item, { x: target.x, y: target.y }, false);
+        return;
+      }
+
+      const elapsed = performance.now() - returnOffset.startTime;
+      const progress = clamp01(elapsed / RELATIONSHIP_RETURN_DURATION);
+      if (progress >= 1) {
+        relationshipReturnOffsets.delete(id);
+        graph.updateItem(item, { x: target.x, y: target.y }, false);
+        return;
+      }
+      const remaining = 1 - easeOutCubic(progress);
+      graph.updateItem(
+        item,
+        {
+          x: target.x + returnOffset.dx * remaining,
+          y: target.y + returnOffset.dy * remaining,
+        },
+        false,
+      );
     });
+  };
+
+  const markRelationshipsNeedingSmoothReturn = (entityId: string): void => {
+    relationshipReturnOffsets = new Map();
+    const startTime = performance.now();
+    const result = computeMovedEntityRelationshipTargets(
+      graphNodeModels(),
+      graphEdgeModels(),
+      [entityId],
+      measureNode,
+    );
+    result.relationshipTargets.forEach((target, id) => {
+      const item = graph.findById(id);
+      if (!item || typeof (item as any).getModel !== "function") return;
+      const model = (item as any).getModel();
+      const currentX = typeof model.x === "number" ? model.x : target.x;
+      const currentY = typeof model.y === "number" ? model.y : target.y;
+      const dx = currentX - target.x;
+      const dy = currentY - target.y;
+      if (Math.hypot(dx, dy) <= RELATIONSHIP_SMOOTH_THRESHOLD) return;
+      relationshipReturnOffsets.set(id, { dx, dy, startTime });
+    });
+  };
+
+  const markDraggedNodeMoved = (nodeModel: { x?: number; y?: number }): boolean => {
+    if (!draggedNodeStart) return false;
+    const dx = (nodeModel.x ?? 0) - draggedNodeStart.x;
+    const dy = (nodeModel.y ?? 0) - draggedNodeStart.y;
+    if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+      didDragNode = true;
+      return true;
+    }
+    return didDragNode;
+  };
+
+  const notifyAfterChange = (shouldNotify = didDragNode) => {
+    if (!shouldNotify || typeof onAfterChange !== "function") return;
+    try {
+      onAfterChange();
+    } catch (_e) {
+      /* ignore persistence callback failures */
+    }
+  };
+
+  const resetDragState = () => {
+    draggedNode = null;
+    draggedNodeStart = null;
+    draggedEntity = null;
+    relatedAttributes = [];
+    affectedEntityIds = new Set();
+    relationshipReturnOffsets = new Map();
+    didDragNode = false;
+    didDragEntity = false;
+    dragStartPositions.clear();
   };
 
   graph.on("node:dragstart", (e: any) => {
@@ -73,11 +161,19 @@ export function attachEntityDragSync(
 
     // 在任何节点开始被拖动前记录一次快照（用于撤销）
     history.record(graph);
+    draggedNode = node;
+    draggedNodeStart = {
+      x: typeof nodeModel.x === "number" ? nodeModel.x : 0,
+      y: typeof nodeModel.y === "number" ? nodeModel.y : 0,
+    };
+    didDragNode = false;
 
     if (nodeModel.type === "entity") {
       draggedEntity = node;
       relatedAttributes = [];
       affectedEntityIds = new Set([nodeModel.id]);
+      relationshipReturnOffsets = new Map();
+      didDragEntity = false;
       dragStartPositions.clear();
 
       dragStartPositions.set(nodeModel.id, {
@@ -90,21 +186,31 @@ export function attachEntityDragSync(
         if (model.type === "attribute" && model.parentEntity === nodeModel.id) {
           relatedAttributes.push(n);
           dragStartPositions.set(model.id, { x: model.x, y: model.y });
+        } else if (model.type === "relationship") {
+          dragStartPositions.set(model.id, { x: model.x, y: model.y });
         }
       });
+      markRelationshipsNeedingSmoothReturn(nodeModel.id);
     }
   });
 
   graph.on("node:drag", (e: any) => {
     const node = e.item;
     const nodeModel = node.getModel();
+    if (draggedNode === node) {
+      markDraggedNodeMoved(nodeModel);
+    }
 
     if (nodeModel.type === "entity" && draggedEntity === node) {
-      if (isForceActive && isForceActive()) return;
       const startPos = dragStartPositions.get(nodeModel.id);
       if (startPos) {
         const deltaX = nodeModel.x - startPos.x;
         const deltaY = nodeModel.y - startPos.y;
+        if (didDragNode || Math.abs(deltaX) > 0.001 || Math.abs(deltaY) > 0.001) {
+          didDragEntity = true;
+        }
+
+        if (isForceActive && isForceActive()) return;
 
         relatedAttributes.forEach((attrNode) => {
           const attrModel = attrNode.getModel();
@@ -124,20 +230,56 @@ export function attachEntityDragSync(
   graph.on("node:dragend", (e: any) => {
     const node = e.item;
     const nodeModel = node.getModel();
+    if (draggedNode === node) {
+      markDraggedNodeMoved(nodeModel);
+    }
     if (nodeModel.type === "entity" && draggedEntity === node) {
+      const shouldNotify = didDragNode;
+      const notifyEntityChange = () => notifyAfterChange(shouldNotify);
       if (!isForceActive || !isForceActive()) {
-        const attrTargets = computeAttributeRotationTargets(
+        const relationshipResult = computeMovedEntityRelationshipTargets(
           graphNodeModels(),
           graphEdgeModels(),
-          affectedEntityIds,
+          [nodeModel.id],
+          measureNode,
+          dragStartPositions,
+        );
+        const finalNodeModels = graphNodeModels().map((model) => {
+          const target = relationshipResult.relationshipTargets.get(model.id);
+          return target ? { ...model, x: target.x, y: target.y } : model;
+        });
+        const attrTargets = computeAttributeRotationTargets(
+          finalNodeModels,
+          graphEdgeModels(),
+          relationshipResult.affectedEntityIds.size
+            ? relationshipResult.affectedEntityIds
+            : affectedEntityIds,
           measureNode,
         );
-        if (attrTargets.size) animateNodesToTargets(graph, attrTargets, 260);
+        const finalTargets = new Map(attrTargets);
+        if (didDragEntity) {
+          relationshipResult.relationshipTargets.forEach((target, id) => {
+            if (relationshipReturnOffsets.has(id)) finalTargets.set(id, target);
+          });
+        }
+        if (finalTargets.size)
+          animateNodesToTargets(
+            graph,
+            finalTargets,
+            RELATIONSHIP_RETURN_DURATION,
+            notifyEntityChange,
+          );
+        else notifyEntityChange();
+      } else {
+        notifyEntityChange();
       }
-      draggedEntity = null;
-      relatedAttributes = [];
-      affectedEntityIds = new Set();
-      dragStartPositions.clear();
+      resetDragState();
+      return;
+    }
+
+    if (draggedNode === node) {
+      notifyAfterChange();
+      resetDragState();
     }
   });
 }

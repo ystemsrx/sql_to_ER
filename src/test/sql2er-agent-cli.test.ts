@@ -52,6 +52,7 @@ type AgentState = {
     y: number;
     parentEntity?: string;
     keyType?: string;
+    isSelfLoop?: boolean;
   }>;
   edges: Array<{ id: string; source: string; target: string; edgeType: string; label?: string }>;
 };
@@ -309,6 +310,77 @@ describe("sql2er agent CLI entity edits", () => {
         nodePosition(next, "entity-a"),
         nodePosition(next, "entity-b"),
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("moves single-entity relationship diamonds with the entity in raw moves", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: true,
+            fontScale: 1,
+            attrMode: "auto",
+          },
+          nodes: [
+            { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+            {
+              id: "rel-one-edge",
+              type: "relationship",
+              label: "single",
+              nodeType: "relationship",
+              x: 150,
+              y: 100,
+            },
+            {
+              id: "rel-loop",
+              type: "relationship",
+              label: "loop",
+              nodeType: "relationship",
+              x: 100,
+              y: 40,
+              isSelfLoop: true,
+            },
+          ],
+          edges: [
+            {
+              id: "edge-a-single",
+              source: "entity-a",
+              target: "rel-one-edge",
+              edgeType: "entity-relationship",
+            },
+            {
+              id: "edge-a-loop",
+              source: "entity-a",
+              target: "rel-loop",
+              edgeType: "entity-relationship",
+            },
+            {
+              id: "edge-loop-a",
+              source: "rel-loop",
+              target: "entity-a",
+              edgeType: "relationship-entity",
+            },
+          ],
+        } satisfies AgentState),
+      );
+
+      const moved = runAgent(["move", "entity-a", "180", "160", "--raw", "--state", state]);
+
+      expect(moved.status).toBe(0);
+      const next = readState(state);
+      expect(nodePosition(next, "rel-one-edge")).toEqual({ x: 230, y: 160 });
+      expect(nodePosition(next, "rel-loop")).toEqual({ x: 180, y: 100 });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
