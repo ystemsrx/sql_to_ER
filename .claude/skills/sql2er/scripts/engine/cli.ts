@@ -109,13 +109,14 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --comment                      show column/table comments instead of names
       --hide-attrs                   skeleton only (no attribute ellipses)
       --attrs auto|compact|moderate  attribute orbit mode (default auto)
-      --layout align|arrange|none    (default align)
+      --layout optimal|align|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
       --focus <id|label>             zoom into one entity
       --json                         machine-readable scene
-  layout <align|arrange>   Re-run a layout pass. align = topological from scratch;
-                           arrange = settle current positions (use after edits).
+  layout <optimal|align|arrange>  Re-run a layout. optimal = stress-spaced skeleton
+                           (rooms for attribute rings; the recommended default);
+                           align = topological tree; arrange = settle current.
   move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
                            with one arrange pass unless --raw.
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
@@ -146,8 +147,8 @@ function main(): void {
         input,
         format: (typeof flags.format === "string" ? flags.format : "auto") as
           "auto" | "sql" | "dbml",
-        layout: (typeof flags.layout === "string" ? flags.layout : "align") as
-          "align" | "arrange" | "none",
+        layout: (typeof flags.layout === "string" ? flags.layout : "optimal") as
+          "optimal" | "align" | "arrange" | "none",
         settings: {
           ...DEFAULT_SETTINGS,
           colored: boolFlag(flags.colored, true),
@@ -182,7 +183,8 @@ function main(): void {
     }
     case "layout": {
       const kind = _[1];
-      if (kind !== "align" && kind !== "arrange") throw new Error("layout <align|arrange>");
+      if (kind !== "optimal" && kind !== "align" && kind !== "arrange")
+        throw new Error("layout <optimal|align|arrange>");
       const next = runLayout(loadState(flags), kind);
       saveState(flags, next);
       printState(next, flags);

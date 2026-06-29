@@ -2118,8 +2118,8 @@ var forceAlignLayout = (graph, containerWidth) => {
     const radii = /* @__PURE__ */ new Map();
     ids.forEach((id) => radii.set(id, getRadius2(nodeMap.get(id))));
     const maxR = Math.max(...radii.values());
-    const GAP = 48;
-    const chainSpacing = Math.max(200, maxR * 2 + GAP);
+    const GAP2 = 48;
+    const chainSpacing = Math.max(200, maxR * 2 + GAP2);
     const mainPath = findLongestPath(ids);
     const mainPathSet = new Set(mainPath);
     const startX = -((mainPath.length - 1) * chainSpacing) / 2;
@@ -2154,11 +2154,11 @@ var forceAlignLayout = (graph, containerWidth) => {
       if (!node.children.length) return 1;
       return node.children.reduce((s, c) => s + countLeaves(c), 0);
     };
-    const unitWidth = maxR * 1.6 + GAP;
+    const unitWidth = maxR * 1.6 + GAP2;
     const approxWidth = (n) => Math.max(1, countLeaves(n)) * unitWidth;
     const placeNode = (node, parentPos, parentR, angle, sectorSize, minDist) => {
       const myR = radii.get(node.id);
-      const defaultDist = parentR + myR + GAP;
+      const defaultDist = parentR + myR + GAP2;
       const dist = Math.max(defaultDist, minDist || 0);
       const pos = {
         x: parentPos.x + Math.cos(angle) * dist,
@@ -2276,7 +2276,7 @@ var forceAlignLayout = (graph, containerWidth) => {
       if (placedEnts.length === 1) {
         const p = targets.get(placedEnts[0]);
         const r = radii.get(placedEnts[0]);
-        targets.set(id, { x: p.x, y: p.y + r + myR + GAP });
+        targets.set(id, { x: p.x, y: p.y + r + myR + GAP2 });
       } else {
         let mx = 0, my = 0;
         placedEnts.forEach((e) => {
@@ -2906,7 +2906,7 @@ var arrangeLayout = (graph) => {
     });
     if (maxMove < 0.5) break;
   }
-  const countCrossings = () => {
+  const countCrossings2 = () => {
     let total = 0;
     for (let i = 0; i < relationshipPairs.length; i++) {
       const pi = relationshipPairs[i];
@@ -2926,7 +2926,7 @@ var arrangeLayout = (graph) => {
     return total;
   };
   if (relationshipPairs.length >= 2 && entityIds.length >= 2) {
-    let currentCrossings = countCrossings();
+    let currentCrossings = countCrossings2();
     if (currentCrossings > 0) {
       const maxSwapPasses = 8;
       for (let pass = 0; pass < maxSwapPasses && currentCrossings > 0; pass++) {
@@ -2943,7 +2943,7 @@ var arrangeLayout = (graph) => {
             pa.y = pb.y;
             pb.x = tmpX;
             pb.y = tmpY;
-            const newCrossings = countCrossings();
+            const newCrossings = countCrossings2();
             if (newCrossings < currentCrossings) {
               currentCrossings = newCrossings;
               improved = true;
@@ -3910,6 +3910,302 @@ function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800)
   return graph;
 }
 
+// .claude/skills/sql2er/scripts/engine/skeleton.ts
+var TAU2 = Math.PI * 2;
+var GAP = 8;
+var halfDiag = (m) => {
+  const s = measureNodeSize(m);
+  return Math.hypot(s.width, s.height) / 2;
+};
+var maxHalfOf = (m) => {
+  const s = measureNodeSize(m);
+  return Math.max(s.width, s.height) / 2;
+};
+function ringRadiusFor(entity, attrs) {
+  const entR = halfDiag(entity);
+  if (!attrs.length) return entR;
+  const halves = attrs.map(maxHalfOf);
+  const maxHalf = Math.max(...halves);
+  const radialMin = entR + maxHalf + GAP;
+  const target = TAU2 * 0.92;
+  const sum = (R) => halves.reduce((s, h) => s + 2 * Math.asin(Math.min(0.999, (h + GAP / 2) / R)), 0);
+  let lo = radialMin;
+  let hi = radialMin;
+  while (sum(hi) > target && hi < radialMin + 6e3) hi *= 1.5;
+  for (let k = 0; k < 40; k++) {
+    const mid = (lo + hi) / 2;
+    if (sum(mid) <= target) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+function smacof(pos, D, iters) {
+  const n = pos.length;
+  for (let it = 0; it < iters; it++) {
+    for (let i = 0; i < n; i++) {
+      let nx = 0;
+      let ny = 0;
+      let den = 0;
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const dij = D[i][j];
+        const w = 1 / (dij * dij);
+        const dx = pos[i].x - pos[j].x;
+        const dy = pos[i].y - pos[j].y;
+        const dist = Math.hypot(dx, dy) || 1e-4;
+        nx += w * (pos[j].x + dij * dx / dist);
+        ny += w * (pos[j].y + dij * dy / dist);
+        den += w;
+      }
+      if (den > 0) {
+        pos[i].x = nx / den;
+        pos[i].y = ny / den;
+      }
+    }
+  }
+}
+function removeOverlaps(pos, rad, iters = 400) {
+  const n = pos.length;
+  for (let it = 0; it < iters; it++) {
+    let moved = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = pos[j].x - pos[i].x;
+        const dy = pos[j].y - pos[i].y;
+        const dist = Math.hypot(dx, dy) || 1e-4;
+        const min = rad[i] + rad[j];
+        if (dist < min) {
+          const push = (min - dist) / 2;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          pos[i].x -= ux * push;
+          pos[i].y -= uy * push;
+          pos[j].x += ux * push;
+          pos[j].y += uy * push;
+          moved = Math.max(moved, push);
+        }
+      }
+    }
+    if (moved < 0.3) break;
+  }
+}
+function segCross(a1, a2, b1, b2) {
+  const eq = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+  if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
+  const c = (o, p, q) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = c(b1, b2, a1);
+  const d2 = c(b1, b2, a2);
+  const d3 = c(a1, a2, b1);
+  const d4 = c(a1, a2, b2);
+  return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+}
+function countCrossings(pos, E) {
+  let total = 0;
+  for (let i = 0; i < E.length; i++) {
+    for (let j = i + 1; j < E.length; j++) {
+      const [a, b] = E[i];
+      const [c, d] = E[j];
+      if (a === c || a === d || b === c || b === d) continue;
+      if (segCross(pos[a], pos[b], pos[c], pos[d])) total++;
+    }
+  }
+  return total;
+}
+function reduceCrossings(pos, E, n) {
+  let cur = countCrossings(pos, E);
+  for (let pass = 0; pass < 8 && cur > 0; pass++) {
+    let improved = false;
+    for (let i = 0; i < n && cur > 0; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const tmp = pos[i];
+        pos[i] = pos[j];
+        pos[j] = tmp;
+        const nc = countCrossings(pos, E);
+        if (nc < cur) {
+          cur = nc;
+          improved = true;
+        } else {
+          const t2 = pos[i];
+          pos[i] = pos[j];
+          pos[j] = t2;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+}
+function stressLayout(nodes, edges) {
+  const entities = nodes.filter((n) => n.nodeType === "entity");
+  const rels = nodes.filter((n) => n.nodeType === "relationship");
+  if (!entities.length) return;
+  const attrsByE = /* @__PURE__ */ new Map();
+  nodes.forEach((n) => {
+    if (n.nodeType === "attribute" && typeof n.parentEntity === "string") {
+      if (!attrsByE.has(n.parentEntity)) attrsByE.set(n.parentEntity, []);
+      attrsByE.get(n.parentEntity).push(n);
+    }
+  });
+  const ring = new Map(entities.map((e) => [e.id, ringRadiusFor(e, attrsByE.get(e.id) ?? [])]));
+  const footprint = new Map(
+    entities.map((e) => {
+      const attrs = attrsByE.get(e.id) ?? [];
+      const maxAttr = attrs.length ? Math.max(...attrs.map(maxHalfOf)) : 0;
+      return [e.id, ring.get(e.id) + maxAttr + 6];
+    })
+  );
+  const relEnts = /* @__PURE__ */ new Map();
+  rels.forEach((r) => relEnts.set(r.id, []));
+  edges.forEach((e) => {
+    if (e.edgeType === "entity-relationship") relEnts.get(e.target)?.push(e.source);
+    else if (e.edgeType === "relationship-entity") relEnts.get(e.source)?.push(e.target);
+  });
+  const binRels = rels.map((r) => ({ r, es: [...new Set(relEnts.get(r.id) ?? [])] })).filter((x) => x.es.length === 2);
+  const eidx = new Map(entities.map((e, i) => [e.id, i]));
+  const N = entities.length;
+  const desired = /* @__PURE__ */ new Map();
+  const adj = /* @__PURE__ */ new Map();
+  entities.forEach((e) => adj.set(e.id, /* @__PURE__ */ new Set()));
+  const key = (a, b) => a < b ? a + "|" + b : b + "|" + a;
+  binRels.forEach(({ r, es }) => {
+    const [a, b] = es;
+    const d = ring.get(a) + ring.get(b) + 2 * halfDiag(r) + 2 * 20;
+    const k = key(a, b);
+    if (!desired.has(k) || d < desired.get(k)) desired.set(k, d);
+    adj.get(a).add(b);
+    adj.get(b).add(a);
+  });
+  const seen = /* @__PURE__ */ new Set();
+  const comps = [];
+  entities.map((e) => e.id).sort().forEach((id) => {
+    if (seen.has(id)) return;
+    const stack = [id];
+    const comp = [];
+    seen.add(id);
+    while (stack.length) {
+      const cur = stack.pop();
+      comp.push(cur);
+      (adj.get(cur) ?? []).forEach((nb) => {
+        if (!seen.has(nb)) {
+          seen.add(nb);
+          stack.push(nb);
+        }
+      });
+    }
+    comps.push(comp);
+  });
+  const laid = comps.map((ids) => {
+    const local = ids.map((id) => entities[eidx.get(id)]);
+    const m = local.length;
+    const li = new Map(ids.map((id, i) => [id, i]));
+    const INF = 1e9;
+    const D = Array.from({ length: m }, () => new Array(m).fill(INF));
+    for (let i = 0; i < m; i++) D[i][i] = 0;
+    ids.forEach(
+      (a) => (adj.get(a) ?? []).forEach((b) => {
+        if (!li.has(b)) return;
+        const d = desired.get(key(a, b)) ?? 300;
+        const ia = li.get(a);
+        const ib = li.get(b);
+        D[ia][ib] = Math.min(D[ia][ib], d);
+        D[ib][ia] = Math.min(D[ib][ia], d);
+      })
+    );
+    for (let k = 0; k < m; k++)
+      for (let i = 0; i < m; i++)
+        for (let j = 0; j < m; j++) if (D[i][k] + D[k][j] < D[i][j]) D[i][j] = D[i][k] + D[k][j];
+    const pos = local.map((e, i) => ({
+      x: typeof e.x === "number" ? e.x : Math.cos(i / m * TAU2) * 200,
+      y: typeof e.y === "number" ? e.y : Math.sin(i / m * TAU2) * 200
+    }));
+    if (m > 1) {
+      smacof(pos, D, 300);
+      const rads = local.map((e) => footprint.get(e.id));
+      removeOverlaps(pos, rads, 400);
+      const idSet = new Set(ids);
+      const edgesLocal = [];
+      binRels.forEach(({ es }) => {
+        const [a, b] = es;
+        if (idSet.has(a) && idSet.has(b)) edgesLocal.push([li.get(a), li.get(b)]);
+      });
+      if (edgesLocal.length > 1) {
+        reduceCrossings(pos, edgesLocal, m);
+        removeOverlaps(pos, rads, 400);
+      }
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    local.forEach((e, i) => {
+      const r = footprint.get(e.id);
+      minX = Math.min(minX, pos[i].x - r);
+      minY = Math.min(minY, pos[i].y - r);
+      maxX = Math.max(maxX, pos[i].x + r);
+      maxY = Math.max(maxY, pos[i].y + r);
+    });
+    const map = /* @__PURE__ */ new Map();
+    local.forEach((e, i) => map.set(e.id, { x: pos[i].x - minX, y: pos[i].y - minY }));
+    return { ids, pos: map, w: maxX - minX, h: maxY - minY };
+  });
+  laid.sort((a, b) => b.h - a.h);
+  const totalW = laid.reduce((s, c) => s + c.w, 0);
+  const rowMax = Math.max(900, Math.sqrt(totalW * (laid[0]?.h ?? 400)) * 1.3);
+  const PAD = 80;
+  let cx = 0;
+  let cy = 0;
+  let rowH = 0;
+  laid.forEach((c) => {
+    if (cx > 0 && cx + c.w > rowMax) {
+      cx = 0;
+      cy += rowH + PAD;
+      rowH = 0;
+    }
+    c.ids.forEach((id) => {
+      const p = c.pos.get(id);
+      entities[eidx.get(id)].x = cx + p.x;
+      entities[eidx.get(id)].y = cy + p.y;
+    });
+    cx += c.w + PAD;
+    rowH = Math.max(rowH, c.h);
+  });
+  const epos = new Map(entities.map((e) => [e.id, { x: e.x ?? 0, y: e.y ?? 0 }]));
+  const groups = /* @__PURE__ */ new Map();
+  binRels.forEach((br) => {
+    const k = key(br.es[0], br.es[1]);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(br);
+  });
+  groups.forEach((list) => {
+    const [a, b] = list[0].es;
+    const pa = epos.get(a);
+    const pb = epos.get(b);
+    const dx = pb.x - pa.x;
+    const dy = pb.y - pa.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const px = -uy;
+    const py = ux;
+    const mid = (list.length - 1) / 2;
+    list.forEach((br, i) => {
+      const dh = halfDiag(br.r);
+      const free = dist - ring.get(a) - ring.get(b) - 2 * dh;
+      const gap = Math.max(20, free / 2);
+      const fromA = ring.get(a) + dh + gap;
+      const off = (i - mid) * (dh * 2 + 16);
+      br.r.x = pa.x + ux * fromA + px * off;
+      br.r.y = pa.y + uy * fromA + py * off;
+    });
+  });
+  rels.forEach((r) => {
+    const es = [...new Set(relEnts.get(r.id) ?? [])];
+    if (es.length === 1) {
+      const a = epos.get(es[0]);
+      if (a) {
+        r.x = a.x;
+        r.y = a.y - (ring.get(es[0]) + 40);
+      }
+    }
+  });
+}
+
 // .claude/skills/sql2er/scripts/engine/ops.ts
 var CANVAS_W = 1200;
 var CANVAS_H = 800;
@@ -3940,6 +4236,12 @@ function styleAndSize(nodes, edges, settings) {
   updateGraphStyles(graph, settings.colored, clampFontScale2(settings.fontScale));
   return graph;
 }
+function runLayoutOnGraph(kind, graph, nodes, edges) {
+  if (kind === "none") return;
+  forceAlignLayout(graph, CANVAS_W);
+  if (kind === "arrange") arrangeLayout(graph);
+  else if (kind === "optimal") stressLayout(nodes, edges);
+}
 function generate(opts) {
   const settings = { ...DEFAULT_SETTINGS, ...opts.settings ?? {} };
   settings.fontScale = clampFontScale2(settings.fontScale);
@@ -3955,19 +4257,18 @@ function generate(opts) {
     settings.hideAttrs
   );
   const graph = styleAndSize(nodes, edges, settings);
-  const layout = opts.layout ?? "align";
-  if (layout !== "none") {
-    forceAlignLayout(graph, CANVAS_W);
-    if (layout === "arrange") arrangeLayout(graph);
-  }
+  const layout = opts.layout ?? "optimal";
+  runLayoutOnGraph(layout, graph, nodes, edges);
+  if (layout === "optimal" && settings.attrMode === "auto") settings.attrMode = "moderate";
   const state = { version: 1, input: opts.input, format, settings, nodes, edges };
   applyAttrMode(state);
   return state;
 }
 function runLayout(state, kind) {
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
-  if (kind === "align") forceAlignLayout(graph, CANVAS_W);
-  else arrangeLayout(graph);
+  runLayoutOnGraph(kind, graph, state.nodes, state.edges);
+  if (kind === "optimal" && state.settings.attrMode === "auto")
+    state.settings.attrMode = "moderate";
   applyAttrMode(state);
   return { ...state };
 }
@@ -4032,10 +4333,10 @@ function translateCluster(state, node, dx, dy) {
     });
   }
 }
-var TAU2 = Math.PI * 2;
+var TAU3 = Math.PI * 2;
 var normAngle = (a) => {
-  let x = a % TAU2;
-  if (x < 0) x += TAU2;
+  let x = a % TAU3;
+  if (x < 0) x += TAU3;
   return x;
 };
 function placeAttributesCompact(state) {
@@ -4123,17 +4424,17 @@ function placeAttributesModerate(state) {
     const ecy = ent.y ?? 0;
     const entR = radiusOf(ent);
     const rels = relAngles.get(eid) ?? [];
-    const GAP = 8;
+    const GAP2 = 8;
     const items = attrs.map((at) => {
       const s = measureNodeSize(at);
       return { at, s, half: Math.max(s.width, s.height) / 2 };
     });
     const n = items.length;
     const maxHalf = Math.max(...items.map((it) => it.half));
-    const angWidth = (half, R2) => 2 * Math.asin(Math.min(0.999, (half + GAP / 2) / R2));
+    const angWidth = (half, R2) => 2 * Math.asin(Math.min(0.999, (half + GAP2 / 2) / R2));
     const angularSum = (R2) => items.reduce((s, it) => s + angWidth(it.half, R2), 0);
-    const radialMin = entR + maxHalf + GAP;
-    const target = TAU2 * 0.92;
+    const radialMin = entR + maxHalf + GAP2;
+    const target = TAU3 * 0.92;
     let lo = radialMin;
     let hi = radialMin;
     while (angularSum(hi) > target && hi < radialMin + 6e3) hi *= 1.5;
@@ -4145,7 +4446,7 @@ function placeAttributesModerate(state) {
     const R = hi;
     const ordered = items.slice().sort((a, b) => angleOf(a.at, ecx, ecy) - angleOf(b.at, ecx, ecy));
     const widths = ordered.map((it) => angWidth(it.half, R));
-    const slack = Math.max(0, TAU2 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
+    const slack = Math.max(0, TAU3 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
     const baseAngles = [];
     let acc = 0;
     for (let i = 0; i < ordered.length; i++) {
@@ -4158,13 +4459,13 @@ function placeAttributesModerate(state) {
       const TRIES = 36;
       let best = -Infinity;
       for (let t = 0; t < TRIES; t++) {
-        const ph = t / TRIES * TAU2;
+        const ph = t / TRIES * TAU3;
         let minGap = Infinity;
         for (const ba of baseAngles) {
           const slot = normAngle(ph + ba);
           for (const r of rels) {
             let d = Math.abs(slot - r);
-            d = Math.min(d, TAU2 - d);
+            d = Math.min(d, TAU3 - d);
             if (d < minGap) minGap = d;
           }
         }
@@ -4353,7 +4654,7 @@ import { parse as parsePath } from "node:path";
 // .claude/skills/sql2er/scripts/engine/describe.ts
 var num = (v, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? v : fallback;
 var short = (s, n) => s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
-var segCross = (a1, a2, b1, b2) => {
+var segCross2 = (a1, a2, b1, b2) => {
   const eq = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
   if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
   const c = (ox, oy, px, py, qx, qy) => (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
@@ -4464,7 +4765,7 @@ function buildScene(graph) {
       const sj = segs[j];
       const shared = si.a.id === sj.a.id || si.a.id === sj.b.id || si.b.id === sj.a.id || si.b.id === sj.b.id;
       if (shared) continue;
-      if (segCross(si.a, si.b, sj.a, sj.b)) crossings.push([si.r, sj.r]);
+      if (segCross2(si.a, si.b, sj.a, sj.b)) crossings.push([si.r, sj.r]);
     }
   }
   const coreInfos = entities.concat(
@@ -4535,7 +4836,7 @@ function buildScene(graph) {
       if (a.type !== "entity-attribute" && b.type !== "entity-attribute") continue;
       if (a.source === b.source || a.source === b.target || a.target === b.source || a.target === b.target)
         continue;
-      if (segCross(a.s, a.t, b.s, b.t)) attrCrossings++;
+      if (segCross2(a.s, a.t, b.s, b.t)) attrCrossings++;
     }
   }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -5033,13 +5334,14 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --comment                      show column/table comments instead of names
       --hide-attrs                   skeleton only (no attribute ellipses)
       --attrs auto|compact|moderate  attribute orbit mode (default auto)
-      --layout align|arrange|none    (default align)
+      --layout optimal|align|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
       --focus <id|label>             zoom into one entity
       --json                         machine-readable scene
-  layout <align|arrange>   Re-run a layout pass. align = topological from scratch;
-                           arrange = settle current positions (use after edits).
+  layout <optimal|align|arrange>  Re-run a layout. optimal = stress-spaced skeleton
+                           (rooms for attribute rings; the recommended default);
+                           align = topological tree; arrange = settle current.
   move <id|label> <x> <y>  Place an entity (its attributes follow). Then settles
                            with one arrange pass unless --raw.
   nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
@@ -5066,7 +5368,7 @@ function main() {
       const state = generate({
         input,
         format: typeof flags.format === "string" ? flags.format : "auto",
-        layout: typeof flags.layout === "string" ? flags.layout : "align",
+        layout: typeof flags.layout === "string" ? flags.layout : "optimal",
         settings: {
           ...DEFAULT_SETTINGS,
           colored: boolFlag(flags.colored, true),
@@ -5099,7 +5401,8 @@ function main() {
     }
     case "layout": {
       const kind = _[1];
-      if (kind !== "align" && kind !== "arrange") throw new Error("layout <align|arrange>");
+      if (kind !== "optimal" && kind !== "align" && kind !== "arrange")
+        throw new Error("layout <optimal|align|arrange>");
       const next = runLayout(loadState(flags), kind);
       saveState(flags, next);
       printState(next, flags);

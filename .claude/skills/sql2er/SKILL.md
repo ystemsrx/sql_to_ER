@@ -35,32 +35,31 @@ Labels default to raw table/column names. For semantic Chen labels (relationship
 
 ## Commands
 
-| Command                         | Purpose                                                                                                                                                                                                                                            |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate`                      | Parse + build + lay out. Input via `--input <file>`, `--text "<sql>"`, or stdin. Flags: `--format auto\|sql\|dbml`, `--colored`, `--comment`, `--hide-attrs`, `--attrs auto\|compact\|moderate`, `--layout align\|arrange\|none`.                  |
-| `describe`                      | Print components, entities (id, pos, size, degree, attr counts), relationships (from→to, cardinality), DIAGNOSTICS, ASCII map. Flags: `--full`, `--focus <id\|label>`, `--json`.                                                                   |
-| `layout align\|arrange`         | `align` = topological re-layout from scratch (resets positions; best for trees/chains). `arrange` = settle current positions (springs + crossing removal; for organic/cyclic graphs or after edits).                                               |
-| `attrs auto\|compact\|moderate` | How attribute ellipses orbit their entity. `auto` = layout-native; `compact` = tightest non-overlapping pack (hugs the entity, varied distance); `moderate` = one uniform ring (every attribute equidistant). Persists across later layouts/edits. |
-| `move <id\|label> <x> <y>`      | Place an entity at (x,y); its attributes follow. Runs one `arrange` pass; `--raw` skips it.                                                                                                                                                        |
-| `nudge <id\|label> <dx> <dy>`   | Shift by delta. `--raw` skips settle.                                                                                                                                                                                                              |
-| `swap <a> <b>`                  | Exchange two entities' positions. `--raw` skips settle.                                                                                                                                                                                            |
-| `rotate <degrees>`              | Rotate the diagram about its centre (shapes/text stay upright; positive = clockwise).                                                                                                                                                              |
-| `fontsize <delta>`              | Global font size. `0` = default; ±1 ≈ ±0.1 scale; clamped 0.4–1.6.                                                                                                                                                                                 |
-| `export drawio\|svg\|json`      | Write output (`--out <file>`, else stdout). `--split` writes one file per disconnected component.                                                                                                                                                  |
+| Command                          | Purpose                                                                                                                                                                                                                                                                       |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generate`                       | Parse + build + lay out. Input via `--input <file>`, `--text "<sql>"`, or stdin. Flags: `--format auto\|sql\|dbml`, `--colored`, `--comment`, `--hide-attrs`, `--attrs auto\|compact\|moderate`, `--layout optimal\|align\|arrange\|none`.                                    |
+| `describe`                       | Print components, entities (id, pos, size, degree, attr counts), relationships (from→to, cardinality), DIAGNOSTICS, ASCII map. Flags: `--full`, `--focus <id\|label>`, `--json`.                                                                                              |
+| `layout optimal\|align\|arrange` | `optimal` (default) = stress-majorize the skeleton with attribute-ring-aware spacing + 2-opt uncross; reserves room so attributes don't overlap — the recommended layout. `align` = topological tree (pure trees/chains). `arrange` = settle current positions (after edits). |
+| `attrs auto\|compact\|moderate`  | How attribute ellipses orbit their entity. `auto` = layout-native; `compact` = tightest non-overlapping pack (hugs the entity, varied distance); `moderate` = one uniform ring (every attribute equidistant). Persists across later layouts/edits.                            |
+| `move <id\|label> <x> <y>`       | Place an entity at (x,y); its attributes follow. Runs one `arrange` pass; `--raw` skips it.                                                                                                                                                                                   |
+| `nudge <id\|label> <dx> <dy>`    | Shift by delta. `--raw` skips settle.                                                                                                                                                                                                                                         |
+| `swap <a> <b>`                   | Exchange two entities' positions. `--raw` skips settle.                                                                                                                                                                                                                       |
+| `rotate <degrees>`               | Rotate the diagram about its centre (shapes/text stay upright; positive = clockwise).                                                                                                                                                                                         |
+| `fontsize <delta>`               | Global font size. `0` = default; ±1 ≈ ±0.1 scale; clamped 0.4–1.6.                                                                                                                                                                                                            |
+| `export drawio\|svg\|json`       | Write output (`--out <file>`, else stdout). `--split` writes one file per disconnected component.                                                                                                                                                                             |
 
 Address entities by exact `id` (from `describe`) or by table name/label if unambiguous.
 
 ## How to clean up a diagram
 
-1. `describe` and read DIAGNOSTICS.
-2. **crossings** → `swap` the two entities of one crossing relationship, or `move` one to the other side.
-3. **overlaps** → `layout arrange`. On dense graphs, run it again if a residual remains.
-4. **multiple disconnected clusters** (`COMPONENTS: N > 1`) → already tiled apart, not stacked. If they're truly separate diagrams, `export <fmt> --split` → one file per cluster.
-5. **aspect ratio off** → `rotate 90` or re-run `layout align`.
-6. **messy attributes** (`attrOverlaps > 0` or `attrCrossings > 0`) → `attrs compact` (tight) or `attrs moderate` (even rings); re-`describe` and keep the lower.
-7. Stop at `crossings=0`, `overlaps=0`, `attrOverlaps=0`, low `attrCrossings`. Optionally `export svg` to view once.
+`generate` defaults to `layout optimal`, which usually yields `crossings=0 overlaps=0 attrOverlaps=0 attrCrossings=0` directly. If you've edited positions and want to re-tidy the whole thing, run `layout optimal` again. Otherwise nudge from the diagnostics:
 
-When `align` and `arrange` disagree, keep whichever has fewer crossings — `align` favours trees/chains, `arrange` favours organic/cyclic.
+1. `describe` and read DIAGNOSTICS.
+2. **crossings / overlaps after manual edits** → `layout optimal` re-tidies from scratch; or `swap` the two entities of a crossing relationship for a local fix.
+3. **multiple disconnected clusters** (`COMPONENTS: N > 1`) → packed near each other, not stacked. If they're truly separate diagrams, `export <fmt> --split` → one file per cluster.
+4. **attribute look** → `attrs compact` (tight, hugs the entity) vs `attrs moderate` (uniform rings); both stay overlap-free on an `optimal` skeleton.
+5. **aspect ratio off** → `rotate 90`.
+6. Stop at all-zero diagnostics. Optionally `export svg` to view once.
 
 ## References
 

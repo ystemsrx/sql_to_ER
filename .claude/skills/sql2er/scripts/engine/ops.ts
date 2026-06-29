@@ -16,6 +16,9 @@ import { computeAttributePositions } from "@app/attributeLayout";
 import { updateGraphStyles } from "@app/graph/updateGraphStyles";
 import type { EREdgeModel, ERNodeModel, ParseResult } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
+import { stressLayout } from "./skeleton";
+
+export type LayoutKind = "optimal" | "align" | "arrange" | "none";
 
 export const CANVAS_W = 1200;
 export const CANVAS_H = 800;
@@ -83,7 +86,21 @@ export interface GenerateOptions {
   input: string;
   format?: "sql" | "dbml" | "auto";
   settings?: Partial<Settings>;
-  layout?: "align" | "arrange" | "none";
+  layout?: LayoutKind;
+}
+
+// Run a layout on a styled graph. `optimal` stress-spaces the skeleton (room for
+// attribute rings) on top of a forceAlign seed; the caller then places attributes.
+function runLayoutOnGraph(
+  kind: LayoutKind,
+  graph: ReturnType<typeof styleAndSize>,
+  nodes: ERNodeModel[],
+  edges: EREdgeModel[],
+): void {
+  if (kind === "none") return;
+  forceAlignLayout(graph, CANVAS_W); // deterministic structural seed
+  if (kind === "arrange") arrangeLayout(graph);
+  else if (kind === "optimal") stressLayout(nodes, edges);
 }
 
 export function generate(opts: GenerateOptions): State {
@@ -101,20 +118,20 @@ export function generate(opts: GenerateOptions): State {
     settings.hideAttrs,
   );
   const graph = styleAndSize(nodes, edges, settings);
-  const layout = opts.layout ?? "align";
-  if (layout !== "none") {
-    forceAlignLayout(graph, CANVAS_W); // deterministic structural seed
-    if (layout === "arrange") arrangeLayout(graph);
-  }
+  const layout = opts.layout ?? "optimal";
+  runLayoutOnGraph(layout, graph, nodes, edges);
+  // `optimal` reserves ring room; fill it with uniform rings unless compact is chosen
+  if (layout === "optimal" && settings.attrMode === "auto") settings.attrMode = "moderate";
   const state: State = { version: 1, input: opts.input, format, settings, nodes, edges };
   applyAttrMode(state);
   return state;
 }
 
-export function runLayout(state: State, kind: "align" | "arrange"): State {
+export function runLayout(state: State, kind: LayoutKind): State {
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
-  if (kind === "align") forceAlignLayout(graph, CANVAS_W);
-  else arrangeLayout(graph);
+  runLayoutOnGraph(kind, graph, state.nodes, state.edges);
+  if (kind === "optimal" && state.settings.attrMode === "auto")
+    state.settings.attrMode = "moderate";
   applyAttrMode(state);
   return { ...state };
 }

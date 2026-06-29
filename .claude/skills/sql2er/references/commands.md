@@ -8,17 +8,17 @@ Invoke: `node .claude/skills/sql2er/scripts/sql2er-agent.mjs <command> [args] [-
 
 Parse, build, lay out, save state.
 
-| flag                              | default | meaning                                                     |
-| --------------------------------- | ------- | ----------------------------------------------------------- |
-| `--input <file>`                  | —       | read schema from a file                                     |
-| `--text "<sql>"`                  | —       | inline schema                                               |
-| (piped stdin)                     | —       | used if no `--input`/`--text`                               |
-| `--format auto\|sql\|dbml`        | `auto`  | `auto` tries SQL, falls back to DBML                        |
-| `--colored true\|false`           | `true`  | colored fills vs black/white                                |
-| `--comment`                       | off     | label nodes with comments (falls back to names when absent) |
-| `--hide-attrs`                    | off     | skeleton only — no attribute ellipses                       |
-| `--attrs auto\|compact\|moderate` | `auto`  | attribute orbit mode (see `attrs` below)                    |
-| `--layout align\|arrange\|none`   | `align` | initial layout                                              |
+| flag                                     | default   | meaning                                                     |
+| ---------------------------------------- | --------- | ----------------------------------------------------------- |
+| `--input <file>`                         | —         | read schema from a file                                     |
+| `--text "<sql>"`                         | —         | inline schema                                               |
+| (piped stdin)                            | —         | used if no `--input`/`--text`                               |
+| `--format auto\|sql\|dbml`               | `auto`    | `auto` tries SQL, falls back to DBML                        |
+| `--colored true\|false`                  | `true`    | colored fills vs black/white                                |
+| `--comment`                              | off       | label nodes with comments (falls back to names when absent) |
+| `--hide-attrs`                           | off       | skeleton only — no attribute ellipses                       |
+| `--attrs auto\|compact\|moderate`        | `auto`    | attribute orbit mode (see `attrs` below)                    |
+| `--layout optimal\|align\|arrange\|none` | `optimal` | initial layout (see `layout` below)                         |
 
 ## describe
 
@@ -61,9 +61,10 @@ MAP
 
 The MAP is a quick visual; act on coordinates and DIAGNOSTICS.
 
-## layout `<align|arrange>`
+## layout `<optimal|align|arrange>`
 
-- `align` — topological re-layout from scratch. Places the longest entity/relationship chain horizontally; fans branches out as subtrees. Deterministic. **Resets positions.** Best for trees/chains.
+- `optimal` — **the default and recommended layout.** Treats the entities + relationship diamonds as a graph and lays out the skeleton by **stress majorization**: each relationship's desired edge length is sized to hold both entities' attribute rings plus the diamond (an entity with more attributes gets more room, within bounds), so distances are as uniform as that allows. Then a **2-opt** pass uncrosses the (planar) skeleton, overlaps are removed, and disconnected components are packed near each other. Because it reserves ring-sized room, attributes placed afterward don't overlap — `optimal` typically reaches `crossings=0 overlaps=0 attrOverlaps=0 attrCrossings=0`. **Resets positions.**
+- `align` — topological re-layout from scratch. Places the longest entity/relationship chain horizontally; fans branches out as subtrees. Deterministic. **Resets positions.** Best for pure trees/chains.
 - `arrange` — settle current positions: springs + 2-opt crossing removal + overlap separation. Preserves the coarse structure you set but does **not** pin exact coordinates — nodes drift as springs balance. Use after edits or on cyclic graphs. A dense graph may leave one residual overlap; running `arrange` again usually clears it.
 
 ## attrs `<auto|compact|moderate>`
