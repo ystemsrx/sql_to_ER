@@ -4034,6 +4034,143 @@ function reduceCrossings(pos, E, n) {
     if (!improved) break;
   }
 }
+function crossingsAt(pos, myEdges, E) {
+  let t = 0;
+  for (const [a, b] of myEdges) {
+    for (const [c, d] of E) {
+      if (a === c || a === d || b === c || b === d) continue;
+      if (segCross(pos[a], pos[b], pos[c], pos[d])) t++;
+    }
+  }
+  return t;
+}
+function diamondDist(i, j, dh, pos, ring) {
+  const dist = Math.hypot(pos[j].x - pos[i].x, pos[j].y - pos[i].y) || 1;
+  const free = dist - ring[i] - ring[j] - 2 * dh;
+  const gap = Math.max(20, free / 2);
+  return ring[i] + dh + gap;
+}
+function balanceTwoDiamondEntities(pos, ring, foot, incident, E, rounds) {
+  const cands = [...incident.keys()].filter((i) => {
+    const inc = incident.get(i);
+    return inc.length === 2 && inc[0].nb !== inc[1].nb;
+  });
+  if (!cands.length) return;
+  const overlapFree = (i) => {
+    for (let j = 0; j < pos.length; j++) {
+      if (j === i) continue;
+      if (Math.hypot(pos[j].x - pos[i].x, pos[j].y - pos[i].y) < foot[i] + foot[j]) return false;
+    }
+    return true;
+  };
+  let bMinX = Infinity;
+  let bMinY = Infinity;
+  let bMaxX = -Infinity;
+  let bMaxY = -Infinity;
+  for (let k = 0; k < pos.length; k++) {
+    bMinX = Math.min(bMinX, pos[k].x - foot[k]);
+    bMaxX = Math.max(bMaxX, pos[k].x + foot[k]);
+    bMinY = Math.min(bMinY, pos[k].y - foot[k]);
+    bMaxY = Math.max(bMaxY, pos[k].y + foot[k]);
+  }
+  const inBox = (i) => pos[i].x - foot[i] >= bMinX - 0.5 && pos[i].x + foot[i] <= bMaxX + 0.5 && pos[i].y - foot[i] >= bMinY - 0.5 && pos[i].y + foot[i] <= bMaxY + 0.5;
+  for (let round = 0; round < rounds; round++) {
+    let moved = false;
+    for (const i of cands) {
+      const [eA, eB] = incident.get(i);
+      const myEdges = [
+        [i, eA.nb],
+        [i, eB.nb]
+      ];
+      const d1 = diamondDist(i, eA.nb, eA.dh, pos, ring);
+      const d2 = diamondDist(i, eB.nb, eB.dh, pos, ring);
+      const gap0 = Math.abs(d1 - d2);
+      if (gap0 < 8) continue;
+      const maxOrig = Math.max(d1, d2);
+      const ox = pos[i].x;
+      const oy = pos[i].y;
+      const baseCross = crossingsAt(pos, myEdges, E);
+      const DIRS = 24;
+      const steps = [gap0 * 0.5, gap0 * 0.25, gap0 * 0.1, 30, 10];
+      let bestGap = gap0;
+      let bx = ox;
+      let by = oy;
+      for (let d = 0; d < DIRS; d++) {
+        const ux = Math.cos(d / DIRS * TAU2);
+        const uy = Math.sin(d / DIRS * TAU2);
+        for (const st of steps) {
+          pos[i].x = ox + ux * st;
+          pos[i].y = oy + uy * st;
+          const n1 = diamondDist(i, eA.nb, eA.dh, pos, ring);
+          const n2 = diamondDist(i, eB.nb, eB.dh, pos, ring);
+          const gap = Math.abs(n1 - n2);
+          if (gap < bestGap - 0.5 && Math.max(n1, n2) <= maxOrig + 0.5 && inBox(i) && overlapFree(i) && crossingsAt(pos, myEdges, E) <= baseCross) {
+            bestGap = gap;
+            bx = pos[i].x;
+            by = pos[i].y;
+          }
+        }
+      }
+      pos[i].x = bx;
+      pos[i].y = by;
+      if (bx !== ox || by !== oy) moved = true;
+    }
+    if (!moved) break;
+  }
+}
+function rotateToTargetAspect(pos, rad, target = 1.5) {
+  const n = pos.length;
+  if (n < 2) return;
+  let cx = 0;
+  let cy = 0;
+  for (const p of pos) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= n;
+  cy /= n;
+  let bestTheta = 0;
+  let bestScore = Infinity;
+  let bestArea = Infinity;
+  for (let deg = 0; deg < 180; deg++) {
+    const th = deg * Math.PI / 180;
+    const cos2 = Math.cos(th);
+    const sin2 = Math.sin(th);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const dx = pos[i].x - cx;
+      const dy = pos[i].y - cy;
+      const rx = cx + dx * cos2 - dy * sin2;
+      const ry = cy + dx * sin2 + dy * cos2;
+      minX = Math.min(minX, rx - rad[i]);
+      maxX = Math.max(maxX, rx + rad[i]);
+      minY = Math.min(minY, ry - rad[i]);
+      maxY = Math.max(maxY, ry + rad[i]);
+    }
+    const w = maxX - minX;
+    const h = maxY - minY;
+    const aspect = h > 1e-6 ? w / h : Infinity;
+    const score = Math.abs(aspect - target);
+    const area = w * h;
+    if (score < bestScore - 1e-9 || Math.abs(score - bestScore) < 1e-9 && area < bestArea) {
+      bestScore = score;
+      bestArea = area;
+      bestTheta = th;
+    }
+  }
+  if (Math.abs(bestTheta) < 1e-9) return;
+  const cos = Math.cos(bestTheta);
+  const sin = Math.sin(bestTheta);
+  for (let i = 0; i < n; i++) {
+    const dx = pos[i].x - cx;
+    const dy = pos[i].y - cy;
+    pos[i].x = cx + dx * cos - dy * sin;
+    pos[i].y = cy + dx * sin + dy * cos;
+  }
+}
 function stressLayout(nodes, edges) {
   const entities = nodes.filter((n) => n.nodeType === "entity");
   const rels = nodes.filter((n) => n.nodeType === "relationship");
@@ -4117,21 +4254,33 @@ function stressLayout(nodes, edges) {
       x: typeof e.x === "number" ? e.x : Math.cos(i / m * TAU2) * 200,
       y: typeof e.y === "number" ? e.y : Math.sin(i / m * TAU2) * 200
     }));
+    const rads = local.map((e) => footprint.get(e.id));
+    const idSet = new Set(ids);
+    const edgesLocal = [];
+    const incident = /* @__PURE__ */ new Map();
+    binRels.forEach(({ r, es }) => {
+      const [a, b] = es;
+      if (!idSet.has(a) || !idSet.has(b)) return;
+      const ia = li.get(a);
+      const ib = li.get(b);
+      edgesLocal.push([ia, ib]);
+      const dh = halfDiag(r);
+      if (!incident.has(ia)) incident.set(ia, []);
+      if (!incident.has(ib)) incident.set(ib, []);
+      incident.get(ia).push({ nb: ib, dh });
+      incident.get(ib).push({ nb: ia, dh });
+    });
     if (m > 1) {
       smacof(pos, D, 300);
-      const rads = local.map((e) => footprint.get(e.id));
       removeOverlaps(pos, rads, 400);
-      const idSet = new Set(ids);
-      const edgesLocal = [];
-      binRels.forEach(({ es }) => {
-        const [a, b] = es;
-        if (idSet.has(a) && idSet.has(b)) edgesLocal.push([li.get(a), li.get(b)]);
-      });
       if (edgesLocal.length > 1) {
         reduceCrossings(pos, edgesLocal, m);
         removeOverlaps(pos, rads, 400);
       }
+      const ringLocal = local.map((e) => ring.get(e.id));
+      balanceTwoDiamondEntities(pos, ringLocal, rads, incident, edgesLocal, 16);
     }
+    rotateToTargetAspect(pos, rads);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     local.forEach((e, i) => {
       const r = footprint.get(e.id);
@@ -4144,26 +4293,16 @@ function stressLayout(nodes, edges) {
     local.forEach((e, i) => map.set(e.id, { x: pos[i].x - minX, y: pos[i].y - minY }));
     return { ids, pos: map, w: maxX - minX, h: maxY - minY };
   });
-  laid.sort((a, b) => b.h - a.h);
-  const totalW = laid.reduce((s, c) => s + c.w, 0);
-  const rowMax = Math.max(900, Math.sqrt(totalW * (laid[0]?.h ?? 400)) * 1.3);
+  laid.sort((a, b) => b.w * b.h - a.w * a.h);
   const PAD = 80;
-  let cx = 0;
   let cy = 0;
-  let rowH = 0;
   laid.forEach((c) => {
-    if (cx > 0 && cx + c.w > rowMax) {
-      cx = 0;
-      cy += rowH + PAD;
-      rowH = 0;
-    }
     c.ids.forEach((id) => {
       const p = c.pos.get(id);
-      entities[eidx.get(id)].x = cx + p.x;
+      entities[eidx.get(id)].x = p.x;
       entities[eidx.get(id)].y = cy + p.y;
     });
-    cx += c.w + PAD;
-    rowH = Math.max(rowH, c.h);
+    cy += c.h + PAD;
   });
   const epos = new Map(entities.map((e) => [e.id, { x: e.x ?? 0, y: e.y ?? 0 }]));
   const groups = /* @__PURE__ */ new Map();
@@ -4204,6 +4343,54 @@ function stressLayout(nodes, edges) {
       }
     }
   });
+  const MARGIN = 3;
+  const entBox = entities.map((e) => {
+    const s = measureNodeSize(e);
+    return { id: e.id, x: e.x ?? 0, y: e.y ?? 0, hw: s.width / 2, hh: s.height / 2 };
+  });
+  const relBox = rels.map((r) => {
+    const s = measureNodeSize(r);
+    return { r, hw: s.width / 2, hh: s.height / 2 };
+  });
+  for (let iter = 0; iter < 200; iter++) {
+    let moved = 0;
+    for (let i = 0; i < relBox.length; i++) {
+      const bi = relBox[i];
+      const ri = bi.r;
+      for (const eb of entBox) {
+        const dx = (ri.x ?? 0) - eb.x;
+        const dy = (ri.y ?? 0) - eb.y;
+        const ox = bi.hw + eb.hw + MARGIN - Math.abs(dx);
+        const oy = bi.hh + eb.hh + MARGIN - Math.abs(dy);
+        if (ox > 0 && oy > 0) {
+          if (ox <= oy) ri.x = (ri.x ?? 0) + (dx >= 0 ? ox : -ox);
+          else ri.y = (ri.y ?? 0) + (dy >= 0 ? oy : -oy);
+          moved = Math.max(moved, Math.min(ox, oy));
+        }
+      }
+      for (let j = i + 1; j < relBox.length; j++) {
+        const bj = relBox[j];
+        const rj = bj.r;
+        const dx = (ri.x ?? 0) - (rj.x ?? 0);
+        const dy = (ri.y ?? 0) - (rj.y ?? 0);
+        const ox = bi.hw + bj.hw + MARGIN - Math.abs(dx);
+        const oy = bi.hh + bj.hh + MARGIN - Math.abs(dy);
+        if (ox > 0 && oy > 0) {
+          if (ox <= oy) {
+            const push = (dx >= 0 ? ox : -ox) / 2;
+            ri.x = (ri.x ?? 0) + push;
+            rj.x = (rj.x ?? 0) - push;
+          } else {
+            const push = (dy >= 0 ? oy : -oy) / 2;
+            ri.y = (ri.y ?? 0) + push;
+            rj.y = (rj.y ?? 0) - push;
+          }
+          moved = Math.max(moved, Math.min(ox, oy));
+        }
+      }
+    }
+    if (moved < 0.3) break;
+  }
 }
 
 // .claude/skills/sql2er/scripts/engine/ops.ts

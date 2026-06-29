@@ -6,9 +6,13 @@
  * relationship), give each edge a desired length large enough to hold BOTH entities'
  * attribute rings plus the diamond between them, then run SMACOF stress majorization
  * to realise those distances (uniform-ish edge lengths, few crossings on a planar
- * skeleton), remove residual node overlaps, pack disconnected components, and drop
- * each diamond on the line between its two entities. Attribute placement (`attrs`)
- * then fills the room this reserves — which is why overlaps/crossings disappear.
+ * skeleton), and remove residual node overlaps. Each component is then evened out
+ * (degree-2 entities nudged so their two diamond distances move closer, never adding
+ * spread/overlap/crossing) and rotated on its own toward a 3:2 box; components stack
+ * top-to-bottom, left-aligned. Each diamond then drops on the line between its two
+ * entities, and a final safety net slides any diamond off a node it landed on (only
+ * diamonds move). Attribute placement (`attrs`) fills the room this reserves — which
+ * is why overlaps/crossings disappear.
  */
 import { measureNodeSize } from "@app/builder";
 import type { EREdgeModel, ERNodeModel } from "@app/types";
@@ -160,6 +164,186 @@ function reduceCrossings(pos: Pt[], E: [number, number][], n: number): void {
   }
 }
 
+// Crossings that the edges incident to entity `i` participate in. Moving only `i`
+// changes only these, so comparing this before/after a move detects any NEW crossing
+// in O(E) instead of recounting the whole skeleton.
+function crossingsAt(pos: Pt[], myEdges: [number, number][], E: [number, number][]): number {
+  let t = 0;
+  for (const [a, b] of myEdges) {
+    for (const [c, d] of E) {
+      if (a === c || a === d || b === c || b === d) continue; // same edge or shared endpoint
+      if (segCross(pos[a], pos[b], pos[c], pos[d])) t++;
+    }
+  }
+  return t;
+}
+
+// Distance from entity `i` to the diamond on edge i→j, matching the placement
+// formula in stressLayout (the diamond sits at ring(i)+dh+gap along the line).
+function diamondDist(i: number, j: number, dh: number, pos: Pt[], ring: number[]): number {
+  const dist = Math.hypot(pos[j].x - pos[i].x, pos[j].y - pos[i].y) || 1;
+  const free = dist - ring[i] - ring[j] - 2 * dh;
+  const gap = Math.max(20, free / 2);
+  return ring[i] + dh + gap;
+}
+
+/**
+ * Balance an entity that connects exactly two relationship diamonds (degree-2, two
+ * DISTINCT neighbours): nudge it so its two diamond distances move CLOSER to equal —
+ * not forced equal. A trial move is taken only if it (a) shrinks the gap, (b) never
+ * lengthens the longer of the two distances (so the diagram can't spread), (c) keeps
+ * every entity footprint disk clear, and (d) adds no edge crossing. Everything else
+ * stays exactly where stress majorization put it.
+ */
+function balanceTwoDiamondEntities(
+  pos: Pt[],
+  ring: number[],
+  foot: number[],
+  incident: Map<number, { nb: number; dh: number }[]>,
+  E: [number, number][],
+  rounds: number,
+): void {
+  const cands = [...incident.keys()].filter((i) => {
+    const inc = incident.get(i)!;
+    return inc.length === 2 && inc[0].nb !== inc[1].nb;
+  });
+  if (!cands.length) return;
+  const overlapFree = (i: number): boolean => {
+    for (let j = 0; j < pos.length; j++) {
+      if (j === i) continue;
+      // same separation removeOverlaps guarantees — no extra slack
+      if (Math.hypot(pos[j].x - pos[i].x, pos[j].y - pos[i].y) < foot[i] + foot[j]) return false;
+    }
+    return true;
+  };
+  // component footprint box: balancing may even out distances WITHIN it, but a move
+  // must never push an entity's footprint outside it (that would spread the diagram).
+  let bMinX = Infinity;
+  let bMinY = Infinity;
+  let bMaxX = -Infinity;
+  let bMaxY = -Infinity;
+  for (let k = 0; k < pos.length; k++) {
+    bMinX = Math.min(bMinX, pos[k].x - foot[k]);
+    bMaxX = Math.max(bMaxX, pos[k].x + foot[k]);
+    bMinY = Math.min(bMinY, pos[k].y - foot[k]);
+    bMaxY = Math.max(bMaxY, pos[k].y + foot[k]);
+  }
+  const inBox = (i: number): boolean =>
+    pos[i].x - foot[i] >= bMinX - 0.5 &&
+    pos[i].x + foot[i] <= bMaxX + 0.5 &&
+    pos[i].y - foot[i] >= bMinY - 0.5 &&
+    pos[i].y + foot[i] <= bMaxY + 0.5;
+  for (let round = 0; round < rounds; round++) {
+    let moved = false;
+    for (const i of cands) {
+      const [eA, eB] = incident.get(i)!;
+      const myEdges: [number, number][] = [
+        [i, eA.nb],
+        [i, eB.nb],
+      ];
+      const d1 = diamondDist(i, eA.nb, eA.dh, pos, ring);
+      const d2 = diamondDist(i, eB.nb, eB.dh, pos, ring);
+      const gap0 = Math.abs(d1 - d2);
+      if (gap0 < 8) continue; // already even enough
+      const maxOrig = Math.max(d1, d2);
+      const ox = pos[i].x;
+      const oy = pos[i].y;
+      const baseCross = crossingsAt(pos, myEdges, E);
+      const DIRS = 24;
+      const steps = [gap0 * 0.5, gap0 * 0.25, gap0 * 0.1, 30, 10];
+      let bestGap = gap0;
+      let bx = ox;
+      let by = oy;
+      for (let d = 0; d < DIRS; d++) {
+        const ux = Math.cos((d / DIRS) * TAU);
+        const uy = Math.sin((d / DIRS) * TAU);
+        for (const st of steps) {
+          pos[i].x = ox + ux * st;
+          pos[i].y = oy + uy * st;
+          const n1 = diamondDist(i, eA.nb, eA.dh, pos, ring);
+          const n2 = diamondDist(i, eB.nb, eB.dh, pos, ring);
+          const gap = Math.abs(n1 - n2);
+          if (
+            gap < bestGap - 0.5 &&
+            Math.max(n1, n2) <= maxOrig + 0.5 &&
+            inBox(i) &&
+            overlapFree(i) &&
+            crossingsAt(pos, myEdges, E) <= baseCross
+          ) {
+            bestGap = gap;
+            bx = pos[i].x;
+            by = pos[i].y;
+          }
+        }
+      }
+      pos[i].x = bx;
+      pos[i].y = by;
+      if (bx !== ox || by !== oy) moved = true;
+    }
+    if (!moved) break;
+  }
+}
+
+/**
+ * Rotate a component's entity centres about their centroid to the orientation whose
+ * (footprint-disk) bounding box is closest to a 3:2 aspect ratio. Disk radii are
+ * rotation-invariant, so the search is exact; ties break toward the smaller box.
+ * Shapes stay upright (only centres move), exactly like the `rotate` command.
+ */
+function rotateToTargetAspect(pos: Pt[], rad: number[], target = 1.5): void {
+  const n = pos.length;
+  if (n < 2) return;
+  let cx = 0;
+  let cy = 0;
+  for (const p of pos) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= n;
+  cy /= n;
+  let bestTheta = 0;
+  let bestScore = Infinity;
+  let bestArea = Infinity;
+  for (let deg = 0; deg < 180; deg++) {
+    const th = (deg * Math.PI) / 180;
+    const cos = Math.cos(th);
+    const sin = Math.sin(th);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const dx = pos[i].x - cx;
+      const dy = pos[i].y - cy;
+      const rx = cx + dx * cos - dy * sin;
+      const ry = cy + dx * sin + dy * cos;
+      minX = Math.min(minX, rx - rad[i]);
+      maxX = Math.max(maxX, rx + rad[i]);
+      minY = Math.min(minY, ry - rad[i]);
+      maxY = Math.max(maxY, ry + rad[i]);
+    }
+    const w = maxX - minX;
+    const h = maxY - minY;
+    const aspect = h > 1e-6 ? w / h : Infinity;
+    const score = Math.abs(aspect - target);
+    const area = w * h;
+    if (score < bestScore - 1e-9 || (Math.abs(score - bestScore) < 1e-9 && area < bestArea)) {
+      bestScore = score;
+      bestArea = area;
+      bestTheta = th;
+    }
+  }
+  if (Math.abs(bestTheta) < 1e-9) return;
+  const cos = Math.cos(bestTheta);
+  const sin = Math.sin(bestTheta);
+  for (let i = 0; i < n; i++) {
+    const dx = pos[i].x - cx;
+    const dy = pos[i].y - cy;
+    pos[i].x = cx + dx * cos - dy * sin;
+    pos[i].y = cy + dx * sin + dy * cos;
+  }
+}
+
 export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
   const entities = nodes.filter((n) => n.nodeType === "entity");
   const rels = nodes.filter((n) => n.nodeType === "relationship");
@@ -232,7 +416,7 @@ export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
       comps.push(comp);
     });
 
-  // lay out each component independently, then pack the components into rows
+  // lay out + orient each component independently, then stack them vertically
   interface Laid {
     ids: string[];
     pos: Map<string, Pt>;
@@ -265,22 +449,37 @@ export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
       x: typeof e.x === "number" ? e.x : Math.cos((i / m) * TAU) * 200,
       y: typeof e.y === "number" ? e.y : Math.sin((i / m) * TAU) * 200,
     }));
+    const rads = local.map((e) => footprint.get(e.id)!);
+    // local entity↔entity edges + per-entity incidence (neighbour + diamond half-diag)
+    const idSet = new Set(ids);
+    const edgesLocal: [number, number][] = [];
+    const incident = new Map<number, { nb: number; dh: number }[]>();
+    binRels.forEach(({ r, es }) => {
+      const [a, b] = es;
+      if (!idSet.has(a) || !idSet.has(b)) return;
+      const ia = li.get(a)!;
+      const ib = li.get(b)!;
+      edgesLocal.push([ia, ib]);
+      const dh = halfDiag(r);
+      if (!incident.has(ia)) incident.set(ia, []);
+      if (!incident.has(ib)) incident.set(ib, []);
+      incident.get(ia)!.push({ nb: ib, dh });
+      incident.get(ib)!.push({ nb: ia, dh });
+    });
     if (m > 1) {
       smacof(pos, D, 300);
-      const rads = local.map((e) => footprint.get(e.id)!);
       removeOverlaps(pos, rads, 400);
       // uncross the skeleton (2-opt), then re-separate
-      const idSet = new Set(ids);
-      const edgesLocal: [number, number][] = [];
-      binRels.forEach(({ es }) => {
-        const [a, b] = es;
-        if (idSet.has(a) && idSet.has(b)) edgesLocal.push([li.get(a)!, li.get(b)!]);
-      });
       if (edgesLocal.length > 1) {
         reduceCrossings(pos, edgesLocal, m);
         removeOverlaps(pos, rads, 400);
       }
+      // even out lopsided degree-2 entities (no spread, no new overlap/crossing)
+      const ringLocal = local.map((e) => ring.get(e.id)!);
+      balanceTwoDiamondEntities(pos, ringLocal, rads, incident, edgesLocal, 16);
     }
+    // orient this component toward a 3:2 box (shapes stay upright)
+    rotateToTargetAspect(pos, rads);
     // normalise to local origin, record bbox incl. footprints
     let minX = Infinity,
       minY = Infinity,
@@ -298,27 +497,18 @@ export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
     return { ids, pos: map, w: maxX - minX, h: maxY - minY };
   });
 
-  // pack components left-to-right, wrapping into rows
-  laid.sort((a, b) => b.h - a.h);
-  const totalW = laid.reduce((s, c) => s + c.w, 0);
-  const rowMax = Math.max(900, Math.sqrt(totalW * (laid[0]?.h ?? 400)) * 1.3);
+  // stack components top-to-bottom, left-aligned (each already rotated on its own);
+  // largest first so the main diagram leads and stray tables trail below it
+  laid.sort((a, b) => b.w * b.h - a.w * a.h);
   const PAD = 80;
-  let cx = 0;
   let cy = 0;
-  let rowH = 0;
   laid.forEach((c) => {
-    if (cx > 0 && cx + c.w > rowMax) {
-      cx = 0;
-      cy += rowH + PAD;
-      rowH = 0;
-    }
     c.ids.forEach((id) => {
       const p = c.pos.get(id)!;
-      entities[eidx.get(id)!].x = cx + p.x;
+      entities[eidx.get(id)!].x = p.x; // local minX is 0 → shared left edge
       entities[eidx.get(id)!].y = cy + p.y;
     });
-    cx += c.w + PAD;
-    rowH = Math.max(rowH, c.h);
+    cy += c.h + PAD;
   });
 
   // diamonds: equal-gap point on the line between the two entities; self-loops offset
@@ -362,4 +552,62 @@ export function stressLayout(nodes: ERNodeModel[], edges: EREdgeModel[]): void {
       }
     }
   });
+
+  // ── safety net: nudge relationship diamonds off any node they overlap ──────────
+  // Diamonds are dropped geometrically on entity lines (and self-loops straight up),
+  // unseen by the per-component overlap removal that ran before they existed. Here we
+  // slide ONLY the diamonds — never entities — off any entity or other diamond, by the
+  // minimal axis-aligned separation. (A diamond is placed ≥20px clear of its incident
+  // entities, so this only fires when another push shoved it onto one.) Entity positions
+  // and attribute rings stay put; this keeps `overlaps` at 0 on dense / hub skeletons.
+  const MARGIN = 3; // clear describe's 2px overlap tolerance with room to spare
+  const entBox = entities.map((e) => {
+    const s = measureNodeSize(e);
+    return { id: e.id, x: e.x ?? 0, y: e.y ?? 0, hw: s.width / 2, hh: s.height / 2 };
+  });
+  const relBox = rels.map((r) => {
+    const s = measureNodeSize(r);
+    return { r, hw: s.width / 2, hh: s.height / 2 };
+  });
+  for (let iter = 0; iter < 200; iter++) {
+    let moved = 0;
+    for (let i = 0; i < relBox.length; i++) {
+      const bi = relBox[i];
+      const ri = bi.r;
+      // vs entities (fixed)
+      for (const eb of entBox) {
+        const dx = (ri.x ?? 0) - eb.x;
+        const dy = (ri.y ?? 0) - eb.y;
+        const ox = bi.hw + eb.hw + MARGIN - Math.abs(dx);
+        const oy = bi.hh + eb.hh + MARGIN - Math.abs(dy);
+        if (ox > 0 && oy > 0) {
+          if (ox <= oy) ri.x = (ri.x ?? 0) + (dx >= 0 ? ox : -ox);
+          else ri.y = (ri.y ?? 0) + (dy >= 0 ? oy : -oy);
+          moved = Math.max(moved, Math.min(ox, oy));
+        }
+      }
+      // vs other diamonds — split the push between the two
+      for (let j = i + 1; j < relBox.length; j++) {
+        const bj = relBox[j];
+        const rj = bj.r;
+        const dx = (ri.x ?? 0) - (rj.x ?? 0);
+        const dy = (ri.y ?? 0) - (rj.y ?? 0);
+        const ox = bi.hw + bj.hw + MARGIN - Math.abs(dx);
+        const oy = bi.hh + bj.hh + MARGIN - Math.abs(dy);
+        if (ox > 0 && oy > 0) {
+          if (ox <= oy) {
+            const push = (dx >= 0 ? ox : -ox) / 2;
+            ri.x = (ri.x ?? 0) + push;
+            rj.x = (rj.x ?? 0) - push;
+          } else {
+            const push = (dy >= 0 ? oy : -oy) / 2;
+            ri.y = (ri.y ?? 0) + push;
+            rj.y = (rj.y ?? 0) - push;
+          }
+          moved = Math.max(moved, Math.min(ox, oy));
+        }
+      }
+    }
+    if (moved < 0.3) break;
+  }
 }
