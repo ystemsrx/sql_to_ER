@@ -136,6 +136,7 @@ function printState(state: State, flags: Record<string, string | boolean>): void
   process.stdout.write(
     describe(graph, {
       full: boolFlag(flags.full),
+      details: boolFlag(flags.details),
       focus: typeof flags.focus === "string" ? flags.focus : undefined,
     }) + "\n",
   );
@@ -157,6 +158,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --layout optimal|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
+      --details                      expand attribute diagnostic pairs
       --focus <id>                   zoom into one entity
       --json                         machine-readable scene
   layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
@@ -270,7 +272,10 @@ function main(): void {
       const state = loadState(flags);
       const graph = createHeadlessGraph(state.nodes, state.edges);
       if (boolFlag(flags.json)) {
-        process.stdout.write(JSON.stringify(describeJson(graph), null, 2) + "\n");
+        process.stdout.write(
+          JSON.stringify(describeJson(graph, { details: boolFlag(flags.details) }), null, 2) +
+            "\n",
+        );
       } else {
         printState(state, flags);
       }

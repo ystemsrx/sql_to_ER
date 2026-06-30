@@ -73,6 +73,7 @@ When HTML is exported, tell the user the best manual fine-tuning path: open the 
 
 - `crossings` / `overlaps`: run `layout optimal`; for a small local crossing, try `swap`.
 - `attrOverlaps` / `attrCrossings`: compare `attrs compact` and `attrs moderate`, then keep the clearer result.
+- Persistent attribute issues: run `describe --details` to identify the exact attribute/node/line pairs before local edits.
 - Unwanted automatic movement: run `avoid off`; turn it back on with `avoid on` before final review when possible.
 - `COMPONENTS > 1`: keep related clusters in one diagram, or use `export <fmt> --split` for separate files.
 - Awkward aspect ratio: try `rotate 90`.

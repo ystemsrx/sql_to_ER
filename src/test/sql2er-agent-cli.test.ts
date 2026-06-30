@@ -337,6 +337,123 @@ function makeAttributeConnectorCrossingState(): AgentState {
   };
 }
 
+function makeAttributeDetailState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: false,
+      fontScale: 1,
+      attrMode: "auto",
+      autoAvoid: false,
+    },
+    nodes: [
+      { id: "entity-users", type: "entity", label: "users", nodeType: "entity", x: 0, y: 0 },
+      {
+        id: "attr-users-name",
+        type: "attribute",
+        label: "name",
+        nodeType: "attribute",
+        parentEntity: "entity-users",
+        x: 160,
+        y: 0,
+      },
+      {
+        id: "attr-users-email",
+        type: "attribute",
+        label: "email",
+        nodeType: "attribute",
+        parentEntity: "entity-users",
+        x: 0,
+        y: 30,
+      },
+      { id: "entity-orders", type: "entity", label: "orders", nodeType: "entity", x: 80, y: -140 },
+      {
+        id: "rel-orders-users",
+        type: "relationship",
+        label: "placed by",
+        nodeType: "relationship",
+        x: 80,
+        y: 140,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-users-name",
+        source: "entity-users",
+        target: "attr-users-name",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-users-email",
+        source: "entity-users",
+        target: "attr-users-email",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-orders-rel",
+        source: "entity-orders",
+        target: "rel-orders-users",
+        edgeType: "entity-relationship",
+      },
+    ],
+  };
+}
+
+function makeAttributeLinePiercesAttributeState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: false,
+      fontScale: 1,
+      attrMode: "auto",
+      autoAvoid: false,
+    },
+    nodes: [
+      { id: "entity-users", type: "entity", label: "users", nodeType: "entity", x: 0, y: 0 },
+      {
+        id: "attr-users-name",
+        type: "attribute",
+        label: "name",
+        nodeType: "attribute",
+        parentEntity: "entity-users",
+        x: 160,
+        y: 0,
+      },
+      {
+        id: "attr-users-email",
+        type: "attribute",
+        label: "email",
+        nodeType: "attribute",
+        parentEntity: "entity-users",
+        x: 80,
+        y: 0,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-users-name",
+        source: "entity-users",
+        target: "attr-users-name",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-users-email",
+        source: "entity-users",
+        target: "attr-users-email",
+        edgeType: "entity-attribute",
+      },
+    ],
+  };
+}
+
 function makePlanarCrossingState(): AgentState {
   return {
     version: 1,
@@ -880,6 +997,94 @@ describe("sql2er agent CLI describe", () => {
         status: "planar",
         vertices: 4,
         edges: 2,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("expands attribute diagnostics only with --details", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeAttributeDetailState()));
+
+      const brief = runAgent(["describe", "--state", state]);
+      expect(brief.status).toBe(0);
+      expect(brief.stdout).toContain("attribute overlaps: 1");
+      expect(brief.stdout).toContain("attribute-line crossings: 1");
+      expect(brief.stdout).not.toContain("attribute overlap: attr-users-email");
+      expect(brief.stdout).not.toContain("attribute-line crossing: edge-users-name");
+
+      const detailed = runAgent(["describe", "--state", state, "--details"]);
+      expect(detailed.status).toBe(0);
+      expect(detailed.stdout).toContain(
+        "attribute overlap: attr-users-email email (parent=users) × entity-users users [entity]",
+      );
+      expect(detailed.stdout).toContain(
+        "attribute-line crossing: edge-users-name entity-users users → attr-users-name name × edge-orders-rel entity-orders orders → rel-orders-users placed by",
+      );
+
+      const json = runAgent(["describe", "--state", state, "--json", "--details"]);
+      expect(json.status).toBe(0);
+      const parsed = JSON.parse(json.stdout) as {
+        diagnostics: {
+          details: {
+            attributeOverlaps: Array<{ a: { id: string }; b: { id: string } }>;
+            attributeLineCrossings: Array<{
+              kind: string;
+              a?: { edgeId: string };
+              b?: { edgeId: string };
+            }>;
+          };
+        };
+      };
+      expect(parsed.diagnostics.details.attributeOverlaps[0]).toMatchObject({
+        a: { id: "attr-users-email" },
+        b: { id: "entity-users" },
+      });
+      expect(parsed.diagnostics.details.attributeLineCrossings[0]).toMatchObject({
+        kind: "edge-crossing",
+        a: { edgeId: "edge-users-name" },
+        b: { edgeId: "edge-orders-rel" },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports an attribute connector piercing another attribute with --details", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeAttributeLinePiercesAttributeState()));
+
+      const detailed = runAgent(["describe", "--state", state, "--details"]);
+      expect(detailed.status).toBe(0);
+      expect(detailed.stdout).toContain("attribute-line crossings: 1");
+      expect(detailed.stdout).toContain(
+        "attribute-line crossing: edge-users-name entity-users users → attr-users-name name pierces attr-users-email email (parent=users)",
+      );
+
+      const json = runAgent(["describe", "--state", state, "--json", "--details"]);
+      expect(json.status).toBe(0);
+      const parsed = JSON.parse(json.stdout) as {
+        diagnostics: {
+          attrCrossings: number;
+          details: {
+            attributeLineCrossings: Array<{
+              kind: string;
+              edge?: { edgeId: string };
+              attribute?: { id: string };
+            }>;
+          };
+        };
+      };
+      expect(parsed.diagnostics.attrCrossings).toBe(1);
+      expect(parsed.diagnostics.details.attributeLineCrossings[0]).toMatchObject({
+        kind: "line-pierces-attribute",
+        edge: { edgeId: "edge-users-name" },
+        attribute: { id: "attr-users-email" },
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

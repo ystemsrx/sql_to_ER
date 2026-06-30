@@ -51,6 +51,7 @@ Print the current scene. Does not mutate state.
 | flag           | meaning                                                          |
 | -------------- | ---------------------------------------------------------------- |
 | `--full`       | include attributes with positions                                |
+| `--details`    | expand attribute overlap / line-crossing pairs                   |
 | `--focus <id>` | zoom into one entity (its relationships + attributes)            |
 | `--json`       | machine-readable: `{ entities[], relationships[], diagnostics }` |
 
@@ -72,6 +73,8 @@ DIAGNOSTICS
   isolated: <entity>
   attribute overlaps: <n>
   attribute-line crossings: <n>
+  attribute overlap: <attr> x <node>                 (--details)
+  attribute-line crossing: <edgeA> x <edgeB|attr>    (--details)
   planarity: planar skeleton | non-planar skeleton
   metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> attrCrossings=<n> planar=<true|false> bbox=<w>*<h> aspect=<r> edgeLen=<n>
 
@@ -79,7 +82,7 @@ MAP
   ... entities by label, diamonds as relationship labels, coarsely placed in a grid ...
 ```
 
-`planarity` is graph-theoretic: it checks the abstract entity-relationship skeleton after ignoring attributes, self-loops, and duplicate relationships. A planar skeleton may still have current `crossings` caused by layout; a non-planar skeleton means some relationship crossings are unavoidable. `overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers attribute connector crossings, an attribute connector crossing a relationship line, or a relationship line passing through an attribute ellipse.
+`planarity` is graph-theoretic: it checks the abstract entity-relationship skeleton after ignoring attributes, self-loops, and duplicate relationships. A planar skeleton may still have current `crossings` caused by layout; a non-planar skeleton means some relationship crossings are unavoidable. `overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers attribute connector crossings, an attribute connector crossing a relationship line, a relationship line passing through an attribute ellipse, or an attribute connector passing through another attribute ellipse. Use `--details` only when non-zero attribute diagnostics persist after `attrs compact` / `attrs moderate`; with `--json`, details are returned under `diagnostics.details`.
 
 ## layout `<optimal|arrange>`
 

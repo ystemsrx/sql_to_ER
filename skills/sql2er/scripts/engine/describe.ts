@@ -45,6 +45,32 @@ interface PlanarityInfo {
   vertices: number;
   edges: number;
 }
+export interface DiagnosticNodeInfo {
+  id: string;
+  type: "entity" | "relationship" | "attribute";
+  label: string;
+  parentId?: string;
+  parentLabel?: string;
+}
+export interface DiagnosticEdgeInfo {
+  edgeId: string;
+  type: string;
+  sourceId: string;
+  targetId: string;
+  sourceLabel: string;
+  targetLabel: string;
+}
+export type AttributeLineCrossingDetail =
+  | {
+      kind: "edge-crossing";
+      a: DiagnosticEdgeInfo;
+      b: DiagnosticEdgeInfo;
+    }
+  | {
+      kind: "line-pierces-attribute";
+      edge: DiagnosticEdgeInfo;
+      attribute: DiagnosticNodeInfo;
+    };
 
 const num = (v: unknown, fallback = 0) =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -312,6 +338,8 @@ interface Scene {
   overlaps: Array<[CoreInfo, CoreInfo]>;
   attrOverlaps: number;
   attrCrossings: number;
+  attrOverlapDetails: Array<[DiagnosticNodeInfo, DiagnosticNodeInfo]>;
+  attrLineCrossingDetails: AttributeLineCrossingDetail[];
   planarity: PlanarityInfo;
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
 }
@@ -472,7 +500,15 @@ function buildScene(graph: HeadlessGraph): Scene {
 
   // attribute overlaps (any pair where at least one is an attribute): the metric
   // attribute orbit modes optimize. Skeleton-only `overlaps` above doesn't see these.
-  type Box = { id: string; x: number; y: number; w: number; h: number; attr: boolean };
+  type Box = {
+    id: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    attr: boolean;
+    detail: DiagnosticNodeInfo;
+  };
   const boxes: Box[] = coreInfos.map((c) => ({
     id: c.id,
     x: c.x,
@@ -480,15 +516,42 @@ function buildScene(graph: HeadlessGraph): Scene {
     w: c.w,
     h: c.h,
     attr: false,
+    detail: {
+      id: c.id,
+      type: c.type,
+      label: c.label,
+    },
   }));
+  const attrBoxes: Box[] = [];
   attrsByEntity.forEach((list) =>
     list.forEach((m) => {
       const b = bboxOf.get(m.id);
-      if (b)
-        boxes.push({ id: m.id, x: num(m.x), y: num(m.y), w: b.width, h: b.height, attr: true });
+      const parentId = String(m.parentEntity ?? "");
+      const parentLabel = entityById.get(parentId)?.label;
+      if (b) {
+        const box = {
+          id: m.id,
+          x: num(m.x),
+          y: num(m.y),
+          w: b.width,
+          h: b.height,
+          attr: true,
+          detail: {
+            id: m.id,
+            type: "attribute" as const,
+            label: String(m.label ?? m.id),
+            parentId: parentId || undefined,
+            parentLabel,
+          },
+        };
+        boxes.push(box);
+        attrBoxes.push(box);
+      }
     }),
   );
+  const nodeDetailById = new Map(boxes.map((box) => [box.id, box.detail]));
   let attrOverlaps = 0;
+  const attrOverlapDetails: Array<[DiagnosticNodeInfo, DiagnosticNodeInfo]> = [];
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i];
@@ -497,8 +560,14 @@ function buildScene(graph: HeadlessGraph): Scene {
       if (
         Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - 2 &&
         Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - 2
-      )
+      ) {
         attrOverlaps++;
+        const da = a.detail;
+        const db = b.detail;
+        attrOverlapDetails.push(
+          db.type === "attribute" && da.type !== "attribute" ? [db, da] : [da, db],
+        );
+      }
     }
   }
 
@@ -513,10 +582,29 @@ function buildScene(graph: HeadlessGraph): Scene {
       const m = e.getModel();
       const s = centerOf(m.source);
       const t = centerOf(m.target);
-      return s && t ? { s, t, source: m.source, target: m.target, type: m.edgeType } : null;
+      const source = nodeDetailById.get(m.source);
+      const target = nodeDetailById.get(m.target);
+      return s && t
+        ? {
+            s,
+            t,
+            source: m.source,
+            target: m.target,
+            type: String(m.edgeType ?? ""),
+            detail: {
+              edgeId: String(m.id ?? `${m.source}->${m.target}`),
+              type: String(m.edgeType ?? ""),
+              sourceId: m.source,
+              targetId: m.target,
+              sourceLabel: source?.label ?? m.source,
+              targetLabel: target?.label ?? m.target,
+            },
+          }
+        : null;
     })
     .filter((x): x is NonNullable<typeof x> => !!x);
   let attrCrossings = 0;
+  const attrLineCrossingDetails: AttributeLineCrossingDetail[] = [];
   for (let i = 0; i < edgeSegs.length; i++) {
     for (let j = i + 1; j < edgeSegs.length; j++) {
       const a = edgeSegs[i];
@@ -529,20 +617,19 @@ function buildScene(graph: HeadlessGraph): Scene {
         a.target === b.target
       )
         continue;
-      if (segCross(a.s, a.t, b.s, b.t)) attrCrossings++;
+      if (segCross(a.s, a.t, b.s, b.t)) {
+        attrCrossings++;
+        attrLineCrossingDetails.push({ kind: "edge-crossing", a: a.detail, b: b.detail });
+      }
     }
   }
-  // a relationship line passing THROUGH an attribute ellipse's box. The connector test
-  // above misses this: the line doesn't cross another connector, it pierces the node.
-  const relLineSegs = edgeSegs.filter(
-    (s) => s.type === "entity-relationship" || s.type === "relationship-entity",
-  );
-  const attrBoxes: Array<{ x: number; y: number; w: number; h: number }> = [];
-  attrsByEntity.forEach((list) =>
-    list.forEach((m) => {
-      const b = bboxOf.get(m.id);
-      if (b) attrBoxes.push({ x: num(m.x), y: num(m.y), w: b.width, h: b.height });
-    }),
+  // A line passing THROUGH an attribute ellipse's box. The connector test above
+  // misses this: the line doesn't cross another connector, it pierces the node.
+  const attributePiercingLineSegs = edgeSegs.filter(
+    (s) =>
+      s.type === "entity-relationship" ||
+      s.type === "relationship-entity" ||
+      s.type === "entity-attribute",
   );
   // segment vs AABB (Liang–Barsky), box inset 2px to match the overlap tolerance
   const segHitsBox = (p1: Pt, p2: Pt, bx: number, by: number, bw: number, bh: number): boolean => {
@@ -576,9 +663,17 @@ function buildScene(graph: HeadlessGraph): Scene {
       t1 > t0
     );
   };
-  for (const seg of relLineSegs) {
+  for (const seg of attributePiercingLineSegs) {
     for (const ab of attrBoxes) {
-      if (segHitsBox(seg.s, seg.t, ab.x, ab.y, ab.w, ab.h)) attrCrossings++;
+      if (seg.source === ab.id || seg.target === ab.id) continue;
+      if (segHitsBox(seg.s, seg.t, ab.x, ab.y, ab.w, ab.h)) {
+        attrCrossings++;
+        attrLineCrossingDetails.push({
+          kind: "line-pierces-attribute",
+          edge: seg.detail,
+          attribute: ab.detail,
+        });
+      }
     }
   }
 
@@ -610,6 +705,8 @@ function buildScene(graph: HeadlessGraph): Scene {
     overlaps,
     attrOverlaps,
     attrCrossings,
+    attrOverlapDetails,
+    attrLineCrossingDetails,
     planarity,
     bbox: { minX, minY, maxX, maxY },
   };
@@ -667,9 +764,48 @@ function asciiMap(scene: Scene): string[] {
   );
 }
 
+function formatDiagnosticNode(n: DiagnosticNodeInfo): string {
+  if (n.type === "attribute") {
+    const parent = n.parentLabel ? ` (parent=${n.parentLabel})` : "";
+    return `${n.id} ${n.label}${parent}`;
+  }
+  return `${n.id} ${n.label} [${n.type}]`;
+}
+
+function formatDiagnosticEdge(e: DiagnosticEdgeInfo): string {
+  return `${e.edgeId} ${e.sourceId} ${e.sourceLabel} → ${e.targetId} ${e.targetLabel}`;
+}
+
+function pushAttributeDetails(scene: Scene, lines: string[]): void {
+  const limit = 12;
+  scene.attrOverlapDetails.slice(0, limit).forEach(([a, b]) => {
+    lines.push(`  ⚠ attribute overlap: ${formatDiagnosticNode(a)} × ${formatDiagnosticNode(b)}`);
+  });
+  if (scene.attrOverlapDetails.length > limit) {
+    lines.push(`  … +${scene.attrOverlapDetails.length - limit} more attribute overlaps`);
+  }
+
+  scene.attrLineCrossingDetails.slice(0, limit).forEach((detail) => {
+    if (detail.kind === "edge-crossing") {
+      lines.push(
+        `  ⚠ attribute-line crossing: ${formatDiagnosticEdge(detail.a)} × ${formatDiagnosticEdge(detail.b)}`,
+      );
+    } else {
+      lines.push(
+        `  ⚠ attribute-line crossing: ${formatDiagnosticEdge(detail.edge)} pierces ${formatDiagnosticNode(detail.attribute)}`,
+      );
+    }
+  });
+  if (scene.attrLineCrossingDetails.length > limit) {
+    lines.push(
+      `  … +${scene.attrLineCrossingDetails.length - limit} more attribute-line crossings`,
+    );
+  }
+}
+
 export function describe(
   graph: HeadlessGraph,
-  opts: { full?: boolean; focus?: string } = {},
+  opts: { full?: boolean; focus?: string; details?: boolean } = {},
 ): string {
   const scene = buildScene(graph);
   const L: string[] = [];
@@ -737,6 +873,7 @@ export function describe(
     L.push(`  ⚠ attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\`)`);
   if (scene.attrCrossings > 0)
     L.push(`  ⚠ attribute-line crossings: ${scene.attrCrossings}  (try \`attrs compact\`)`);
+  if (opts.details) pushAttributeDetails(scene, L);
   if (scene.planarity.planar) {
     L.push(`  ✓ planarity: planar skeleton (${scene.planarity.reason})`);
   } else {
@@ -835,14 +972,36 @@ export interface SceneJson {
     overlaps: number;
     attrOverlaps: number;
     attrCrossings: number;
+    details?: {
+      attributeOverlaps: Array<{
+        a: DiagnosticNodeInfo;
+        b: DiagnosticNodeInfo;
+      }>;
+      attributeLineCrossings: AttributeLineCrossingDetail[];
+    };
     planarity: PlanarityInfo;
     isolated: string[];
     bbox: { w: number; h: number };
   };
 }
 
-export function describeJson(graph: HeadlessGraph): SceneJson {
+export function describeJson(graph: HeadlessGraph, opts: { details?: boolean } = {}): SceneJson {
   const s = buildScene(graph);
+  const diagnostics: SceneJson["diagnostics"] = {
+    crossings: s.crossings.length,
+    overlaps: s.overlaps.length,
+    attrOverlaps: s.attrOverlaps,
+    attrCrossings: s.attrCrossings,
+    planarity: s.planarity,
+    isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
+    bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) },
+  };
+  if (opts.details) {
+    diagnostics.details = {
+      attributeOverlaps: s.attrOverlapDetails.map(([a, b]) => ({ a, b })),
+      attributeLineCrossings: s.attrLineCrossingDetails,
+    };
+  }
   return {
     entities: s.entities.map((e) => ({
       id: e.id,
@@ -862,14 +1021,6 @@ export function describeJson(graph: HeadlessGraph): SceneJson {
       x: Math.round(r.x),
       y: Math.round(r.y),
     })),
-    diagnostics: {
-      crossings: s.crossings.length,
-      overlaps: s.overlaps.length,
-      attrOverlaps: s.attrOverlaps,
-      attrCrossings: s.attrCrossings,
-      planarity: s.planarity,
-      isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
-      bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) },
-    },
+    diagnostics,
   };
 }
