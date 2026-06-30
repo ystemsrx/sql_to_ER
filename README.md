@@ -24,6 +24,16 @@
 
 ---
 
+## 🤖 作为 Skill 安装
+
+通过一条命令安装 sql2er Agent Skill：
+
+```bash
+npx skills add ystemsrx/sql_to_er
+```
+
+---
+
 ## ✨ 项目简介
 
 一个基于网页的**纯前端**工具，用于从 SQL `CREATE TABLE` 语句和 DBML 代码生成 **Chen 模型 ER 图**。无需登录，无需付费，完全免费开源。

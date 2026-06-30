@@ -24,6 +24,16 @@
 
 ---
 
+## 🤖 Agent Skill Installation
+
+Install the sql2er Agent Skill with one command:
+
+```bash
+npx skills add ystemsrx/sql_to_er
+```
+
+---
+
 ## ✨ Overview
 
 A **pure front-end** web tool for generating **Chen-model ER diagrams** from SQL `CREATE TABLE` statements and DBML code. No login, no payment, fully free and open source.
@@ -175,12 +185,12 @@ Every time you generate an ER diagram, a **snapshot** (thumbnail + node position
 
 - **Open** — click the **🕘 clock icon** in the top-left of the canvas to open the history page.
 - **Browse** — **drag** the cards or use the **scroll wheel** on the panel; the most recent snapshot sits in front.
-- **Restore** — drag any card to snap it to the center; clicking *Restore* then rebuilds the diagram with the saved node positions / labels (no re-layout).
+- **Restore** — drag any card to snap it to the center; clicking _Restore_ then rebuilds the diagram with the saved node positions / labels (no re-layout).
 - **Delete** — the **🗑** button on each card removes just that snapshot.
 - **Persistence** — everything lives in your browser's **IndexedDB** (entries appear only after you generate a non-sample diagram).
 
 > [!TIP]
-> Need to undo your last manual tweak? *Restore* swaps to a different archived input; for fine-grained step-by-step undo / redo use **Ctrl + Z / Ctrl + Y**.
+> Need to undo your last manual tweak? _Restore_ swaps to a different archived input; for fine-grained step-by-step undo / redo use **Ctrl + Z / Ctrl + Y**.
 
 ---
 

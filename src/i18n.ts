@@ -1,6 +1,5 @@
 export const I18N = {
   zh: {
-    eyebrow: "Chen Model · Entity-Relationship",
     title: "SQL / DBML 转 <em>ER 图</em> 生成器",
     subtitle: "把建表语句或 DBML 一键渲染为 Chen 模型实体-关系图",
     hint: '<span class="header-hint-row">双击编辑节点 · 滚轮缩放 · Ctrl+滚轮旋转 · 拖拽排布</span><span class="header-hint-row header-hint-row--secondary">Ctrl+Z 撤销 / Ctrl+Y 重做</span>',
@@ -73,7 +72,6 @@ Ref: 文章.作者 > 用户.编号
 `,
   },
   en: {
-    eyebrow: "Chen Model · Entity-Relationship",
     title: "Turn SQL / DBML into an <em>ER Diagram</em>",
     subtitle: "Render CREATE TABLE statements or DBML as a Chen-model entity-relationship diagram",
     hint: '<span class="header-hint-row">Double-click to edit · Scroll to zoom · Ctrl+Scroll to rotate · Drag to arrange</span><span class="header-hint-row header-hint-row--secondary">Ctrl+Z undo / Ctrl+Y redo</span>',

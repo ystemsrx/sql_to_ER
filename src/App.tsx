@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -36,12 +37,15 @@ registerCustomNodes(G6);
 const FONT_SCALE_MIN = 0.4;
 const FONT_SCALE_MAX = 1.6;
 const FONT_SCALE_RANGE = FONT_SCALE_MAX - FONT_SCALE_MIN;
+const SKILL_INSTALL_COMMAND = "npx skills add ystemsrx/sql_to_er";
 
 const App = () => {
   const initialLang = detectLang() as Language;
   const [lang, setLang] = useState<Language>(initialLang);
   const t = I18N[lang];
   const [showBackground, setShowBackground] = useState(true);
+  const [skillCommandCopied, setSkillCommandCopied] = useState(false);
+  const skillCopyTimerRef = useRef<number | null>(null);
   // 历史快照面板状态
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyItems, setHistoryItems] = useState<SnapshotRecord[]>([]);
@@ -180,6 +184,29 @@ const App = () => {
     setShowBackground(!showBackground);
   };
 
+  const handleCopySkillInstallCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(SKILL_INSTALL_COMMAND);
+    } catch (_) {
+      const textarea = document.createElement("textarea");
+      textarea.value = SKILL_INSTALL_COMMAND;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+
+    setSkillCommandCopied(true);
+    if (skillCopyTimerRef.current !== null) window.clearTimeout(skillCopyTimerRef.current);
+    skillCopyTimerRef.current = window.setTimeout(() => {
+      setSkillCommandCopied(false);
+      skillCopyTimerRef.current = null;
+    }, 1400);
+  };
+
   // ─── 生成历史 ───────────────────────────────────────────
   // 打开历史面板：
   //  1) 立刻用 IndexedDB 里的现有数据把面板撑起来（点击不卡）；
@@ -312,6 +339,13 @@ const App = () => {
     return () => document.body.classList.remove("history-open");
   }, [historyOpen]);
 
+  useEffect(
+    () => () => {
+      if (skillCopyTimerRef.current !== null) window.clearTimeout(skillCopyTimerRef.current);
+    },
+    [],
+  );
+
   // 时间戳格式化（按当前语言显示本地化的"几秒前 / 时间戳"）
   const formatTimestamp = (ts: number | undefined) => {
     if (!ts) return "";
@@ -342,6 +376,45 @@ const App = () => {
 
   return (
     <>
+      <div className="skill-install-pill" aria-label="Install sql2er Agent Skill">
+        <code>{SKILL_INSTALL_COMMAND}</code>
+        <span className="skill-install-copy-cap">
+          <button
+            type="button"
+            className="skill-install-copy"
+            aria-label={skillCommandCopied ? "Copied install command" : "Copy install command"}
+            title={skillCommandCopied ? "Copied" : "Copy"}
+            onClick={handleCopySkillInstallCommand}
+          >
+            {skillCommandCopied ? (
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="9" y="9" width="10" height="10" rx="2" />
+                <rect x="5" y="5" width="10" height="10" rx="2" />
+              </svg>
+            )}
+          </button>
+        </span>
+      </div>
       <div className="main-content">
         <div className="input-section">
           <div className="card">

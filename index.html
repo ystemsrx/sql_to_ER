@@ -885,6 +885,18 @@
         font-size: 0.98rem;
         line-height: var(--leading-cn-loose);
       }
+      .feat p code,
+      .section-head p code {
+        font-family: var(--font-mono);
+        font-size: 0.88em;
+        color: var(--color-accent-warm);
+        padding: 0.12em 0.42em;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--color-accent-orange) 9%, transparent);
+        border: 1px solid
+          color-mix(in srgb, var(--color-accent-orange) 18%, transparent);
+        white-space: nowrap;
+      }
 
       /* ─── Demo ─── */
       .demo-card {
@@ -1691,27 +1703,28 @@
           <div class="feat scroll-reveal">
             <div class="feat-num">01</div>
             <div>
-              <h3 data-i18n="f1_t">纯前端，打开即用</h3>
-              <p data-i18n="f1_d">
-                解析在你的浏览器里完成，SQL 不会被上传到任何地方。
+              <h3 data-i18n="f1_t">Agent Skill 一键安装</h3>
+              <p data-i18n-html="f1_d">
+                用 <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent
+                直接生成与审查 ER 图。
               </p>
             </div>
           </div>
           <div class="feat scroll-reveal">
             <div class="feat-num">02</div>
             <div>
-              <h3 data-i18n="f2_t">同时支持 SQL 与 DBML</h3>
+              <h3 data-i18n="f2_t">纯前端，打开即用</h3>
               <p data-i18n="f2_d">
-                粘贴 CREATE TABLE 或 DBML Ref，自动识别并生成 Chen 模型。
+                解析在你的浏览器里完成，SQL 不会被上传到任何地方。
               </p>
             </div>
           </div>
           <div class="feat scroll-reveal">
             <div class="feat-num">03</div>
             <div>
-              <h3 data-i18n="f3_t">拖拽与双击编辑</h3>
+              <h3 data-i18n="f3_t">同时支持 SQL 与 DBML</h3>
               <p data-i18n="f3_d">
-                节点可拖动，双击即可改名字，不用回到源代码反复生成。
+                粘贴 CREATE TABLE 或 DBML Ref，自动识别并生成 Chen 模型。
               </p>
             </div>
           </div>
@@ -1850,6 +1863,10 @@ Ref: posts.author_id &gt; users.id</code></pre>
             ><span data-i18n="h_eyebrow">How it works</span></span
           >
           <h2 data-i18n-html="h_title">从粘贴到完成，<em>五步</em>以内</h2>
+          <p data-i18n-html="h_sub">
+            或者安装 Agent Skill：
+            <code>npx skills add ystemsrx/sql_to_er</code>
+          </p>
         </div>
 
         <div class="steps scroll-reveal">
@@ -2073,6 +2090,18 @@ Ref: posts.author_id &gt; users.id</code></pre>
               </div>
             </div>
           </details>
+          <details class="scroll-reveal">
+            <summary data-i18n="q5">Agent Skill 是什么？</summary>
+            <div class="faq-wrap">
+              <div class="faq-body">
+                <p data-i18n-html="a5_html">
+                  它是给 AI Agent 使用的 sql2er 工具说明与命令封装。安装后可通过
+                  <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent
+                  读取 schema、生成 ER 图、导出图片并审查样式。
+                </p>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
     </section>
@@ -2217,12 +2246,13 @@ Ref: posts.author_id &gt; users.id</code></pre>
           fallback: "加载中…",
           f_eyebrow: "为什么用它",
           f_title: "轻量、<em>优雅</em>，直接能用",
-          f1_t: "纯前端，打开即用",
-          f1_d: "解析在你的浏览器里完成，SQL 不会被上传到任何地方。",
-          f2_t: "同时支持 SQL 与 DBML",
-          f2_d: "粘贴 CREATE TABLE 或 DBML Ref，自动识别并生成 Chen 模型。",
-          f3_t: "拖拽与双击编辑",
-          f3_d: "节点可拖动，双击即可改名字，不用回到源代码反复生成。",
+          f1_t: "Agent Skill 一键安装",
+          f1_d:
+            "用 <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent 直接生成与审查 ER 图。",
+          f2_t: "纯前端，打开即用",
+          f2_d: "解析在你的浏览器里完成，SQL 不会被上传到任何地方。",
+          f3_t: "同时支持 SQL 与 DBML",
+          f3_d: "粘贴 CREATE TABLE 或 DBML Ref，自动识别并生成 Chen 模型。",
           f4_t: "AGPL 开源",
           f4_d: "代码完全开源，支持导出图片，欢迎 fork、提 issue、发 PR。",
           d_eyebrow: "试一下",
@@ -2233,6 +2263,8 @@ Ref: posts.author_id &gt; users.id</code></pre>
           d_hint: "粘到生成器左侧，点「生成 ER 图」即可。",
           h_eyebrow: "使用步骤",
           h_title: "从粘贴到完成，<em>五步</em>以内",
+          h_sub:
+            "或者安装 Agent Skill：<code>npx skills add ystemsrx/sql_to_er</code>",
           s1_t: "打开生成器",
           s1_d: "在线使用，或本地运行 Vite 开发服务器。",
           s2_t: "粘贴代码",
@@ -2270,6 +2302,9 @@ Ref: posts.author_id &gt; users.id</code></pre>
             "源码需要 Vite 编译 TypeScript 和解析 npm 依赖。请执行 <code>npm install && npm run dev</code>，然后访问 Vite 输出的 <code>/sql2er.html</code> 地址。静态部署请先 <code>npm run build</code>，再服务 <code>dist/</code>。",
           q4: "支持哪些 SQL 方言？",
           a4: "解析以 PostgreSQL 方言为主，同时兼容常见的 MySQL / SQLite CREATE TABLE 语法。外键无论写在列里还是尾部约束里都能识别。",
+          q5: "Agent Skill 是什么？",
+          a5_html:
+            "它是给 AI Agent 使用的 sql2er 工具说明与命令封装。安装后可通过 <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent 读取 schema、生成 ER 图、导出图片并审查样式。",
           cta_title: "准备好把 SQL <em>变成图</em>了吗？",
           cta_note: "浏览器里就能跑，不用注册，不用付费。",
           cta_btn: "打开生成器",
@@ -2291,12 +2326,13 @@ Ref: posts.author_id &gt; users.id</code></pre>
           fallback: "Loading…",
           f_eyebrow: "Why this tool",
           f_title: "Lightweight, <em>elegant</em>, actually usable",
-          f1_t: "Pure front-end",
-          f1_d: "Parsing runs in your browser. SQL is never uploaded anywhere.",
-          f2_t: "SQL & DBML both",
-          f2_d: "Paste CREATE TABLE or DBML Ref — auto-detects and builds the Chen model.",
-          f3_t: "Drag & double-click edit",
-          f3_d: "Move nodes, double-click to rename — no need to regenerate from source.",
+          f1_t: "Agent Skill install",
+          f1_d:
+            "Run <code>npx skills add ystemsrx/sql_to_er</code> so your agent can generate and review ER diagrams.",
+          f2_t: "Pure front-end",
+          f2_d: "Parsing runs in your browser. SQL is never uploaded anywhere.",
+          f3_t: "SQL & DBML both",
+          f3_d: "Paste CREATE TABLE or DBML Ref — auto-detects and builds the Chen model.",
           f4_t: "AGPL licensed",
           f4_d: "Fully open source with image export — fork it, open issues, send PRs.",
           d_eyebrow: "Try it",
@@ -2308,6 +2344,8 @@ Ref: posts.author_id &gt; users.id</code></pre>
             'Paste it on the left side of the generator, then hit "Generate".',
           h_eyebrow: "How it works",
           h_title: "From paste to polish, in <em>five steps</em>",
+          h_sub:
+            "or install the Agent Skill: <code>npx skills add ystemsrx/sql_to_er</code>",
           s1_t: "Open the tool",
           s1_d: "Use the hosted version, or run the Vite dev server locally.",
           s2_t: "Paste code",
@@ -2345,6 +2383,9 @@ Ref: posts.author_id &gt; users.id</code></pre>
             "The source needs Vite to compile TypeScript and resolve npm dependencies. Run <code>npm install && npm run dev</code>, then visit Vite's <code>/sql2er.html</code> URL. For static hosting, run <code>npm run build</code> first and serve <code>dist/</code>.",
           q4: "Which SQL dialects are supported?",
           a4: "Mainly PostgreSQL, also accepts common MySQL / SQLite CREATE TABLE syntax. Foreign keys work inline or as trailing constraints.",
+          q5: "What is the Agent Skill?",
+          a5_html:
+            "It is the sql2er workflow and command wrapper for AI agents. Install it with <code>npx skills add ystemsrx/sql_to_er</code> so an agent can read a schema, generate an ER diagram, export images, and review the result.",
           cta_title: "Ready to turn SQL <em>into diagrams</em>?",
           cta_note: "Runs in your browser. No signup, no billing.",
           cta_btn: "Open the generator",
