@@ -60,7 +60,7 @@ pnpm dev
 ```
 
 > [!WARNING]
-> **Do not open `sql2er.html` by double-clicking it, and do not run `npx serve .` against the source directory.** This project uses Vite + TypeScript; `.ts/.tsx` files and npm dependencies must be compiled and resolved by Vite. For development, run:
+> **Do not open `sql2er.html` by double-clicking it.** This project uses Vite + TypeScript; `.ts/.tsx` files and front-end dependencies must be compiled and resolved by Vite. For development, run:
 >
 > ```bash
 > pnpm dev

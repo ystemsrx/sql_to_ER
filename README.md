@@ -65,7 +65,7 @@ pnpm dev
 ```
 
 > [!WARNING]
-> **请勿直接双击打开 `sql2er.html`，也不要用 `npx serve .` 直接服务源码目录。** 本项目使用 Vite + TypeScript，源码中的 `.ts/.tsx` 和 npm 依赖需要 Vite 编译与模块解析。开发时请使用：
+> **请勿直接双击打开 `sql2er.html`。** 本项目使用 Vite + TypeScript，源码中的 `.ts/.tsx` 和前端依赖需要 Vite 编译与模块解析。开发时请使用：
 >
 > ```bash
 > pnpm dev

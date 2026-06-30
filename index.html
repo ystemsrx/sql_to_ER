@@ -913,8 +913,42 @@
         background: var(--bg-overlay);
         border-bottom: 1px solid var(--hair);
       }
+      .tab-switch {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(72px, 1fr));
+        padding: 3px;
+        border: 1px solid var(--hair);
+        border-radius: 999px;
+        background: color-mix(
+          in srgb,
+          var(--bg-raised) 76%,
+          var(--bg-overlay)
+        );
+      }
+      .tab-indicator {
+        position: absolute;
+        inset: 3px auto 3px 3px;
+        width: calc((100% - 6px) / 2);
+        border-radius: 999px;
+        background: color-mix(
+          in srgb,
+          var(--color-accent-orange) 10%,
+          transparent
+        );
+        border: 1px solid
+          color-mix(in srgb, var(--color-accent-orange) 30%, transparent);
+        transition: transform var(--duration-normal) var(--ease-default);
+        pointer-events: none;
+      }
+      .tab-switch[data-active="dbml"] .tab-indicator {
+        transform: translateX(100%);
+      }
       .tab {
-        padding: 7px 14px;
+        position: relative;
+        z-index: 1;
+        justify-content: center;
+        padding: 7px 16px;
         border-radius: 999px;
         font-family: var(--font-heading);
         font-size: 0.85rem;
@@ -933,16 +967,8 @@
       }
       .tab.is-active {
         color: var(--color-accent-warm);
-        background: color-mix(
-          in srgb,
-          var(--color-accent-orange) 10%,
-          transparent
-        );
-        border-color: color-mix(
-          in srgb,
-          var(--color-accent-orange) 30%,
-          transparent
-        );
+        background: transparent;
+        border-color: transparent;
       }
       .demo-actions {
         margin-left: auto;
@@ -968,9 +994,34 @@
         color: var(--color-accent-warm);
         border-color: var(--color-accent-orange);
       }
+      .mini-btn.is-copied {
+        color: var(--color-accent-warm);
+        border-color: color-mix(
+          in srgb,
+          var(--color-accent-orange) 40%,
+          transparent
+        );
+        background: color-mix(
+          in srgb,
+          var(--color-accent-orange) 8%,
+          transparent
+        );
+      }
+      .icon-btn {
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        border-radius: 50%;
+        justify-content: center;
+        flex: 0 0 34px;
+      }
       .mini-btn svg {
         width: 13px;
         height: 13px;
+      }
+      .icon-btn svg {
+        width: 15px;
+        height: 15px;
       }
 
       .code-panel {
@@ -986,7 +1037,7 @@
         font-family: var(--font-mono) !important;
         font-size: 0.9rem !important;
         line-height: 1.7 !important;
-        max-height: 360px;
+        height: 384px;
         overflow: auto;
       }
       .code-panel code {
@@ -1018,8 +1069,13 @@
         font-style: italic;
       }
       [data-theme="light"] .token.keyword,
-      [data-theme="light"] .token.atrule {
+      [data-theme="light"] .token.atrule,
+      [data-theme="light"] .token.attr {
         color: #c96442;
+        font-weight: 500;
+      }
+      [data-theme="light"] .token.builtin {
+        color: #7c5fb3;
         font-weight: 500;
       }
       [data-theme="light"] .token.string {
@@ -1045,8 +1101,13 @@
         color: #6b6860;
         font-style: italic;
       }
-      [data-theme="dark"] .token.keyword {
+      [data-theme="dark"] .token.keyword,
+      [data-theme="dark"] .token.attr {
         color: #e8a884;
+        font-weight: 500;
+      }
+      [data-theme="dark"] .token.builtin {
+        color: #c0a8f0;
         font-weight: 500;
       }
       [data-theme="dark"] .token.string {
@@ -1756,10 +1817,18 @@
 
         <div class="demo-card scroll-reveal">
           <div class="demo-bar">
-            <button class="tab is-active" data-tab="sql">SQL</button>
-            <button class="tab" data-tab="dbml">DBML</button>
+            <div class="tab-switch" id="demoTabs" data-active="sql">
+              <span class="tab-indicator" aria-hidden="true"></span>
+              <button class="tab is-active" data-tab="sql">SQL</button>
+              <button class="tab" data-tab="dbml">DBML</button>
+            </div>
             <div class="demo-actions">
-              <button class="mini-btn" id="copyBtn">
+              <button
+                class="mini-btn icon-btn"
+                id="copyBtn"
+                aria-label="复制"
+                data-i18n-aria="copy"
+              >
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -1773,7 +1842,6 @@
                     d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
                   />
                 </svg>
-                <span data-i18n="copy">复制</span>
               </button>
               <a
                 class="mini-btn"
@@ -1817,7 +1885,7 @@ CREATE TABLE posts (
 );</code></pre>
           </div>
           <div class="code-panel" data-panel="dbml">
-            <pre><code class="language-javascript">Table users {
+            <pre><code class="language-dbml">Table users {
   id INT [pk]
   username VARCHAR(255) [not null]
   email VARCHAR(255) [unique]
@@ -1900,9 +1968,9 @@ Ref: posts.author_id &gt; users.id</code></pre>
         <div class="callout scroll-reveal">
           <strong><span data-i18n="warn_t">本地运行提示：</span></strong>
           <span data-i18n="warn_d"
-            >不能直接双击 sql2er.html，也不能直接 serve 源码目录。请执行
+            >不能直接双击 sql2er.html。请执行
           </span>
-          <code>npm run dev</code>
+          <code>pnpm dev</code>
           <span data-i18n="warn_d2">，再访问 Vite 输出的 /sql2er.html 地址。</span>
         </div>
       </div>
@@ -2071,10 +2139,10 @@ Ref: posts.author_id &gt; users.id</code></pre>
             <div class="faq-wrap">
               <div class="faq-body">
                 <p data-i18n-html="a3_html">
-                  源码需要 Vite 编译 TypeScript 和解析 npm 依赖。请执行
-                  <code>npm install && npm run dev</code>，然后访问 Vite 输出的
+                  源码需要 Vite 编译 TypeScript 并解析前端依赖。请执行
+                  <code>pnpm install && pnpm dev</code>，然后访问 Vite 输出的
                   <code>/sql2er.html</code> 地址。静态部署请先
-                  <code>npm run build</code>，再服务 <code>dist/</code>。
+                  <code>pnpm build</code>，再服务 <code>dist/</code>。
                 </p>
               </div>
             </div>
@@ -2095,9 +2163,10 @@ Ref: posts.author_id &gt; users.id</code></pre>
             <div class="faq-wrap">
               <div class="faq-body">
                 <p data-i18n-html="a5_html">
-                  它是给 AI Agent 使用的 sql2er 工具说明与命令封装。安装后可通过
-                  <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent
-                  读取 schema、生成 ER 图、导出图片并审查样式。
+                  它是给 AI Agent 使用的 sql2er 工具说明与命令封装。通过
+                  <code>npx skills add ystemsrx/sql_to_er</code>
+                  安装这个 Skill 后，Agent 可读取 schema、生成 ER
+                  图、导出图片并审查样式。
                 </p>
               </div>
             </div>
@@ -2199,7 +2268,22 @@ Ref: posts.author_id &gt; users.id</code></pre>
       // window.addEventListener("load", ...) 在 load 事件之后才注册，
       // Hero ER 图永远不会被构建。代码高亮失败也不应阻塞主流程。
       window.Prism = Prism;
-      import("prismjs/components/prism-sql").catch(() => {});
+      Prism.languages.dbml = {
+        comment: /\/\/.*|\/\*[\s\S]*?\*\//,
+        keyword: /\b(?:Table|Ref|Enum|Project|TableGroup|Indexes|Note)\b/,
+        attr: /\[[^\]]+\]/,
+        operator: /[>{}:]/,
+        string: /"[^"]*"|'[^']*'/,
+        number: /\b\d+(?:\.\d+)?\b/,
+        builtin: /\b(?:INT|INTEGER|VARCHAR|CHAR|TEXT|TIMESTAMP|DATE|BOOLEAN|BOOL|DECIMAL|UUID|SERIAL)\b/i,
+      };
+      const highlightDemoCode = () => {
+        const demo = document.querySelector(".demo-card");
+        if (demo) Prism.highlightAllUnder(demo);
+      };
+      import("prismjs/components/prism-sql")
+        .then(highlightDemoCode)
+        .catch(highlightDemoCode);
 
       // ───── YEAR ─────
       document.getElementById("year").textContent = new Date().getFullYear();
@@ -2248,7 +2332,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           f_title: "轻量、<em>优雅</em>，直接能用",
           f1_t: "Agent Skill 一键安装",
           f1_d:
-            "用 <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent 直接生成与审查 ER 图。",
+            "用 <code>npx skills add ystemsrx/sql_to_er</code> 安装 Skill，让 Agent 直接生成、审查与调整 ER 图。",
           f2_t: "纯前端，打开即用",
           f2_d: "解析在你的浏览器里完成，SQL 不会被上传到任何地方。",
           f3_t: "同时支持 SQL 与 DBML",
@@ -2259,6 +2343,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           d_title: "两种输入，<em>一种</em>输出",
           d_sub: "切换标签看看不同格式，点「复制」然后粘到生成器里。",
           copy: "复制",
+          copied: "已复制",
           try: "打开生成器",
           d_hint: "粘到生成器左侧，点「生成 ER 图」即可。",
           h_eyebrow: "使用步骤",
@@ -2277,7 +2362,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           s5_d: "复杂图形一键整理，几秒排整齐。",
           warn_t: "本地运行提示：",
           warn_d:
-            "不能直接双击 sql2er.html，也不能直接 serve 源码目录。请执行 ",
+            "不能直接双击 sql2er.html。请执行 ",
           warn_d2: "，再访问 Vite 输出的 /sql2er.html 地址。",
           c_eyebrow: "图形语义",
           c_title: "Chen 模型<em>四件套</em>",
@@ -2299,12 +2384,12 @@ Ref: posts.author_id &gt; users.id</code></pre>
           a2: "为了自动化，工具默认用外键字段名作为菱形的标签，用表名 / 列名作为实体 / 属性。学术作业请双击图形改名，或改源 SQL 再重新生成。",
           q3: "我双击 sql2er.html 打不开？",
           a3_html:
-            "源码需要 Vite 编译 TypeScript 和解析 npm 依赖。请执行 <code>npm install && npm run dev</code>，然后访问 Vite 输出的 <code>/sql2er.html</code> 地址。静态部署请先 <code>npm run build</code>，再服务 <code>dist/</code>。",
+            "源码需要 Vite 编译 TypeScript 并解析前端依赖。请执行 <code>pnpm install && pnpm dev</code>，然后访问 Vite 输出的 <code>/sql2er.html</code> 地址。静态部署请先 <code>pnpm build</code>，再服务 <code>dist/</code>。",
           q4: "支持哪些 SQL 方言？",
           a4: "解析以 PostgreSQL 方言为主，同时兼容常见的 MySQL / SQLite CREATE TABLE 语法。外键无论写在列里还是尾部约束里都能识别。",
           q5: "Agent Skill 是什么？",
           a5_html:
-            "它是给 AI Agent 使用的 sql2er 工具说明与命令封装。安装后可通过 <code>npx skills add ystemsrx/sql_to_er</code> 让 Agent 读取 schema、生成 ER 图、导出图片并审查样式。",
+            "它是给 AI Agent 使用的 sql2er 工具说明与命令封装。通过 <code>npx skills add ystemsrx/sql_to_er</code> 安装此 Skill 后，Agent 可读取 schema、生成 ER 图、导出图片并审查、优化样式。",
           cta_title: "准备好把 SQL <em>变成图</em>了吗？",
           cta_note: "浏览器里就能跑，不用注册，不用付费。",
           cta_btn: "打开生成器",
@@ -2328,7 +2413,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           f_title: "Lightweight, <em>elegant</em>, actually usable",
           f1_t: "Agent Skill install",
           f1_d:
-            "Run <code>npx skills add ystemsrx/sql_to_er</code> so your agent can generate and review ER diagrams.",
+            "Use <code>npx skills add ystemsrx/sql_to_er</code> to install the Skill so your agent can generate, review, and adjust ER diagrams.",
           f2_t: "Pure front-end",
           f2_d: "Parsing runs in your browser. SQL is never uploaded anywhere.",
           f3_t: "SQL & DBML both",
@@ -2339,6 +2424,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           d_title: "Two inputs, <em>one</em> output",
           d_sub: "Switch the tab, hit copy, paste it into the generator.",
           copy: "Copy",
+          copied: "Copied",
           try: "Open generator",
           d_hint:
             'Paste it on the left side of the generator, then hit "Generate".',
@@ -2358,7 +2444,7 @@ Ref: posts.author_id &gt; users.id</code></pre>
           s5_d: "One click to auto-arrange complex diagrams.",
           warn_t: "Running locally:",
           warn_d:
-            "Do NOT double-click sql2er.html or serve the source directory directly. Run ",
+            "Do NOT open sql2er.html by double-clicking it. Run ",
           warn_d2: ", then visit Vite's /sql2er.html URL.",
           c_eyebrow: "Shape semantics",
           c_title: "The Chen <em>four-piece set</em>",
@@ -2380,12 +2466,12 @@ Ref: posts.author_id &gt; users.id</code></pre>
           a2: "For automation, relationship diamonds default to the foreign-key column name, and entities/attributes use raw table/column names. Double-click any shape to rename.",
           q3: "sql2er.html does not open when I double-click.",
           a3_html:
-            "The source needs Vite to compile TypeScript and resolve npm dependencies. Run <code>npm install && npm run dev</code>, then visit Vite's <code>/sql2er.html</code> URL. For static hosting, run <code>npm run build</code> first and serve <code>dist/</code>.",
+            "The source needs Vite to compile TypeScript and resolve front-end dependencies. Run <code>pnpm install && pnpm dev</code>, then visit Vite's <code>/sql2er.html</code> URL. For static hosting, run <code>pnpm build</code> first and serve <code>dist/</code>.",
           q4: "Which SQL dialects are supported?",
           a4: "Mainly PostgreSQL, also accepts common MySQL / SQLite CREATE TABLE syntax. Foreign keys work inline or as trailing constraints.",
           q5: "What is the Agent Skill?",
           a5_html:
-            "It is the sql2er workflow and command wrapper for AI agents. Install it with <code>npx skills add ystemsrx/sql_to_er</code> so an agent can read a schema, generate an ER diagram, export images, and review the result.",
+            "It is the sql2er workflow and command wrapper for AI agents. Use <code>npx skills add ystemsrx/sql_to_er</code> to install the Skill; after that, an agent can read a schema, generate an ER diagram, export images, and review and refine the styling.",
           cta_title: "Ready to turn SQL <em>into diagrams</em>?",
           cta_note: "Runs in your browser. No signup, no billing.",
           cta_btn: "Open the generator",
@@ -2423,6 +2509,10 @@ Ref: posts.author_id &gt; users.id</code></pre>
           const k = el.getAttribute("data-i18n-html");
           if (d[k] !== undefined) el.innerHTML = d[k];
         });
+        document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+          const k = el.getAttribute("data-i18n-aria");
+          if (d[k] !== undefined) el.setAttribute("aria-label", d[k]);
+        });
         langLabel.textContent = lang === "zh" ? "EN" : "中";
         if (opts && opts.persist) localStorage.setItem("sql2er-lang", lang);
       }
@@ -2437,9 +2527,11 @@ Ref: posts.author_id &gt; users.id</code></pre>
       });
 
       // ───── TABS ─────
+      const demoTabs = document.getElementById("demoTabs");
       document.querySelectorAll(".tab").forEach((t) => {
         t.addEventListener("click", () => {
           const key = t.dataset.tab;
+          demoTabs.dataset.active = key;
           document
             .querySelectorAll(".tab")
             .forEach((x) => x.classList.toggle("is-active", x === t));
@@ -2454,6 +2546,16 @@ Ref: posts.author_id &gt; users.id</code></pre>
       // ───── COPY ─────
       const toast = document.getElementById("toast");
       const toastText = document.getElementById("toastText");
+      const copyBtn = document.getElementById("copyBtn");
+      let copyResetTimer = null;
+      const copyIcon =
+        '<rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />';
+      const checkIcon = '<polyline points="20 6 9 17 4 12" />';
+      function currentLang() {
+        return document.documentElement.getAttribute("lang").startsWith("zh")
+          ? "zh"
+          : "en";
+      }
       function showToast(msg) {
         toastText.textContent = msg;
         toast.classList.add("is-show");
@@ -2463,17 +2565,26 @@ Ref: posts.author_id &gt; users.id</code></pre>
           1600,
         );
       }
-      document.getElementById("copyBtn").addEventListener("click", async () => {
+      function markCopied() {
+        const lang = currentLang();
+        copyBtn.classList.add("is-copied");
+        copyBtn.setAttribute("aria-label", I18N[lang].copied);
+        copyBtn.querySelector("svg").innerHTML = checkIcon;
+        clearTimeout(copyResetTimer);
+        copyResetTimer = setTimeout(() => {
+          copyBtn.classList.remove("is-copied");
+          copyBtn.setAttribute("aria-label", I18N[currentLang()].copy);
+          copyBtn.querySelector("svg").innerHTML = copyIcon;
+        }, 1600);
+      }
+      copyBtn.addEventListener("click", async () => {
         const code = document.querySelector(
           ".code-panel.is-active code",
         ).textContent;
         try {
           await navigator.clipboard.writeText(code);
-          const lang = document.documentElement
-            .getAttribute("lang")
-            .startsWith("zh")
-            ? "zh"
-            : "en";
+          const lang = currentLang();
+          markCopied();
           showToast(I18N[lang].toast_copied);
         } catch {
           showToast("Copy failed");
@@ -2633,11 +2744,64 @@ Ref: posts.author > users.id`,
 
       let heroGraph = null;
       let heroResetLayout = null;
+      let heroWheelCleanup = null;
       const heroState = {
         pinnedId: null,
         dragging: false,
         initialPositions: null,
       };
+
+      function attachHeroSmoothZoom(graph, mount) {
+        const ZOOM_STEP = 1.12;
+        const ZOOM_MIN = 0.1;
+        const ZOOM_MAX = 10;
+        const SMOOTHING = 0.22;
+        const MIN_ZOOM_DELTA = 0.0015;
+        let targetZoom = null;
+        let zoomPivot = null;
+        let rafId = null;
+
+        const tick = () => {
+          rafId = null;
+          if (!graph || graph.destroyed || targetZoom === null || !zoomPivot) {
+            targetZoom = null;
+            zoomPivot = null;
+            return;
+          }
+          const cur = graph.getZoom();
+          const diff = targetZoom - cur;
+          if (Math.abs(diff) < MIN_ZOOM_DELTA) {
+            graph.zoomTo(targetZoom, zoomPivot);
+            targetZoom = null;
+            zoomPivot = null;
+            return;
+          }
+          graph.zoomTo(cur + diff * SMOOTHING, zoomPivot);
+          rafId = requestAnimationFrame(tick);
+        };
+
+        const onWheel = (e) => {
+          if (!graph || graph.destroyed) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const canvas = graph.get("canvas");
+          const p = canvas.getPointByClient(e.clientX, e.clientY);
+          zoomPivot = { x: p.x, y: p.y };
+          const base = targetZoom !== null ? targetZoom : graph.getZoom();
+          const factor = e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
+          targetZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, base * factor));
+          if (rafId === null) rafId = requestAnimationFrame(tick);
+        };
+
+        mount.addEventListener("wheel", onWheel, {
+          capture: true,
+          passive: false,
+        });
+        return () => {
+          mount.removeEventListener("wheel", onWheel, { capture: true });
+          if (rafId !== null) cancelAnimationFrame(rafId);
+        };
+      }
 
       function buildHeroGraph() {
         const stage = document.getElementById("erStage");
@@ -2662,6 +2826,7 @@ Ref: posts.author > users.id`,
           ? "zh"
           : "en";
         const SRC = HERO_SOURCES[lang] || HERO_SOURCES.zh;
+        const HERO_STROKE_WIDTH = 1.8;
 
         let parsed = parseSQLTables(SRC);
         if (!parsed.tables.length) parsed = parseDBML(SRC);
@@ -2688,7 +2853,13 @@ Ref: posts.author > users.id`,
           H = mount.offsetHeight;
         const isDark =
           document.documentElement.getAttribute("data-theme") === "dark";
-        const CANVAS_BG = isDark ? "#1b1a16" : "#ffffff";
+        const CANVAS_BG =
+          getComputedStyle(stage).backgroundColor ||
+          (isDark ? "#222119" : "#f5f3ec");
+        if (heroWheelCleanup) {
+          heroWheelCleanup();
+          heroWheelCleanup = null;
+        }
 
         const graph = new G6.Graph({
           container: mount,
@@ -2710,7 +2881,6 @@ Ref: posts.author > users.id`,
                   return !e.item || e.item.getType() !== "node";
                 },
               },
-              "zoom-canvas",
             ],
           },
           // —— 初始布局：force2 同步跑完（animate:false），避免渲染时看到过程 ——
@@ -2742,7 +2912,7 @@ Ref: posts.author > users.id`,
             },
           },
           defaultNode: {
-            style: { lineWidth: 2, stroke: "#141413", fill: "#ffffff" },
+            style: { lineWidth: HERO_STROKE_WIDTH, stroke: "#141413", fill: "#ffffff" },
             labelCfg: {
               style: {
                 fill: "#141413",
@@ -2752,14 +2922,14 @@ Ref: posts.author > users.id`,
             },
           },
           defaultEdge: {
-            style: { lineWidth: 1.2, stroke: "#6B6860" },
+            style: { lineWidth: HERO_STROKE_WIDTH, stroke: "#6B6860" },
             labelCfg: {
               style: {
                 fill: "#141413",
-                fontSize: 11,
+                fontSize: 12,
                 fontFamily: "Poppins, system-ui, sans-serif",
                 background: {
-                  fill: "#ffffff",
+                  fill: CANVAS_BG,
                   padding: [2, 4, 2, 4],
                   radius: 2,
                 },
@@ -2774,6 +2944,7 @@ Ref: posts.author > users.id`,
           edges: JSON.parse(JSON.stringify(edges)),
         });
         graph.render();
+        heroWheelCleanup = attachHeroSmoothZoom(graph, mount);
 
         // 暖调配色：light / dark 分别一套，保持 Chen 模型可读
         // 暗色模式：边框 & 连线 & 文字全白；菱形保持橙色
@@ -2793,7 +2964,6 @@ Ref: posts.author > users.id`,
               attrText: "#ffffff",
               edgeStroke: "#ffffff",
               edgeLabelFill: "#ffffff",
-              edgeLabelBg: "#1b1a16",
             }
           : {
               entityFill: "#FDFCF8",
@@ -2806,11 +2976,10 @@ Ref: posts.author > users.id`,
               pkStroke: "#141413",
               pkText: "#141413",
               attrFill: "#FDFCF8",
-              attrStroke: "#9B9890",
-              attrText: "#6B6860",
-              edgeStroke: "#9B9890",
-              edgeLabelFill: "#6B6860",
-              edgeLabelBg: "#FDFCF8",
+              attrStroke: "#141413",
+              attrText: "#141413",
+              edgeStroke: "#141413",
+              edgeLabelFill: "#141413",
             };
 
         // ⚠️ builder.js 里 attribute/relationship 的 draw() 把 text fill 写死为 '#000'，
@@ -2847,7 +3016,7 @@ Ref: posts.author > users.id`,
               ) {
                 child.attr("fill", textFill);
               } else if (name === "attribute-underline") {
-                child.attr("stroke", textFill);
+                child.attr({ stroke: textFill, lineWidth: HERO_STROKE_WIDTH });
               }
             });
           });
@@ -2863,7 +3032,7 @@ Ref: posts.author > users.id`,
               styles.style = {
                 fill: T.entityFill,
                 stroke: T.entityStroke,
-                lineWidth: 1.8,
+                lineWidth: HERO_STROKE_WIDTH,
               };
               styles.labelCfg = {
                 style: {
@@ -2876,7 +3045,7 @@ Ref: posts.author > users.id`,
               styles.style = {
                 fill: T.relFill,
                 stroke: T.relStroke,
-                lineWidth: 1.6,
+                lineWidth: HERO_STROKE_WIDTH,
               };
               styles.labelCfg = {
                 style: { fill: T.relText, fontFamily: "Poppins, sans-serif" },
@@ -2886,7 +3055,7 @@ Ref: posts.author > users.id`,
                 styles.style = {
                   fill: T.pkFill,
                   stroke: T.pkStroke,
-                  lineWidth: 1.6,
+                  lineWidth: HERO_STROKE_WIDTH,
                 };
                 styles.labelCfg = {
                   style: {
@@ -2899,7 +3068,7 @@ Ref: posts.author > users.id`,
                 styles.style = {
                   fill: T.attrFill,
                   stroke: T.attrStroke,
-                  lineWidth: 1.2,
+                  lineWidth: HERO_STROKE_WIDTH,
                 };
                 styles.labelCfg = {
                   style: {
@@ -2913,13 +3082,13 @@ Ref: posts.author > users.id`,
           });
           graph.getEdges().forEach((edge) => {
             graph.updateItem(edge, {
-              style: { stroke: T.edgeStroke, lineWidth: 1.2, endArrow: false },
+              style: { stroke: T.edgeStroke, lineWidth: HERO_STROKE_WIDTH, endArrow: false },
               labelCfg: {
                 style: {
                   fill: T.edgeLabelFill,
-                  fontSize: 11,
+                  fontSize: 12,
                   background: {
-                    fill: T.edgeLabelBg,
+                    fill: CANVAS_BG,
                     padding: [2, 4, 2, 4],
                     radius: 2,
                   },
