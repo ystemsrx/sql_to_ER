@@ -450,7 +450,7 @@ const App = () => {
             <div className="card-content">
               <div
                 style={{
-                  height: "480px",
+                  height: "540px",
                   display: "flex",
                   flexDirection: "column",
                 }}

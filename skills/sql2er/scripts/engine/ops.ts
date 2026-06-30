@@ -209,6 +209,7 @@ export function rotate(state: State, degrees: number): State {
 export interface EditResult {
   state: State;
   resolved: { id: string; label: string }[];
+  warnings?: string[];
 }
 
 export type LabelMode = "name" | "comment";
@@ -261,22 +262,11 @@ function resolveNodeById(state: State, id: string): LabelNode {
   return node;
 }
 
-function resolveNode(state: State, arg: string): ERNodeModel | null {
-  const byId = state.nodes.find((n) => n.id === arg);
-  if (byId) return byId;
-  const low = arg.toLowerCase();
-  const ents = state.nodes.filter(
-    (n) => n.nodeType === "entity" && String(n.label).toLowerCase() === low,
-  );
-  if (ents.length === 1) return ents[0];
-  // nameLabel fallback (table name even when showing comments)
-  const byName = state.nodes.filter(
-    (n) =>
-      n.nodeType === "entity" &&
-      String((n as { nameLabel?: string }).nameLabel ?? "").toLowerCase() === low,
-  );
-  if (byName.length === 1) return byName[0];
-  return null;
+function nodeKind(node: ERNodeModel): string {
+  if (node.nodeType === "attribute") return "attribute ellipse";
+  if (node.nodeType === "relationship") return "relationship diamond";
+  if (node.nodeType === "entity") return "entity rectangle";
+  return String(node.nodeType ?? "node");
 }
 
 export function setLabel(state: State, id: string, label: string): LabelEditResult {
@@ -812,32 +802,37 @@ export function setAutoAvoid(state: State, enabled: boolean): State {
 }
 
 export function move(state: State, arg: string, x: number, y: number, raw: boolean): EditResult {
-  const node = resolveNode(state, arg);
-  if (!node) throw new Error(unresolved(state, arg));
+  const node = resolveNodeById(state, arg);
   const startPositions = captureNodePositions(state.nodes);
   const dx = x - (typeof node.x === "number" ? node.x : 0);
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
-  syncMovedEntities(state, [node.id], startPositions);
+  if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 
 export function nudge(state: State, arg: string, dx: number, dy: number, raw: boolean): EditResult {
-  const node = resolveNode(state, arg);
-  if (!node) throw new Error(unresolved(state, arg));
+  const node = resolveNodeById(state, arg);
   const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, node, dx, dy);
-  syncMovedEntities(state, [node.id], startPositions);
+  if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
   if (!raw) settle(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 
 export function swap(state: State, argA: string, argB: string, raw: boolean): EditResult {
-  const a = resolveNode(state, argA);
-  const b = resolveNode(state, argB);
-  if (!a) throw new Error(unresolved(state, argA));
-  if (!b) throw new Error(unresolved(state, argB));
+  const a = resolveNodeById(state, argA);
+  const b = resolveNodeById(state, argB);
+  const nonEntities = [a, b].filter((node) => node.nodeType !== "entity");
+  if (nonEntities.length) {
+    const names = nonEntities.map((node) => `${node.id} (${nodeKind(node)})`).join(", ");
+    return {
+      state: { ...state },
+      resolved: [],
+      warnings: [`swap only supports entity rectangles; skipped ${names}. No changes made.`],
+    };
+  }
   const ax = typeof a.x === "number" ? a.x : 0;
   const ay = typeof a.y === "number" ? a.y : 0;
   const bx = typeof b.x === "number" ? b.x : 0;
@@ -854,11 +849,6 @@ export function swap(state: State, argA: string, argB: string, raw: boolean): Ed
       { id: b.id, label: String(b.label) },
     ],
   };
-}
-
-function unresolved(state: State, arg: string): string {
-  const ents = state.nodes.filter((n) => n.nodeType === "entity").map((n) => String(n.label));
-  return `Could not resolve "${arg}" to a unique node. Entities: ${ents.join(", ")}. Use an exact node id from describe.`;
 }
 
 /**

@@ -7,6 +7,7 @@ export interface AutoAvoidOptions {
   avoidAttributeEdges?: boolean;
   margin?: number;
   maxIterations?: number;
+  movableIds?: Iterable<string>;
 }
 
 const DEFAULT_SIZE: Record<string, NodeSize> = {
@@ -56,6 +57,11 @@ interface EdgeSegment {
   target: string;
   a: Point;
   b: Point;
+}
+
+interface LineSearchBudget {
+  angleSteps: number;
+  radiusSteps: number;
 }
 
 const boxOverlapAt = (a: Point, as: NodeSize, b: Point, bs: NodeSize, gap = 0): boolean =>
@@ -139,6 +145,13 @@ const segmentForEdge = (
 const edgeTouches = (edge: EdgeSegment, id: string): boolean =>
   edge.source === id || edge.target === id;
 
+const edgeTouchesAny = (edge: EdgeSegment, ids: Iterable<string>): boolean => {
+  for (const id of ids) {
+    if (edgeTouches(edge, id)) return true;
+  }
+  return false;
+};
+
 const connectorForAttribute = (
   entity: ERNodeModel,
   attribute: ERNodeModel,
@@ -187,18 +200,67 @@ const minAttributeRadius = (
   return entityExtent + attrExtent + gap;
 };
 
+function expandMovableIdsForLineIncidents(
+  nodes: ERNodeModel[],
+  edges: EREdgeModel[],
+  positions: Map<string, Point>,
+  sizes: Map<string, NodeSize>,
+  movableIds: Set<string>,
+): void {
+  if (!edges.length || !movableIds.size) return;
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const edgeSegments = edges
+    .map((edge) => segmentForEdge(edge, nodeById, positions, sizes))
+    .filter((edge): edge is EdgeSegment => !!edge);
+  const movableEdgeSegments = edgeSegments.filter((edge) => edgeTouchesAny(edge, movableIds));
+  if (!movableEdgeSegments.length) return;
+
+  nodes.forEach((node) => {
+    if (node.nodeType !== "attribute" || typeof node.parentEntity !== "string") return;
+    if (movableIds.has(node.id)) return;
+    const entity = nodeById.get(node.parentEntity);
+    if (!entity) return;
+    const point = positions.get(node.id) ?? positionOf(node);
+    const attrSize = sizes.get(node.id) ?? fallbackSize(node);
+    const connector = connectorForAttribute(entity, node, point, positions, sizes);
+
+    for (const edge of movableEdgeSegments) {
+      if (edgeTouches(edge, node.id)) continue;
+      if (segmentHitsBox(edge.a, edge.b, point, attrSize, 1)) {
+        movableIds.add(node.id);
+        return;
+      }
+      if (
+        !edgeTouches(edge, entity.id) &&
+        segmentsIntersect(connector.a, connector.b, edge.a, edge.b)
+      ) {
+        movableIds.add(node.id);
+        return;
+      }
+    }
+  });
+}
+
 function applyAttributeLineAvoidance(
   nodes: ERNodeModel[],
   edges: EREdgeModel[],
   positions: Map<string, Point>,
   sizes: Map<string, NodeSize>,
   margin: number,
+  movableIds?: ReadonlySet<string>,
+  searchBudget: LineSearchBudget = { angleSteps: 72, radiusSteps: 120 },
 ): void {
   if (!edges.length) return;
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const attributes = nodes
-    .filter((node) => node.nodeType === "attribute" && typeof node.parentEntity === "string")
+    .filter(
+      (node) =>
+        node.nodeType === "attribute" &&
+        typeof node.parentEntity === "string" &&
+        (!movableIds || movableIds.has(node.id)),
+    )
     .sort((a, b) => a.id.localeCompare(b.id));
 
   const currentEdges = () =>
@@ -206,10 +268,14 @@ function applyAttributeLineAvoidance(
       .map((edge) => segmentForEdge(edge, nodeById, positions, sizes))
       .filter((edge): edge is EdgeSegment => !!edge);
 
-  const placementIsClear = (attribute: ERNodeModel, entity: ERNodeModel, point: Point): boolean => {
+  const placementIsClear = (
+    attribute: ERNodeModel,
+    entity: ERNodeModel,
+    point: Point,
+    edgeSegments: EdgeSegment[],
+  ): boolean => {
     const attrSize = sizes.get(attribute.id) ?? fallbackSize(attribute);
     const connector = connectorForAttribute(entity, attribute, point, positions, sizes);
-    const edgeSegments = currentEdges();
 
     for (const other of nodes) {
       if (other.id === attribute.id) continue;
@@ -236,7 +302,11 @@ function applyAttributeLineAvoidance(
     return true;
   };
 
-  const nearestClearPoint = (attribute: ERNodeModel, entity: ERNodeModel): Point | null => {
+  const nearestClearPoint = (
+    attribute: ERNodeModel,
+    entity: ERNodeModel,
+    edgeSegments: EdgeSegment[],
+  ): Point | null => {
     const entityPoint = positions.get(entity.id) ?? positionOf(entity);
     const current = positions.get(attribute.id) ?? positionOf(attribute);
     const dx = current.x - entityPoint.x;
@@ -256,13 +326,13 @@ function applyAttributeLineAvoidance(
         x: entityPoint.x + r * Math.cos(angle),
         y: entityPoint.y + r * Math.sin(angle),
       };
-      if (!placementIsClear(attribute, entity, point)) return;
+      if (!placementIsClear(attribute, entity, point, edgeSegments)) return;
       const score = Math.hypot(point.x - current.x, point.y - current.y);
       if (!best || score < best.score) best = { point, score };
     };
 
     const angleDeltas = [0];
-    const angleSteps = 72;
+    const angleSteps = searchBudget.angleSteps;
     for (let step = 1; step <= angleSteps / 2; step++) {
       const delta = (step / angleSteps) * TAU;
       angleDeltas.push(delta, -delta);
@@ -270,7 +340,7 @@ function applyAttributeLineAvoidance(
 
     const radiusOffsets = [0];
     const radiusStep = 8;
-    for (let step = 1; step <= 120; step++) {
+    for (let step = 1; step <= searchBudget.radiusSteps; step++) {
       const offset = step * radiusStep;
       radiusOffsets.push(offset, -offset);
     }
@@ -291,13 +361,161 @@ function applyAttributeLineAvoidance(
     for (const attribute of attributes) {
       const entity = nodeById.get(String(attribute.parentEntity));
       if (!entity) continue;
+      const edgeSegments = currentEdges();
       const current = positions.get(attribute.id) ?? positionOf(attribute);
-      if (placementIsClear(attribute, entity, current)) continue;
-      const target = nearestClearPoint(attribute, entity);
+      if (placementIsClear(attribute, entity, current, edgeSegments)) continue;
+      const target = nearestClearPoint(attribute, entity, edgeSegments);
       if (!target) continue;
       positions.set(attribute.id, target);
       moved = true;
     }
+    if (!moved) break;
+  }
+}
+
+function applyRelationshipLineAvoidance(
+  nodes: ERNodeModel[],
+  edges: EREdgeModel[],
+  positions: Map<string, Point>,
+  sizes: Map<string, NodeSize>,
+  margin: number,
+  movableIds?: ReadonlySet<string>,
+  searchBudget: LineSearchBudget = { angleSteps: 36, radiusSteps: 80 },
+): void {
+  if (!edges.length) return;
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const relationships = nodes
+    .filter((node) => node.nodeType === "relationship" && (!movableIds || movableIds.has(node.id)))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (!relationships.length) return;
+
+  const attributes = nodes.filter(
+    (node) => node.nodeType === "attribute" && typeof node.parentEntity === "string",
+  );
+
+  const currentEdges = () =>
+    edges
+      .map((edge) => segmentForEdge(edge, nodeById, positions, sizes))
+      .filter((edge): edge is EdgeSegment => !!edge);
+
+  const currentAttributeConnectors = () =>
+    attributes
+      .map((attribute) => {
+        const entity = nodeById.get(String(attribute.parentEntity));
+        if (!entity) return null;
+        const point = positions.get(attribute.id) ?? positionOf(attribute);
+        return connectorForAttribute(entity, attribute, point, positions, sizes);
+      })
+      .filter((edge): edge is EdgeSegment => !!edge);
+
+  const projectedEdgeForRelationship = (
+    edge: EREdgeModel,
+    relationshipId: string,
+    point: Point,
+  ): EdgeSegment | null => {
+    const before = positions.get(relationshipId);
+    positions.set(relationshipId, point);
+    const segment = segmentForEdge(edge, nodeById, positions, sizes);
+    if (before) positions.set(relationshipId, before);
+    else positions.delete(relationshipId);
+    return segment;
+  };
+
+  const placementIsClear = (
+    relationship: ERNodeModel,
+    point: Point,
+    edgeSegments: EdgeSegment[],
+    attributeConnectors: EdgeSegment[],
+  ): boolean => {
+    const relSize = sizes.get(relationship.id) ?? fallbackSize(relationship);
+
+    for (const edge of edgeSegments) {
+      if (
+        !edgeTouches(edge, relationship.id) &&
+        segmentHitsBox(edge.a, edge.b, point, relSize, 1)
+      ) {
+        return false;
+      }
+    }
+
+    const touchingEdges = edges
+      .filter((edge) => edge.source === relationship.id || edge.target === relationship.id)
+      .map((edge) => projectedEdgeForRelationship(edge, relationship.id, point))
+      .filter((edge): edge is EdgeSegment => !!edge);
+
+    for (const edge of touchingEdges) {
+      for (const attribute of attributes) {
+        const attrPoint = positions.get(attribute.id) ?? positionOf(attribute);
+        const attrSize = sizes.get(attribute.id) ?? fallbackSize(attribute);
+        if (
+          !edgeTouches(edge, attribute.id) &&
+          segmentHitsBox(edge.a, edge.b, attrPoint, attrSize, 1)
+        ) {
+          return false;
+        }
+      }
+
+      for (const connector of attributeConnectors) {
+        if (edgeTouchesAny(connector, [edge.source, edge.target])) continue;
+        if (segmentsIntersect(edge.a, edge.b, connector.a, connector.b)) return false;
+      }
+    }
+
+    for (const other of nodes) {
+      if (other.id === relationship.id) continue;
+      const otherPoint = positions.get(other.id) ?? positionOf(other);
+      const otherSize = sizes.get(other.id) ?? fallbackSize(other);
+      if (boxOverlapAt(point, relSize, otherPoint, otherSize, margin)) return false;
+    }
+
+    return true;
+  };
+
+  const nearestClearPoint = (
+    relationship: ERNodeModel,
+    edgeSegments: EdgeSegment[],
+    attributeConnectors: EdgeSegment[],
+  ): Point | null => {
+    const current = positions.get(relationship.id) ?? positionOf(relationship);
+    if (placementIsClear(relationship, current, edgeSegments, attributeConnectors)) return current;
+
+    let best: { point: Point; score: number } | null = null;
+    const consider = (angle: number, radius: number): void => {
+      const point = {
+        x: current.x + radius * Math.cos(angle),
+        y: current.y + radius * Math.sin(angle),
+      };
+      if (!placementIsClear(relationship, point, edgeSegments, attributeConnectors)) return;
+      if (!best || radius < best.score) best = { point, score: radius };
+    };
+
+    const angleSteps = searchBudget.angleSteps;
+    for (let radiusStep = 1; radiusStep <= searchBudget.radiusSteps; radiusStep++) {
+      const radius = radiusStep * 8;
+      for (let step = 0; step < angleSteps; step++) {
+        consider((step / angleSteps) * TAU, radius);
+      }
+      if (best) return best.point;
+    }
+
+    return null;
+  };
+
+  for (let pass = 0; pass < 3; pass++) {
+    let moved = false;
+    const edgeSegments = currentEdges();
+    const attributeConnectors = currentAttributeConnectors();
+
+    for (const relationship of relationships) {
+      const current = positions.get(relationship.id) ?? positionOf(relationship);
+      if (placementIsClear(relationship, current, edgeSegments, attributeConnectors)) continue;
+      const target = nearestClearPoint(relationship, edgeSegments, attributeConnectors);
+      if (!target) continue;
+      positions.set(relationship.id, target);
+      moved = true;
+    }
+
     if (!moved) break;
   }
 }
@@ -314,6 +532,12 @@ export function computeAutoAvoidTargets(
   const original = new Map(nodes.map((node) => [node.id, positionOf(node)]));
   const positions = new Map(Array.from(original, ([id, point]) => [id, { ...point }]));
   const sizes = new Map(nodes.map((node) => [node.id, safeSize(node, sizeOf)]));
+  const movableIds = options.movableIds ? new Set(options.movableIds) : null;
+  if (movableIds) {
+    expandMovableIdsForLineIncidents(nodes, options.edges ?? [], positions, sizes, movableIds);
+  }
+  const canMove = (node: ERNodeModel): boolean =>
+    movePriority(node) > 0 && (!movableIds || movableIds.has(node.id));
 
   for (let iter = 0; iter < maxIterations; iter++) {
     let maxMove = 0;
@@ -331,8 +555,8 @@ export function computeAutoAvoidTargets(
         const overlapY = (as.height + bs.height) / 2 + margin - Math.abs(bp.y - ap.y);
         if (overlapX <= 0 || overlapY <= 0) continue;
 
-        const aPriority = movePriority(a);
-        const bPriority = movePriority(b);
+        const aPriority = canMove(a) ? movePriority(a) : 0;
+        const bPriority = canMove(b) ? movePriority(b) : 0;
         if (aPriority === 0 && bPriority === 0) continue;
 
         let moveA = 0;
@@ -368,12 +592,38 @@ export function computeAutoAvoidTargets(
   }
 
   if (options.avoidAttributeEdges !== false) {
-    applyAttributeLineAvoidance(nodes, options.edges ?? [], positions, sizes, margin);
+    applyAttributeLineAvoidance(
+      nodes,
+      options.edges ?? [],
+      positions,
+      sizes,
+      margin,
+      movableIds,
+      movableIds ? { angleSteps: 24, radiusSteps: 36 } : undefined,
+    );
+    applyRelationshipLineAvoidance(
+      nodes,
+      options.edges ?? [],
+      positions,
+      sizes,
+      margin,
+      movableIds,
+      movableIds ? { angleSteps: 24, radiusSteps: 36 } : undefined,
+    );
+    applyAttributeLineAvoidance(
+      nodes,
+      options.edges ?? [],
+      positions,
+      sizes,
+      margin,
+      movableIds,
+      movableIds ? { angleSteps: 24, radiusSteps: 36 } : undefined,
+    );
   }
 
   const targets = new Map<string, Point>();
   nodes.forEach((node) => {
-    if (movePriority(node) === 0) return;
+    if (!canMove(node)) return;
     const before = original.get(node.id);
     const after = positions.get(node.id);
     if (!before || !after) return;

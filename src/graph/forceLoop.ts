@@ -35,6 +35,94 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     return sizes[m?.nodeType] || 50;
   };
 
+  const componentIds = (
+    ids: string[],
+    adj: Map<string, Set<string>>,
+  ): { byId: Map<string, number>; groups: string[][] } => {
+    const byId = new Map<string, number>();
+    const groups: string[][] = [];
+
+    ids.forEach((id) => {
+      if (byId.has(id)) return;
+      const groupIndex = groups.length;
+      const group: string[] = [];
+      const stack = [id];
+      byId.set(id, groupIndex);
+
+      while (stack.length) {
+        const current = stack.pop()!;
+        group.push(current);
+        const neighbors = adj.get(current);
+        if (!neighbors) continue;
+        neighbors.forEach((neighbor) => {
+          if (byId.has(neighbor)) return;
+          byId.set(neighbor, groupIndex);
+          stack.push(neighbor);
+        });
+      }
+
+      groups.push(group);
+    });
+
+    return { byId, groups };
+  };
+
+  const buildComponentRepelMask = (
+    ids: string[],
+    adj: Map<string, Set<string>>,
+    pos: Record<string, { x: number; y: number }>,
+    radii: Record<string, number>,
+  ): Map<string, Set<string>> => {
+    const { byId, groups } = componentIds(ids, adj);
+    const centers = groups.map((group) => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      group.forEach((id) => {
+        const p = pos[id];
+        const r = radii[id] ?? 50;
+        minX = Math.min(minX, p.x - r);
+        maxX = Math.max(maxX, p.x + r);
+        minY = Math.min(minY, p.y - r);
+        maxY = Math.max(maxY, p.y + r);
+      });
+      const center = {
+        x: (minX + maxX) / 2,
+        y: (minY + maxY) / 2,
+      };
+      let radius = 0;
+      group.forEach((id) => {
+        const p = pos[id];
+        radius = Math.max(radius, Math.hypot(p.x - center.x, p.y - center.y) + (radii[id] ?? 50));
+      });
+      return { ...center, radius };
+    });
+    const skipped = new Map<string, Set<string>>();
+    const COMPONENT_REPEL_MARGIN = 140;
+
+    for (let i = 0; i < ids.length; i++) {
+      const a = ids[i];
+      const ca = byId.get(a);
+      if (ca === undefined) continue;
+      for (let j = i + 1; j < ids.length; j++) {
+        const b = ids[j];
+        const cb = byId.get(b);
+        if (cb === undefined || ca === cb) continue;
+        const ac = centers[ca];
+        const bc = centers[cb];
+        const distance = Math.hypot(ac.x - bc.x, ac.y - bc.y);
+        if (distance <= ac.radius + bc.radius + COMPONENT_REPEL_MARGIN) continue;
+        if (!skipped.has(a)) skipped.set(a, new Set());
+        if (!skipped.has(b)) skipped.set(b, new Set());
+        skipped.get(a)!.add(b);
+        skipped.get(b)!.add(a);
+      }
+    }
+
+    return skipped;
+  };
+
   const buildAdj = (): Map<string, Set<string>> => {
     const adj = new Map<string, Set<string>>();
     graph.getEdges().forEach((e) => {
@@ -64,6 +152,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     });
 
     const ids = Object.keys(pos);
+    const skippedCrossComponentRepulsion = buildComponentRepelMask(ids, adj, pos, radii);
     const IDEAL = 130;
     const K_ATTRACT = 0.04;
     const K_REPEL = 9000;
@@ -88,6 +177,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       for (let i = 0; i < ids.length; i++) {
         const oid = ids[i];
         if (oid === id) continue;
+        if (skippedCrossComponentRepulsion.get(id)?.has(oid)) continue;
         const op = pos[oid];
         const orr = radii[oid];
         const dx = p.x - op.x;

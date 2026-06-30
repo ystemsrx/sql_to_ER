@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+skills/sql2er/scripts/.generated/
+skills/sql2er/scripts/engine/embedded-assets.generated.ts

@@ -18,6 +18,11 @@ const nextToken = (tokens: WeakMap<GraphLike, number>, graph: GraphLike) => {
 const isCurrentToken = (tokens: WeakMap<GraphLike, number>, graph: GraphLike, token: number) =>
   tokens.get(graph) === token;
 
+const clampAnimationProgress = (currentTime: number, startTime: number, duration: number) => {
+  if (duration <= 0) return 1;
+  return Math.max(0, Math.min((currentTime - startTime) / duration, 1));
+};
+
 /**
  * 真正有效的平滑缩放函数
  * @param {Object} graph - G6 图形实例
@@ -80,8 +85,7 @@ export const smoothFitView = (graph: GraphLike, duration = 800, easing = "easeOu
     const animate = (currentTime: number) => {
       if (!graph || graph.destroyed || !isCurrentToken(fitViewTokens, graph, token)) return;
 
-      const elapsed = currentTime - startTime;
-      let progress = Math.min(elapsed / duration, 1);
+      let progress = clampAnimationProgress(currentTime, startTime, duration);
 
       if (easing === "easeOutQuart") {
         progress = 1 - Math.pow(1 - progress, 4);
@@ -142,8 +146,7 @@ export const animateNodesToTargets = (
   const step = (currentTime: number) => {
     if (!graph || graph.destroyed || !isCurrentToken(nodeAnimationTokens, graph, token)) return;
 
-    const elapsed = currentTime - startTime;
-    const rawProgress = Math.min(elapsed / duration, 1);
+    const rawProgress = clampAnimationProgress(currentTime, startTime, duration);
     const progress = 1 - Math.pow(1 - rawProgress, 3);
 
     targets.forEach((target, id) => {

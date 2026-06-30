@@ -1,6 +1,6 @@
 # Data model and Chen semantics
 
-Read this when command output needs interpretation, when moving nodes by id, or when schema labels/cardinality need explanation.
+Read this when command output needs interpretation, when addressing nodes by id, or when schema labels/cardinality need explanation.
 
 ## Node types
 
@@ -20,13 +20,11 @@ Read this when command output needs interpretation, when moving nodes by id, or 
 
 ## Node ids
 
-Ids are stable and deterministic. Use them in `move`, `nudge`, and `swap` when labels are ambiguous.
+Ids are stable and deterministic. Use exact ids from `describe`; add `--full` when attributes need to be addressed.
 
 - entity: `entity-<table>-<index>`
 - attribute: `attr-<table>-<column>-<tableIndex>-<colIndex>`
 - relationship: `rel-<from>-<to>-<label>-<relIndex>`
-
-Entity table names or labels may also be used when unambiguous.
 
 ## Cardinality
 

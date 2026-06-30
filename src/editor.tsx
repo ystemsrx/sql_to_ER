@@ -17,13 +17,14 @@ export interface CodeEditorProps {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
+  readOnly?: boolean;
 }
 
 /**
  * SQL/DBML 编辑器。CodeMirror 6 用 EditorView + EditorState 模型，
  * 一次性挂载，外部 value 变化通过 dispatch 同步进 doc。
  */
-export const CodeEditor = ({ value, onChange, placeholder }: CodeEditorProps) => {
+export const CodeEditor = ({ value, onChange, placeholder, readOnly = false }: CodeEditorProps) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   // 把最新的 onChange 装进 ref，避免在外部回调变化时重建 EditorView。
@@ -41,6 +42,8 @@ export const CodeEditor = ({ value, onChange, placeholder }: CodeEditorProps) =>
         basicSetup,
         sql({ dialect: PostgreSQL, upperCaseKeywords: false }),
         EditorView.lineWrapping,
+        EditorState.readOnly.of(readOnly),
+        EditorView.editable.of(!readOnly),
         placeholderCompartmentRef.current.of(placeholderExtension(placeholder ?? "")),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {

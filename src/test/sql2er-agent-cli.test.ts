@@ -337,6 +337,145 @@ function makeAttributeConnectorCrossingState(): AgentState {
   };
 }
 
+function makePlanarCrossingState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: true,
+      fontScale: 1,
+      attrMode: "auto",
+      autoAvoid: false,
+    },
+    nodes: [
+      { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 0, y: 0 },
+      { id: "entity-b", type: "entity", label: "b", nodeType: "entity", x: 100, y: 100 },
+      { id: "entity-c", type: "entity", label: "c", nodeType: "entity", x: 0, y: 100 },
+      { id: "entity-d", type: "entity", label: "d", nodeType: "entity", x: 100, y: 0 },
+      {
+        id: "rel-a-b",
+        type: "relationship",
+        label: "a_b",
+        nodeType: "relationship",
+        x: 50,
+        y: 50,
+      },
+      {
+        id: "rel-c-d",
+        type: "relationship",
+        label: "c_d",
+        nodeType: "relationship",
+        x: 50,
+        y: 50,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-a-rel",
+        source: "entity-a",
+        target: "rel-a-b",
+        edgeType: "entity-relationship",
+        label: "N",
+      },
+      {
+        id: "edge-rel-b",
+        source: "rel-a-b",
+        target: "entity-b",
+        edgeType: "relationship-entity",
+        label: "1",
+      },
+      {
+        id: "edge-c-rel",
+        source: "entity-c",
+        target: "rel-c-d",
+        edgeType: "entity-relationship",
+        label: "N",
+      },
+      {
+        id: "edge-rel-d",
+        source: "rel-c-d",
+        target: "entity-d",
+        edgeType: "relationship-entity",
+        label: "1",
+      },
+    ],
+  };
+}
+
+function makeK33State(): AgentState {
+  const left = ["a", "b", "c"];
+  const right = ["x", "y", "z"];
+  const nodes: AgentState["nodes"] = [];
+  left.forEach((id, index) => {
+    nodes.push({
+      id: `entity-${id}`,
+      type: "entity",
+      label: id,
+      nodeType: "entity",
+      x: 0,
+      y: index * 120,
+    });
+  });
+  right.forEach((id, index) => {
+    nodes.push({
+      id: `entity-${id}`,
+      type: "entity",
+      label: id,
+      nodeType: "entity",
+      x: 360,
+      y: index * 120,
+    });
+  });
+  const edges: AgentState["edges"] = [];
+  left.forEach((l) => {
+    right.forEach((r, index) => {
+      const relId = `rel-${l}-${r}`;
+      nodes.push({
+        id: relId,
+        type: "relationship",
+        label: `${l}_${r}`,
+        nodeType: "relationship",
+        x: 180,
+        y: index * 120,
+      });
+      edges.push(
+        {
+          id: `edge-${l}-${r}-from`,
+          source: `entity-${l}`,
+          target: relId,
+          edgeType: "entity-relationship",
+          label: "N",
+        },
+        {
+          id: `edge-${l}-${r}-to`,
+          source: relId,
+          target: `entity-${r}`,
+          edgeType: "relationship-entity",
+          label: "1",
+        },
+      );
+    });
+  });
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: true,
+      fontScale: 1,
+      attrMode: "auto",
+      autoAvoid: false,
+    },
+    nodes,
+    edges,
+  };
+}
+
 describe("sql2er agent CLI attribute visibility", () => {
   it("decides hidden attributes at generate time and exports the stored skeleton only", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
@@ -378,6 +517,59 @@ describe("sql2er agent CLI attribute visibility", () => {
 });
 
 describe("sql2er agent CLI export formats", () => {
+  it("exports a single-file embedded HTML editor seeded with the saved state", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const out = resolve(dir, "er.html");
+      const generated = runAgent(["generate", "--text", schema, "--state", state]);
+      expect(generated.status).toBe(0);
+
+      const missingLang = runAgent(["export", "html", "--state", state, "--out", out]);
+      expect(missingLang.status).not.toBe(0);
+      expect(missingLang.stderr).toContain("export html requires --lang zh|en");
+
+      const exported = runAgent(["export", "html", "--state", state, "--out", out, "--lang", "en"]);
+
+      expect(exported.status).toBe(0);
+      expect(exported.stdout).toContain("wrote");
+      const html = readFileSync(out, "utf8");
+      expect(html).toContain("<!doctype html>");
+      expect(html).toContain('<html lang="en">');
+      expect(html).toContain('<div id="root"></div>');
+      expect(html).toContain('id="sql2er-embedded-state"');
+      expect(html).toContain('id="sql2er-embedded-config"');
+      expect(html).toContain('"lang":"en"');
+      expect(html).toContain("CREATE TABLE users");
+      expect(html).toContain("entity-users");
+      expect(html).toContain("<style>");
+      expect(html).toContain("<script>");
+      expect(html).not.toContain('src="/src/main.tsx"');
+      expect(html).not.toContain("<link");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exports embedded HTML with a required Chinese language setting", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const out = resolve(dir, "er.html");
+      const generated = runAgent(["generate", "--text", schema, "--state", state]);
+      expect(generated.status).toBe(0);
+
+      const exported = runAgent(["export", "html", "--state", state, "--out", out, "--lang", "zh"]);
+
+      expect(exported.status).toBe(0);
+      const html = readFileSync(out, "utf8");
+      expect(html).toContain('<html lang="zh-CN">');
+      expect(html).toContain('"lang":"zh"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(!hasRsvgConvert())("exports PNG files", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
     try {
@@ -662,7 +854,310 @@ describe("sql2er agent CLI auto avoidance", () => {
   });
 });
 
+describe("sql2er agent CLI describe", () => {
+  it("reports abstract planarity separately from current edge crossings", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makePlanarCrossingState()));
+
+      const text = runAgent(["describe", "--state", state]);
+      expect(text.status).toBe(0);
+      expect(text.stdout).toContain("crossing: a_b");
+      expect(text.stdout).toContain("planarity: planar skeleton");
+
+      const json = runAgent(["describe", "--state", state, "--json"]);
+      expect(json.status).toBe(0);
+      const parsed = JSON.parse(json.stdout) as {
+        diagnostics: {
+          crossings: number;
+          planarity: { planar: boolean; status: string; vertices: number; edges: number };
+        };
+      };
+      expect(parsed.diagnostics.crossings).toBeGreaterThan(0);
+      expect(parsed.diagnostics.planarity).toMatchObject({
+        planar: true,
+        status: "planar",
+        vertices: 4,
+        edges: 2,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a non-planar abstract skeleton when the entity graph contains K3,3", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeK33State()));
+
+      const text = runAgent(["describe", "--state", state]);
+      expect(text.status).toBe(0);
+      expect(text.stdout).toContain("planarity: non-planar skeleton");
+      expect(text.stdout).toContain("some relationship crossings are unavoidable");
+
+      const json = runAgent(["describe", "--state", state, "--json"]);
+      expect(json.status).toBe(0);
+      const parsed = JSON.parse(json.stdout) as {
+        diagnostics: { planarity: { planar: boolean; status: string; reason: string } };
+      };
+      expect(parsed.diagnostics.planarity.planar).toBe(false);
+      expect(parsed.diagnostics.planarity.status).toBe("non-planar");
+      expect(parsed.diagnostics.planarity.reason).toContain("bipartite planar edge bound");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("focuses by exact entity id instead of label", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: true,
+            fontScale: 1,
+            attrMode: "auto",
+            autoAvoid: false,
+          },
+          nodes: [
+            {
+              id: "entity-a",
+              type: "entity",
+              label: "Account",
+              nodeType: "entity",
+              x: 100,
+              y: 100,
+            },
+          ],
+          edges: [],
+        } satisfies AgentState),
+      );
+
+      const byLabel = runAgent(["describe", "--focus", "Account", "--state", state]);
+      expect(byLabel.status).toBe(0);
+      expect(byLabel.stdout).toContain('focus: no entity id matching "Account"');
+      expect(byLabel.stdout).not.toContain("FOCUS entity-a");
+
+      const byId = runAgent(["describe", "--focus", "entity-a", "--state", state]);
+      expect(byId.status).toBe(0);
+      expect(byId.stdout).toContain("FOCUS entity-a  Account");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("sql2er agent CLI entity edits", () => {
+  it("addresses move targets by exact entity id instead of label", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: true,
+            fontScale: 1,
+            attrMode: "auto",
+            autoAvoid: false,
+          },
+          nodes: [
+            {
+              id: "entity-a",
+              type: "entity",
+              label: "Account",
+              nodeType: "entity",
+              x: 100,
+              y: 100,
+            },
+            {
+              id: "entity-b",
+              type: "entity",
+              label: "Billing",
+              nodeType: "entity",
+              x: 300,
+              y: 100,
+            },
+          ],
+          edges: [],
+        } satisfies AgentState),
+      );
+
+      const byLabel = runAgent(["move", "Account", "160", "180", "--raw", "--state", state]);
+      expect(byLabel.status).not.toBe(0);
+      expect(byLabel.stderr).toContain("Use an exact id from describe");
+      expect(nodePosition(readState(state), "entity-a")).toEqual({ x: 100, y: 100 });
+
+      const byId = runAgent(["move", "entity-a", "160", "180", "--raw", "--state", state]);
+
+      expect(byId.status).toBe(0);
+      expect(nodePosition(readState(state), "entity-a")).toEqual({ x: 160, y: 180 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("moves and nudges exact non-entity node ids", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: false,
+            fontScale: 1,
+            attrMode: "auto",
+            autoAvoid: false,
+          },
+          nodes: [
+            { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+            {
+              id: "attr-a-name",
+              type: "attribute",
+              label: "name",
+              nodeType: "attribute",
+              parentEntity: "entity-a",
+              x: 100,
+              y: 170,
+            },
+            {
+              id: "rel-a-b",
+              type: "relationship",
+              label: "a_b",
+              nodeType: "relationship",
+              x: 220,
+              y: 100,
+            },
+          ],
+          edges: [],
+        } satisfies AgentState),
+      );
+
+      const movedAttr = runAgent(["move", "attr-a-name", "140", "190", "--raw", "--state", state]);
+      expect(movedAttr.status).toBe(0);
+      expect(nodePosition(readState(state), "attr-a-name")).toEqual({ x: 140, y: 190 });
+
+      const nudgedRel = runAgent(["nudge", "rel-a-b", "15", "-20", "--raw", "--state", state]);
+      expect(nudgedRel.status).toBe(0);
+      expect(nodePosition(readState(state), "rel-a-b")).toEqual({ x: 235, y: 80 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns and leaves positions unchanged when swapping an attribute id", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: false,
+            fontScale: 1,
+            attrMode: "auto",
+            autoAvoid: false,
+          },
+          nodes: [
+            { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+            {
+              id: "attr-a-name",
+              type: "attribute",
+              label: "name",
+              nodeType: "attribute",
+              parentEntity: "entity-a",
+              x: 100,
+              y: 170,
+            },
+          ],
+          edges: [],
+        } satisfies AgentState),
+      );
+
+      const swapped = runAgent(["swap", "entity-a", "attr-a-name", "--raw", "--state", state]);
+
+      expect(swapped.status).toBe(0);
+      expect(swapped.stdout).toContain("warning:");
+      expect(swapped.stdout).toContain("swap only supports entity rectangles");
+      const next = readState(state);
+      expect(nodePosition(next, "entity-a")).toEqual({ x: 100, y: 100 });
+      expect(nodePosition(next, "attr-a-name")).toEqual({ x: 100, y: 170 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns and leaves positions unchanged when swapping a relationship id", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          version: 1,
+          input: "manual",
+          format: "sql",
+          settings: {
+            colored: true,
+            comment: false,
+            hideAttrs: true,
+            fontScale: 1,
+            attrMode: "auto",
+            autoAvoid: false,
+          },
+          nodes: [
+            { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+            {
+              id: "rel-a-b",
+              type: "relationship",
+              label: "a_b",
+              nodeType: "relationship",
+              x: 220,
+              y: 100,
+            },
+          ],
+          edges: [],
+        } satisfies AgentState),
+      );
+
+      const swapped = runAgent(["swap", "entity-a", "rel-a-b", "--raw", "--state", state]);
+
+      expect(swapped.status).toBe(0);
+      expect(swapped.stdout).toContain("warning:");
+      expect(swapped.stdout).toContain("swap only supports entity rectangles");
+      const next = readState(state);
+      expect(nodePosition(next, "entity-a")).toEqual({ x: 100, y: 100 });
+      expect(nodePosition(next, "rel-a-b")).toEqual({ x: 220, y: 100 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps related relationship diamonds on the line between moved and fixed entities in raw moves", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
     try {

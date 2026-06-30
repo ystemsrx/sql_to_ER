@@ -113,6 +113,38 @@ describe("auto avoidance targets", () => {
     expect(overlaps(nodes[0], nodes[1])).toBe(false);
   });
 
+  it("only moves allowed non-entity ids when movable ids are provided", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-users", nodeType: "entity", type: "entity", label: "users", x: 100, y: 100 },
+      {
+        id: "attr-users-email",
+        nodeType: "attribute",
+        type: "attribute",
+        label: "email",
+        parentEntity: "entity-users",
+        x: 100,
+        y: 100,
+      },
+      {
+        id: "attr-users-name",
+        nodeType: "attribute",
+        type: "attribute",
+        label: "name",
+        parentEntity: "entity-users",
+        x: 100,
+        y: 100,
+      },
+    ];
+
+    const targets = computeAutoAvoidTargets(nodes, sizeOf, {
+      movableIds: new Set(["attr-users-email"]),
+    });
+
+    expect(targets.has("attr-users-email")).toBe(true);
+    expect(targets.has("attr-users-name")).toBe(false);
+    expect(targets.has("entity-users")).toBe(false);
+  });
+
   it("moves a relationship diamond away from an overlapping entity", () => {
     const nodes: ERNodeModel[] = [
       { id: "entity-users", nodeType: "entity", type: "entity", label: "users", x: 0, y: 0 },
@@ -205,5 +237,97 @@ describe("auto avoidance targets", () => {
       ),
     ).toBe(false);
     expect(nodes.slice(2).some((node) => overlaps(nodes[1], node))).toBe(false);
+  });
+
+  it("moves an attribute when a movable relationship line is pushed into it", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-users", nodeType: "entity", type: "entity", label: "users", x: 0, y: 0 },
+      {
+        id: "attr-users-name",
+        nodeType: "attribute",
+        type: "attribute",
+        label: "name",
+        parentEntity: "entity-users",
+        x: 160,
+        y: 0,
+      },
+      {
+        id: "entity-orders",
+        nodeType: "entity",
+        type: "entity",
+        label: "orders",
+        x: 80,
+        y: -140,
+      },
+      {
+        id: "rel-orders-users",
+        nodeType: "relationship",
+        type: "relationship",
+        label: "placed by",
+        x: 80,
+        y: 140,
+      },
+    ];
+    const edges: EREdgeModel[] = [
+      {
+        id: "edge-users-name",
+        source: "entity-users",
+        target: "attr-users-name",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-orders-rel",
+        source: "entity-orders",
+        target: "rel-orders-users",
+        edgeType: "entity-relationship",
+      },
+    ];
+
+    const targets = computeAutoAvoidTargets(nodes, sizeOf, {
+      edges,
+      movableIds: new Set(["rel-orders-users"]),
+    });
+
+    expect(targets.has("attr-users-name")).toBe(true);
+    expect(targets.has("entity-users")).toBe(false);
+  });
+
+  it("moves a relationship diamond when an attribute connector is pushed into it", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-users", nodeType: "entity", type: "entity", label: "users", x: 0, y: 0 },
+      {
+        id: "attr-users-name",
+        nodeType: "attribute",
+        type: "attribute",
+        label: "name",
+        parentEntity: "entity-users",
+        x: 240,
+        y: 0,
+      },
+      {
+        id: "rel-orders-users",
+        nodeType: "relationship",
+        type: "relationship",
+        label: "placed by",
+        x: 120,
+        y: 20,
+      },
+    ];
+    const edges: EREdgeModel[] = [
+      {
+        id: "edge-users-name",
+        source: "entity-users",
+        target: "attr-users-name",
+        edgeType: "entity-attribute",
+      },
+    ];
+
+    const targets = computeAutoAvoidTargets(nodes, sizeOf, {
+      edges,
+      movableIds: new Set(["rel-orders-users"]),
+    });
+
+    expect(targets.has("rel-orders-users")).toBe(true);
+    expect(targets.has("entity-users")).toBe(false);
   });
 });

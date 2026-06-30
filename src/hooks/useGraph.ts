@@ -17,7 +17,7 @@ import { createManager as createHistoryManager } from "../history";
 import * as Snapshots from "../snapshots";
 import * as AttributeLayout from "../attributeLayout";
 import { createERGraph, buildDefaultLayoutCfg } from "../graph/createERGraph";
-import { attachEntityDragSync } from "../graph/attachEntityDragSync";
+import { attachEntityDragSync, type DragChangeMeta } from "../graph/attachEntityDragSync";
 import { attachForceLoop } from "../graph/forceLoop";
 import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
@@ -118,6 +118,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const forceCtrlRef = useRef<ForceLoopController | null>(null);
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
+  const fontScaleAutoAvoidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
@@ -207,8 +208,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     return true;
   };
 
-  const persistAfterOptionalAutoAvoid = (delayMs = 0) => {
-    if (autoAvoidRef.current) {
+  const persistAfterOptionalAutoAvoid = (delayMs = 0, meta?: DragChangeMeta) => {
+    if (autoAvoidRef.current && !meta?.autoAvoidMerged) {
       applyGraphAutoAvoid(300, () => {
         if (delayMs > 0) scheduleCurrentSnapshotPersist(delayMs);
         else void persistCurrentSnapshot();
@@ -217,6 +218,24 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     }
     if (delayMs > 0) scheduleCurrentSnapshotPersist(delayMs);
     else void persistCurrentSnapshot();
+  };
+
+  const cancelScheduledFontScaleAutoAvoid = () => {
+    if (fontScaleAutoAvoidTimerRef.current === null) return;
+    clearTimeout(fontScaleAutoAvoidTimerRef.current);
+    fontScaleAutoAvoidTimerRef.current = null;
+  };
+
+  const scheduleFontScaleAutoAvoid = (delayMs = 180) => {
+    cancelScheduledFontScaleAutoAvoid();
+    if (!autoAvoidRef.current) {
+      scheduleCurrentSnapshotPersist(700);
+      return;
+    }
+    fontScaleAutoAvoidTimerRef.current = setTimeout(() => {
+      fontScaleAutoAvoidTimerRef.current = null;
+      applyGraphAutoAvoid(220, () => scheduleCurrentSnapshotPersist(700));
+    }, delayMs);
   };
 
   // 公共关闭：智能布局 / 强制对齐 / 切换历史 / 显隐属性 / 重新生成
@@ -244,6 +263,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       // 重新生成 / 历史恢复都会重建图，先把持续力导向开关复位关闭，避免
       // 旧 controller 的状态意外延续到新图。
       disableForceIfOn();
+      cancelScheduledFontScaleAutoAvoid();
 
       const trimmed = String(useInputText || "").trim();
       if (!trimmed) {
@@ -405,12 +425,17 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         graph as any,
         historyRef.current,
         () => forceOnRef.current,
-        () => {
-          persistAfterOptionalAutoAvoid();
+        (meta) => {
+          persistAfterOptionalAutoAvoid(0, meta);
         },
         (projectedNodes, edges) => {
           if (!autoAvoidRef.current) return new Map();
-          return computeAutoAvoidTargets(projectedNodes, graphNodeSize, { edges });
+          return computeAutoAvoidTargets(projectedNodes, graphNodeSize, {
+            edges,
+            movableIds: projectedNodes
+              .filter((node) => node.nodeType !== "entity")
+              .map((node) => node.id),
+          });
         },
       );
 
@@ -514,21 +539,31 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setFontScaleState(safeNext);
     if (hasGraph && graphRef.current) {
       applyGraphStyles(graphRef.current, stateRef.current.isColored, safeNext);
-      persistAfterOptionalAutoAvoid(700);
+      scheduleFontScaleAutoAvoid();
     }
   };
 
   const setForceOn = (next: boolean) => {
+    const wasOn = forceOnRef.current;
     forceOnRef.current = next;
     setForceOnState(next);
     if (forceCtrlRef.current) forceCtrlRef.current.setEnabled(next);
+    if (wasOn && !next) {
+      requestAnimationFrame(() => {
+        persistAfterOptionalAutoAvoid(700);
+      });
+    }
   };
 
   const setAutoAvoid = (next: boolean) => {
     autoAvoidRef.current = next;
     stateRef.current.autoAvoid = next;
     setAutoAvoidState(next);
-    if (!next || !hasGraph || !graphRef.current || graphRef.current.destroyed) return;
+    if (!next) {
+      cancelScheduledFontScaleAutoAvoid();
+      return;
+    }
+    if (!hasGraph || !graphRef.current || graphRef.current.destroyed) return;
     historyRef.current.record(graphRef.current);
     applyGraphAutoAvoid(360, () => {
       void persistCurrentSnapshot();
@@ -569,6 +604,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   useEffect(() => {
     handleGenerate();
     return () => {
+      cancelScheduledFontScaleAutoAvoid();
       cancelPendingPersist();
       forceCtrlRef.current?.destroy();
       forceCtrlRef.current = null;

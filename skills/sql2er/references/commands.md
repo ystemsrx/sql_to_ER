@@ -12,7 +12,7 @@
 - [move / nudge / swap](#move--nudge--swap)
 - [rotate](#rotate-degrees)
 - [fontsize](#fontsize-delta)
-- [export](#export-drawiosvgpngjson)
+- [export](#export-drawiosvgpngjsonhtml)
 - [Recipes](#recipes)
 
 ## Invocation and state
@@ -48,11 +48,11 @@ Parse, build, lay out, and save state.
 
 Print the current scene. Does not mutate state.
 
-| flag                  | meaning                                                          |
-| --------------------- | ---------------------------------------------------------------- |
-| `--full`              | include attributes with positions                                |
-| `--focus <id\|label>` | zoom into one entity (its relationships + attributes)            |
-| `--json`              | machine-readable: `{ entities[], relationships[], diagnostics }` |
+| flag           | meaning                                                          |
+| -------------- | ---------------------------------------------------------------- |
+| `--full`       | include attributes with positions                                |
+| `--focus <id>` | zoom into one entity (its relationships + attributes)            |
+| `--json`       | machine-readable: `{ entities[], relationships[], diagnostics }` |
 
 ### Output schema
 
@@ -72,13 +72,14 @@ DIAGNOSTICS
   isolated: <entity>
   attribute overlaps: <n>
   attribute-line crossings: <n>
-  metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> attrCrossings=<n> bbox=<w>*<h> aspect=<r> edgeLen=<n>
+  planarity: planar skeleton | non-planar skeleton
+  metrics: crossings=<n> overlaps=<n> attrOverlaps=<n> attrCrossings=<n> planar=<true|false> bbox=<w>*<h> aspect=<r> edgeLen=<n>
 
 MAP
   ... entities by label, diamonds as relationship labels, coarsely placed in a grid ...
 ```
 
-`overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers attribute connector crossings, an attribute connector crossing a relationship line, or a relationship line passing through an attribute ellipse.
+`planarity` is graph-theoretic: it checks the abstract entity-relationship skeleton after ignoring attributes, self-loops, and duplicate relationships. A planar skeleton may still have current `crossings` caused by layout; a non-planar skeleton means some relationship crossings are unavoidable. `overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers attribute connector crossings, an attribute connector crossing a relationship line, or a relationship line passing through an attribute ellipse.
 
 ## layout `<optimal|arrange>`
 
@@ -124,11 +125,11 @@ node $AGENT labels mode comment --state er.json
 
 ## move / nudge / swap
 
-- `move <id|label> <x> <y>`: place an entity at absolute coordinates; its attributes and connected relationship diamonds follow.
-- `nudge <id|label> <dx> <dy>`: shift an entity by delta; its attributes and connected relationship diamonds follow.
-- `swap <a> <b>`: exchange two entity positions.
+- `move <id> <x> <y>`: place a node at absolute coordinates.
+- `nudge <id> <dx> <dy>`: shift a node by delta.
+- `swap <idA> <idB>`: exchange two entity positions.
 
-Each runs one `arrange` pass afterward. Use `--raw` to skip settling and automatic avoidance. Coordinates are unbounded; exports fit the view to the graph.
+Use exact ids from `describe`; run `describe --full` when targeting attributes. Each command runs one `arrange` pass afterward. Use `--raw` to skip settling and automatic avoidance. Coordinates are unbounded; exports fit the view to the graph.
 
 ## rotate `<degrees>`
 
@@ -138,7 +139,7 @@ Rotate all node positions about the diagram center. Shapes and text stay upright
 
 `0` resets to default scale 1.0. Each step is about 0.1 scale; values clamp to 0.4-1.6. After a large font change, run `layout arrange`.
 
-## export `<drawio|svg|png|json>`
+## export `<drawio|svg|png|json|html>`
 
 `--out <file>` writes to a file; otherwise export prints to stdout.
 
@@ -146,6 +147,7 @@ Rotate all node positions about the diagram center. Shapes and text stay upright
 - `svg`: standalone SVG for final visual review
 - `png`: raster image rendered from SVG; requires `rsvg-convert` on `PATH` or `SQL2ER_RSVG_CONVERT`
 - `json`: `{ nodes:[{id,type,label,x,y,w,h,pk?,parent?,placeholder?}], edges:[{source,target,label,type}] }`
+- `html`: self-contained embedded editor seeded with the saved state; users can fine-tune manually and export SVG/PNG/Drawio/JSON
 
 `--split` writes one file per disconnected component. With `--out base.ext`, outputs `base-<name>.ext` per component. Without `--out`, prints each component separated by `=== component: <name> ===`; PNG split export requires `--out`.
 
@@ -160,6 +162,7 @@ node $AGENT layout optimal --state er.json
 node $AGENT export svg --out er.svg --state er.json
 node $AGENT export png --out er.png --state er.json
 node $AGENT export drawio --out er.drawio --state er.json
+node $AGENT export html --out er.html --state er.json --lang zh
 ```
 
 Skeleton-only overview:

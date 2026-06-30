@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
-export type ExportFormat = "PNG" | "SVG" | "XML";
+export type ExportFormat = "PNG" | "SVG" | "XML" | "JSON";
 export type ExportState = "idle" | "open" | "loading" | "success";
 export type ExportView = ExportState | null;
 
-export type ExportDoneCallback = (
-  err: unknown,
-  triggerDownload?: (() => void) | null,
-) => void;
+export type ExportDoneCallback = (err: unknown, triggerDownload?: (() => void) | null) => void;
 
 export interface UseExportButtonOptions {
   hasGraph: boolean;
@@ -17,11 +14,7 @@ export interface UseExportButtonOptions {
   onError: (message: string) => void;
 }
 
-export function useExportButton({
-  hasGraph,
-  runExport,
-  onError,
-}: UseExportButtonOptions) {
+export function useExportButton({ hasGraph, runExport, onError }: UseExportButtonOptions) {
   // 动效导出按钮：idle → open → loading → success → idle
   const [exportState, setExportState] = useState<ExportState>("idle");
   // 错位显示的 view（短暂置 null 以触发离场动画）

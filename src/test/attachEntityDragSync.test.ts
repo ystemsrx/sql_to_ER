@@ -641,6 +641,7 @@ describe("attachEntityDragSync", () => {
       expect(attr.getModel().x).toBeCloseTo(260, 6);
       expect(attr.getModel().y).toBeCloseTo(180, 6);
       expect(onAfterChange).toHaveBeenCalledTimes(1);
+      expect(onAfterChange).toHaveBeenCalledWith({ autoAvoidMerged: true });
     } finally {
       globalThis.requestAnimationFrame = originalRaf;
       globalThis.cancelAnimationFrame = originalCancelRaf;

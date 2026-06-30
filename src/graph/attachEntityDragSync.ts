@@ -19,6 +19,10 @@ export type DragEndTargetCompleter = (
   baseTargets: Map<string, Point>,
 ) => Map<string, Point>;
 
+export interface DragChangeMeta {
+  autoAvoidMerged?: boolean;
+}
+
 /**
  * 给 G6 graph 装上交互：
  *   1. node hover 高亮
@@ -34,7 +38,7 @@ export function attachEntityDragSync(
   graph: DraggableGraph,
   history: HistoryManager,
   isForceActive?: () => boolean,
-  onAfterChange?: () => void,
+  onAfterChange?: (meta?: DragChangeMeta) => void,
   completeDragEndTargets?: DragEndTargetCompleter,
 ): void {
   graph.on("node:mouseenter", (e: any) => {
@@ -147,10 +151,10 @@ export function attachEntityDragSync(
     return didDragNode;
   };
 
-  const notifyAfterChange = (shouldNotify = didDragNode) => {
+  const notifyAfterChange = (shouldNotify = didDragNode, meta?: DragChangeMeta) => {
     if (!shouldNotify || typeof onAfterChange !== "function") return;
     try {
-      onAfterChange();
+      onAfterChange(meta);
     } catch (_e) {
       /* ignore persistence callback failures */
     }
@@ -248,7 +252,7 @@ export function attachEntityDragSync(
     }
     if (nodeModel.type === "entity" && draggedEntity === node) {
       const shouldNotify = didDragNode;
-      const notifyEntityChange = () => notifyAfterChange(shouldNotify);
+      const notifyEntityChange = (meta?: DragChangeMeta) => notifyAfterChange(shouldNotify, meta);
       if (!isForceActive || !isForceActive()) {
         const relationshipResult = computeMovedEntityRelationshipTargets(
           graphNodeModels(),
@@ -280,15 +284,17 @@ export function attachEntityDragSync(
           graphEdgeModels(),
           new Map(finalTargets),
         );
+        const autoAvoidMerged = !!additionalTargets?.size;
         additionalTargets?.forEach((target, id) => finalTargets.set(id, target));
+        const notifyMergedEntityChange = () => notifyEntityChange({ autoAvoidMerged });
         if (finalTargets.size)
           animateNodesToTargets(
             graph,
             finalTargets,
             RELATIONSHIP_RETURN_DURATION,
-            notifyEntityChange,
+            notifyMergedEntityChange,
           );
-        else notifyEntityChange();
+        else notifyMergedEntityChange();
       } else {
         notifyEntityChange();
       }

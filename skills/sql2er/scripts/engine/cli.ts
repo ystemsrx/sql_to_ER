@@ -26,7 +26,14 @@ import { parse as parsePath } from "node:path";
 
 const ATTR_MODES = ["auto", "compact", "moderate"] as const;
 import { describe, describeJson } from "./describe";
-import { exportDrawio, exportJson, exportPng, exportSvg } from "./exporters";
+import {
+  exportDrawio,
+  exportHtml,
+  exportJson,
+  exportPng,
+  exportSvg,
+  type EmbeddedHtmlLanguage,
+} from "./exporters";
 import { createHeadlessGraph } from "./adapter";
 
 interface Args {
@@ -68,6 +75,13 @@ const boolFlag = (v: string | boolean | undefined, def = false): boolean => {
 
 const hasFlag = (flags: Record<string, string | boolean>, name: string): boolean =>
   Object.prototype.hasOwnProperty.call(flags, name);
+
+function htmlLang(flags: Record<string, string | boolean>): EmbeddedHtmlLanguage {
+  if (flags.lang !== "zh" && flags.lang !== "en") {
+    throw new Error("export html requires --lang zh|en");
+  }
+  return flags.lang;
+}
 
 function statePath(flags: Record<string, string | boolean>): string {
   const p = typeof flags.state === "string" ? flags.state : "sql2er-state.json";
@@ -143,15 +157,15 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --layout optimal|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
-      --focus <id|label>             zoom into one entity
+      --focus <id>                   zoom into one entity
       --json                         machine-readable scene
   layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
                            (rooms for attribute rings; the recommended default);
                            arrange = settle current positions.
-  move <id|label> <x> <y>  Place an entity (attributes and diamonds follow). Then settles
+  move <id> <x> <y>        Place a node. Entity attributes and diamonds follow. Then settles
                            with one arrange pass unless --raw.
-  nudge <id|label> <dx> <dy>   Shift by a delta. --raw to skip the settle pass.
-  swap <a> <b>             Exchange two entities' positions. --raw to skip settle.
+  nudge <id> <dx> <dy>     Shift a node by a delta. --raw to skip the settle pass.
+  swap <idA> <idB>         Exchange two entities' positions. --raw to skip settle.
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.
@@ -163,7 +177,8 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
                            Switch generated labels without clearing manual labels.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
   avoid <on|off>           Toggle automatic node overlap avoidance for this state.
-  export <drawio|svg|png|json> Write output. --out <file> (else stdout).
+  export <drawio|svg|png|json|html> Write output. --out <file> (else stdout).
+      html requires --lang zh|en
       --split                        one diagram per disconnected component
                                      (--out base.ext -> base-<name>.ext per component)
   help
@@ -273,8 +288,7 @@ function main(): void {
       const id = _[1];
       const x = Number(_[2]);
       const y = Number(_[3]);
-      if (!id || !Number.isFinite(x) || !Number.isFinite(y))
-        throw new Error("move <id|label> <x> <y>");
+      if (!id || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error("move <id> <x> <y>");
       const { state, resolved } = move(loadState(flags), id, x, y, boolFlag(flags.raw));
       saveState(flags, state);
       process.stdout.write(`moved ${resolved.map((r) => r.label).join(", ")}\n`);
@@ -286,7 +300,7 @@ function main(): void {
       const dx = Number(_[2]);
       const dy = Number(_[3]);
       if (!id || !Number.isFinite(dx) || !Number.isFinite(dy))
-        throw new Error("nudge <id|label> <dx> <dy>");
+        throw new Error("nudge <id> <dx> <dy>");
       const { state, resolved } = nudge(loadState(flags), id, dx, dy, boolFlag(flags.raw));
       saveState(flags, state);
       process.stdout.write(`nudged ${resolved.map((r) => r.label).join(", ")}\n`);
@@ -296,10 +310,14 @@ function main(): void {
     case "swap": {
       const a = _[1];
       const b = _[2];
-      if (!a || !b) throw new Error("swap <a> <b>");
-      const { state, resolved } = swap(loadState(flags), a, b, boolFlag(flags.raw));
+      if (!a || !b) throw new Error("swap <idA> <idB>");
+      const { state, resolved, warnings } = swap(loadState(flags), a, b, boolFlag(flags.raw));
       saveState(flags, state);
-      process.stdout.write(`swapped ${resolved.map((r) => r.label).join(" ↔ ")}\n`);
+      if (warnings?.length) {
+        warnings.forEach((warning) => process.stdout.write(`warning: ${warning}\n`));
+      } else {
+        process.stdout.write(`swapped ${resolved.map((r) => r.label).join(" ↔ ")}\n`);
+      }
       printState(state, flags);
       break;
     }
@@ -342,7 +360,8 @@ function main(): void {
         if (fmt === "svg") return { out: exportSvg(s), ext: "svg" };
         if (fmt === "png") return { out: exportPng(s), ext: "png" };
         if (fmt === "json") return { out: exportJson(s), ext: "json" };
-        throw new Error("export <drawio|svg|png|json>");
+        if (fmt === "html") return { out: exportHtml(s, htmlLang(flags)), ext: "html" };
+        throw new Error("export <drawio|svg|png|json|html>");
       };
       const writeExport = (file: string, out: string | Buffer, ext: string): void => {
         writeFileSync(

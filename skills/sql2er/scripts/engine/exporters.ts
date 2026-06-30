@@ -9,6 +9,7 @@ import { measureNodeSize, getTextWidth } from "@app/builder";
 import type { ERNodeModel, GraphLike } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import type { State } from "./ops";
+import { EMBEDDED_APP_CSS, EMBEDDED_APP_JS } from "./embedded-assets.generated";
 
 const esc = (s: unknown): string =>
   String(s == null ? "" : s)
@@ -48,6 +49,43 @@ export function exportJson(state: State): string {
     })),
   };
   return JSON.stringify(out, null, 2);
+}
+
+const safeJsonForHtml = (value: unknown): string =>
+  JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+
+const safeInlineScript = (value: string): string => value.replace(/<\/script/gi, "<\\/script");
+
+const safeInlineStyle = (value: string): string => value.replace(/<\/style/gi, "<\\/style");
+
+export type EmbeddedHtmlLanguage = "zh" | "en";
+
+export function exportHtml(state: State, lang: EmbeddedHtmlLanguage): string {
+  const stateJson = safeJsonForHtml(state);
+  const configJson = safeJsonForHtml({ lang });
+  const htmlLang = lang === "zh" ? "zh-CN" : "en";
+  return [
+    "<!doctype html>",
+    `<html lang="${htmlLang}">`,
+    "<head>",
+    '<meta charset="UTF-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    "<title>SQL/DBML2ER Embedded Editor</title>",
+    `<style>${safeInlineStyle(EMBEDDED_APP_CSS)}</style>`,
+    "</head>",
+    '<body class="embedded-body">',
+    '<div class="app-container embedded-shell">',
+    '<div id="root"></div>',
+    "</div>",
+    `<script type="application/json" id="sql2er-embedded-state">${stateJson}</script>`,
+    `<script type="application/json" id="sql2er-embedded-config">${configJson}</script>`,
+    `<script>${safeInlineScript(EMBEDDED_APP_JS)}</script>`,
+    "</body>",
+    "</html>",
+  ].join("\n");
 }
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);

@@ -9,7 +9,7 @@
  *   - focus(id): zoom into one entity + neighbours + its attributes
  *
  * Every node carries a stable id (builder.ts), so the report round-trips directly
- * to the edit commands (move/nudge/swap by id or entity label).
+ * to the edit commands (move/nudge/swap by entity id).
  */
 import type { ERNodeModel } from "@app/types";
 import type { HeadlessGraph } from "./adapter";
@@ -38,10 +38,22 @@ interface RelInfo {
   cardTo: string;
   selfLoop: boolean;
 }
+interface PlanarityInfo {
+  planar: boolean;
+  status: "planar" | "non-planar";
+  reason: string;
+  vertices: number;
+  edges: number;
+}
 
 const num = (v: unknown, fallback = 0) =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
 const short = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+const pairKey = (a: string, b: string): string => (a < b ? `${a}\t${b}` : `${b}\t${a}`);
+const pairFromKey = (key: string): [string, string] => {
+  const [a, b] = key.split("\t");
+  return [a, b];
+};
 
 // proper segment intersection (shared endpoints don't count) — ported from arrangeLayout
 const segCross = (a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean => {
@@ -56,6 +68,237 @@ const segCross = (a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean => {
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 };
 
+function combinations<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  const pick = (start: number, acc: T[]) => {
+    if (acc.length === size) {
+      result.push([...acc]);
+      return;
+    }
+    for (let i = start; i <= items.length - (size - acc.length); i++) {
+      acc.push(items[i]);
+      pick(i + 1, acc);
+      acc.pop();
+    }
+  };
+  pick(0, []);
+  return result;
+}
+
+function makeAdjacency(vertices: string[], edgeKeys: Iterable<string>): Map<string, Set<string>> {
+  const adj = new Map(vertices.map((id) => [id, new Set<string>()]));
+  for (const key of edgeKeys) {
+    const [a, b] = pairFromKey(key);
+    if (a === b || !adj.has(a) || !adj.has(b)) continue;
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  }
+  return adj;
+}
+
+function edgeKeysFromAdjacency(adj: Map<string, Set<string>>): Set<string> {
+  const keys = new Set<string>();
+  adj.forEach((neighbors, a) => {
+    neighbors.forEach((b) => {
+      if (a !== b) keys.add(pairKey(a, b));
+    });
+  });
+  return keys;
+}
+
+function reduceSeriesVertices(adj: Map<string, Set<string>>): Map<string, Set<string>> {
+  const reduced = new Map<string, Set<string>>();
+  adj.forEach((neighbors, id) => reduced.set(id, new Set(neighbors)));
+
+  const removeVertex = (id: string) => {
+    const neighbors = reduced.get(id);
+    if (!neighbors) return;
+    neighbors.forEach((neighbor) => reduced.get(neighbor)?.delete(id));
+    reduced.delete(id);
+  };
+  const addEdge = (a: string, b: string) => {
+    if (a === b || !reduced.has(a) || !reduced.has(b)) return;
+    reduced.get(a)!.add(b);
+    reduced.get(b)!.add(a);
+  };
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const id of [...reduced.keys()].sort()) {
+      const neighbors = [...(reduced.get(id) ?? [])];
+      if (neighbors.length <= 1) {
+        removeVertex(id);
+        changed = true;
+        break;
+      }
+      if (neighbors.length === 2) {
+        removeVertex(id);
+        addEdge(neighbors[0], neighbors[1]);
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  return reduced;
+}
+
+function connectedComponentsOf(adj: Map<string, Set<string>>): string[][] {
+  const seen = new Set<string>();
+  const components: string[][] = [];
+  [...adj.keys()].sort().forEach((start) => {
+    if (seen.has(start)) return;
+    const stack = [start];
+    const comp: string[] = [];
+    seen.add(start);
+    while (stack.length) {
+      const cur = stack.pop()!;
+      comp.push(cur);
+      (adj.get(cur) ?? []).forEach((neighbor) => {
+        if (!seen.has(neighbor)) {
+          seen.add(neighbor);
+          stack.push(neighbor);
+        }
+      });
+    }
+    components.push(comp.sort());
+  });
+  return components;
+}
+
+function isBipartiteComponent(component: string[], adj: Map<string, Set<string>>): boolean {
+  const inComponent = new Set(component);
+  const color = new Map<string, number>();
+  for (const start of component) {
+    if (color.has(start)) continue;
+    color.set(start, 0);
+    const queue = [start];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      const curColor = color.get(cur)!;
+      for (const neighbor of adj.get(cur) ?? []) {
+        if (!inComponent.has(neighbor)) continue;
+        if (!color.has(neighbor)) {
+          color.set(neighbor, 1 - curColor);
+          queue.push(neighbor);
+        } else if (color.get(neighbor) === curColor) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+function componentEdgeCount(component: string[], edgeKeys: Set<string>): number {
+  const ids = new Set(component);
+  let count = 0;
+  edgeKeys.forEach((key) => {
+    const [a, b] = pairFromKey(key);
+    if (ids.has(a) && ids.has(b)) count++;
+  });
+  return count;
+}
+
+function hasK5Subgraph(component: string[], edgeKeys: Set<string>): boolean {
+  return combinations(component, 5).some((group) => {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        if (!edgeKeys.has(pairKey(group[i], group[j]))) return false;
+      }
+    }
+    return true;
+  });
+}
+
+function hasK33Subgraph(component: string[], edgeKeys: Set<string>): boolean {
+  for (const left of combinations(component, 3)) {
+    const leftSet = new Set(left);
+    const remaining = component.filter((id) => !leftSet.has(id));
+    for (const right of combinations(remaining, 3)) {
+      let complete = true;
+      for (const a of left) {
+        for (const b of right) {
+          if (!edgeKeys.has(pairKey(a, b))) {
+            complete = false;
+            break;
+          }
+        }
+        if (!complete) break;
+      }
+      if (complete) return true;
+    }
+  }
+  return false;
+}
+
+function analyzePlanarity(entities: CoreInfo[], relationships: RelInfo[]): PlanarityInfo {
+  const vertices = entities.map((entity) => entity.id).sort();
+  const edgeKeys = new Set<string>();
+  relationships.forEach((relationship) => {
+    if (!relationship.fromId || !relationship.toId) return;
+    if (relationship.selfLoop || relationship.fromId === relationship.toId) return;
+    edgeKeys.add(pairKey(relationship.fromId, relationship.toId));
+  });
+
+  const originalVertexCount = vertices.length;
+  const originalEdgeCount = edgeKeys.size;
+  const reducedAdj = reduceSeriesVertices(makeAdjacency(vertices, edgeKeys));
+  const reducedEdges = edgeKeysFromAdjacency(reducedAdj);
+
+  for (const component of connectedComponentsOf(reducedAdj)) {
+    const v = component.length;
+    const e = componentEdgeCount(component, reducedEdges);
+    if (v < 3) continue;
+
+    if (e > 3 * v - 6) {
+      return {
+        planar: false,
+        status: "non-planar",
+        reason: `component violates planar Euler edge bound (${e} > ${3 * v - 6})`,
+        vertices: originalVertexCount,
+        edges: originalEdgeCount,
+      };
+    }
+    if (isBipartiteComponent(component, reducedAdj) && e > 2 * v - 4) {
+      return {
+        planar: false,
+        status: "non-planar",
+        reason: `component violates bipartite planar edge bound (${e} > ${2 * v - 4})`,
+        vertices: originalVertexCount,
+        edges: originalEdgeCount,
+      };
+    }
+    if (hasK5Subgraph(component, reducedEdges)) {
+      return {
+        planar: false,
+        status: "non-planar",
+        reason: "component contains a K5 subdivision in the abstract skeleton",
+        vertices: originalVertexCount,
+        edges: originalEdgeCount,
+      };
+    }
+    if (hasK33Subgraph(component, reducedEdges)) {
+      return {
+        planar: false,
+        status: "non-planar",
+        reason: "component contains a K3,3 subdivision in the abstract skeleton",
+        vertices: originalVertexCount,
+        edges: originalEdgeCount,
+      };
+    }
+  }
+
+  return {
+    planar: true,
+    status: "planar",
+    reason: "abstract entity-relationship skeleton has no detected non-planar obstruction",
+    vertices: originalVertexCount,
+    edges: originalEdgeCount,
+  };
+}
+
 interface Scene {
   entities: CoreInfo[];
   relationships: RelInfo[];
@@ -69,6 +312,7 @@ interface Scene {
   overlaps: Array<[CoreInfo, CoreInfo]>;
   attrOverlaps: number;
   attrCrossings: number;
+  planarity: PlanarityInfo;
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
@@ -177,6 +421,7 @@ function buildScene(graph: HeadlessGraph): Scene {
     if (r.toId) hasRel.add(r.toId);
   });
   const isolated = entities.filter((e) => !hasRel.has(e.id)).map((e) => e.id);
+  const planarity = analyzePlanarity(entities, relationships);
 
   // crossings: each binary relationship is a segment entityFrom→entityTo
   const segs = relationships
@@ -365,6 +610,7 @@ function buildScene(graph: HeadlessGraph): Scene {
     overlaps,
     attrOverlaps,
     attrCrossings,
+    planarity,
     bbox: { minX, minY, maxX, maxY },
   };
 }
@@ -491,6 +737,13 @@ export function describe(
     L.push(`  ⚠ attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\`)`);
   if (scene.attrCrossings > 0)
     L.push(`  ⚠ attribute-line crossings: ${scene.attrCrossings}  (try \`attrs compact\`)`);
+  if (scene.planarity.planar) {
+    L.push(`  ✓ planarity: planar skeleton (${scene.planarity.reason})`);
+  } else {
+    L.push(
+      `  ⚠ planarity: non-planar skeleton (${scene.planarity.reason}; some relationship crossings are unavoidable)`,
+    );
+  }
 
   const w = Math.round(scene.bbox.maxX - scene.bbox.minX);
   const h = Math.round(scene.bbox.maxY - scene.bbox.minY);
@@ -504,7 +757,7 @@ export function describe(
     }
   });
   L.push(
-    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} attrCrossings=${scene.attrCrossings} bbox=${w}×${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
+    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} attrCrossings=${scene.attrCrossings} planar=${scene.planarity.planar} bbox=${w}×${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
   );
   L.push("");
 
@@ -528,10 +781,8 @@ export function describe(
 }
 
 function describeFocus(scene: Scene, focusArg: string): string[] {
-  const ent =
-    scene.entityById.get(focusArg) ??
-    scene.entities.find((e) => e.label.toLowerCase() === focusArg.toLowerCase());
-  if (!ent) return [`focus: no entity matching "${focusArg}"`];
+  const ent = scene.entityById.get(focusArg);
+  if (!ent) return [`focus: no entity id matching "${focusArg}"`];
   const L: string[] = [];
   L.push(
     `FOCUS ${ent.id}  ${ent.label}  (${Math.round(ent.x)},${Math.round(ent.y)})  ${Math.round(ent.w)}×${Math.round(ent.h)}`,
@@ -584,6 +835,7 @@ export interface SceneJson {
     overlaps: number;
     attrOverlaps: number;
     attrCrossings: number;
+    planarity: PlanarityInfo;
     isolated: string[];
     bbox: { w: number; h: number };
   };
@@ -615,6 +867,7 @@ export function describeJson(graph: HeadlessGraph): SceneJson {
       overlaps: s.overlaps.length,
       attrOverlaps: s.attrOverlaps,
       attrCrossings: s.attrCrossings,
+      planarity: s.planarity,
       isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
       bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) },
     },

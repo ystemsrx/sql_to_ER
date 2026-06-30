@@ -105,6 +105,28 @@ export interface ChenModelData {
   edges: EREdgeModel[];
 }
 
+export interface EmbeddedGraphSettings {
+  colored?: boolean;
+  comment?: boolean;
+  hideAttrs?: boolean;
+  fontScale?: number;
+  attrMode?: "auto" | "compact" | "moderate";
+  autoAvoid?: boolean;
+}
+
+export interface EmbeddedGraphState {
+  version?: number;
+  input?: string;
+  format?: "sql" | "dbml" | string;
+  settings?: EmbeddedGraphSettings;
+  nodes: ERNodeModel[];
+  edges: EREdgeModel[];
+}
+
+export interface EmbeddedHtmlConfig {
+  lang: "zh" | "en";
+}
+
 export interface NodeSnapshot {
   id: string;
   x?: number;
