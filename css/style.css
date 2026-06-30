@@ -284,7 +284,7 @@ body::before {
   left: 50%;
   z-index: 900;
   height: 42px;
-  max-width: min(420px, calc(100vw - 180px));
+  width: min(332px, calc(100vw - 180px));
   box-sizing: border-box;
   transform: translateX(-50%);
   display: inline-flex;
@@ -307,6 +307,7 @@ body::before {
 }
 
 .skill-install-pill code {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1449,7 +1450,7 @@ body.history-open .skill-install-pill {
   .skill-install-pill {
     top: 18px;
     height: 38px;
-    max-width: calc(100vw - 150px);
+    width: min(322px, calc(100vw - 150px));
     padding-left: 14px;
   }
 
@@ -1631,7 +1632,7 @@ body.history-open .skill-install-pill {
 
 @media (max-width: 480px) {
   .skill-install-pill {
-    max-width: calc(100vw - 180px);
+    width: min(322px, calc(100vw - 180px));
   }
 
   .skill-install-copy-cap {

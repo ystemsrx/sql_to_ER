@@ -411,8 +411,9 @@ const App = () => {
                 strokeLinejoin="round"
                 aria-hidden="true"
               >
-                <rect x="9" y="9" width="10" height="10" rx="2" />
-                <rect x="5" y="5" width="10" height="10" rx="2" />
+                <rect x="4.5" y="8.5" width="10" height="10" rx="2" />
+                <rect x="8.5" y="4.5" width="10" height="10" rx="2" fill="#fff" stroke="none" />
+                <rect x="8.5" y="4.5" width="10" height="10" rx="2" />
               </svg>
             )}
           </button>
