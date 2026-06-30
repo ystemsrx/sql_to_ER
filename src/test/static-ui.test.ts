@@ -78,3 +78,33 @@ describe("generator install command pill", () => {
     expect(activeRule).toContain("translateY(1px)");
   });
 });
+
+describe("generator auto avoidance control", () => {
+  it("renders an opt-in auto avoidance icon button above the font slider", () => {
+    const app = read("src/App.tsx");
+    const icons = read("src/components/icons.tsx");
+    const css = read("css/style.css");
+    const i18n = read("src/i18n.ts");
+
+    expect(app).toContain("autoAvoid");
+    expect(app).toContain('className={`avoid-toggle ${autoAvoid ? "active" : ""}`}');
+    expect(app).toContain("<ArrowsUpDownLeftRightIcon />");
+    expect(icons).toContain("export const ArrowsUpDownLeftRightIcon = makeIcon");
+    expect(i18n).toContain("开启自动避让");
+    expect(i18n).toContain("Enable auto avoidance");
+
+    const avoidMobileRule =
+      css.match(/@media \(max-width: 768px\)[\s\S]*?\.avoid-toggle\s*{[^}]+}/)?.[0] ?? "";
+    expect(css).toContain(".avoid-toggle {\n  top: 256px;");
+    expect(css).toContain(
+      ".font-size-slider {\n  position: absolute;\n  left: 16px;\n  top: 312px;",
+    );
+    expect(avoidMobileRule).toContain("bottom: 64px");
+  });
+
+  it("keeps web auto avoidance off by default", () => {
+    const hook = read("src/hooks/useGraph.ts");
+
+    expect(hook).toContain("const [autoAvoid, setAutoAvoidState] = useState(false)");
+  });
+});

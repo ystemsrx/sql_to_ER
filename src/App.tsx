@@ -15,6 +15,7 @@ import { patchRelationshipLinkPoints, registerCustomNodes } from "./builder";
 import { CodeEditor } from "./editor";
 import { SwitchControl } from "./components/SwitchControl";
 import {
+  ArrowsUpDownLeftRightIcon,
   CircleNodesIcon,
   ClockRotateLeftIcon,
   EyeIcon,
@@ -61,6 +62,7 @@ const App = () => {
     hideFields,
     fontScale,
     forceOn,
+    autoAvoid,
     hasGraph,
     error,
     loading,
@@ -71,6 +73,7 @@ const App = () => {
     setHideFields,
     setFontScale,
     setForceOn,
+    setAutoAvoid,
     handleGenerate,
     handleForceAlign,
     handleArrangeLayout,
@@ -770,6 +773,13 @@ const App = () => {
                   title={forceOn ? t.tipForceOff : t.tipForceOn}
                 >
                   <CircleNodesIcon />
+                </div>
+                <div
+                  className={`avoid-toggle ${autoAvoid ? "active" : ""}`}
+                  onClick={() => setAutoAvoid(!autoAvoid)}
+                  title={autoAvoid ? t.tipAutoAvoidOff : t.tipAutoAvoidOn}
+                >
+                  <ArrowsUpDownLeftRightIcon />
                 </div>
                 <div
                   className="font-size-slider"

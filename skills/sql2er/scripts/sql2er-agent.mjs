@@ -4064,6 +4064,93 @@ function computeAttributeRotationTargets(nodes, edges, entityIds, sizeOf) {
   return targets;
 }
 
+// src/graph/autoAvoid.ts
+var DEFAULT_SIZE = {
+  entity: { width: 120, height: 52 },
+  relationship: { width: 82, height: 52 },
+  attribute: { width: 90, height: 44 }
+};
+var FALLBACK_SIZE2 = { width: 80, height: 40 };
+var positionOf2 = (node) => ({
+  x: typeof node.x === "number" ? node.x : 0,
+  y: typeof node.y === "number" ? node.y : 0
+});
+var fallbackSize2 = (node) => DEFAULT_SIZE[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE2;
+var safeSize2 = (node, sizeOf) => {
+  const fallback = fallbackSize2(node);
+  const measured = sizeOf?.(node) ?? fallback;
+  return {
+    width: Number.isFinite(measured.width) && measured.width > 0 ? measured.width : fallback.width,
+    height: Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height
+  };
+};
+var movePriority = (node) => {
+  if (node.nodeType === "attribute") return 2;
+  if (node.nodeType === "relationship") return 1;
+  return 0;
+};
+var deterministicSign = (a, b) => a < b ? 1 : -1;
+function computeAutoAvoidTargets(nodes, sizeOf, options = {}) {
+  if (options.enabled === false) return /* @__PURE__ */ new Map();
+  const margin = options.margin ?? 4;
+  const maxIterations = options.maxIterations ?? 120;
+  const original = new Map(nodes.map((node) => [node.id, positionOf2(node)]));
+  const positions = new Map(Array.from(original, ([id, point]) => [id, { ...point }]));
+  const sizes = new Map(nodes.map((node) => [node.id, safeSize2(node, sizeOf)]));
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let maxMove = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      const as = sizes.get(a.id) ?? fallbackSize2(a);
+      const ap = positions.get(a.id) ?? positionOf2(a);
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        const bs = sizes.get(b.id) ?? fallbackSize2(b);
+        const bp = positions.get(b.id) ?? positionOf2(b);
+        const overlapX = (as.width + bs.width) / 2 + margin - Math.abs(bp.x - ap.x);
+        const overlapY = (as.height + bs.height) / 2 + margin - Math.abs(bp.y - ap.y);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        const aPriority = movePriority(a);
+        const bPriority = movePriority(b);
+        if (aPriority === 0 && bPriority === 0) continue;
+        let moveA = 0;
+        let moveB = 0;
+        if (aPriority > bPriority) moveA = 1;
+        else if (bPriority > aPriority) moveB = 1;
+        else {
+          moveA = 0.5;
+          moveB = 0.5;
+        }
+        const separateX = overlapX <= overlapY;
+        const rawDelta = separateX ? bp.x - ap.x : bp.y - ap.y;
+        const sign = Math.abs(rawDelta) > 1e-6 ? Math.sign(rawDelta) : deterministicSign(a.id, b.id);
+        const amount = (separateX ? overlapX : overlapY) + 0.5;
+        if (separateX) {
+          ap.x -= sign * amount * moveA;
+          bp.x += sign * amount * moveB;
+        } else {
+          ap.y -= sign * amount * moveA;
+          bp.y += sign * amount * moveB;
+        }
+        positions.set(a.id, ap);
+        positions.set(b.id, bp);
+        maxMove = Math.max(maxMove, amount);
+      }
+    }
+    if (maxMove < 0.1) break;
+  }
+  const targets = /* @__PURE__ */ new Map();
+  nodes.forEach((node) => {
+    if (movePriority(node) === 0) return;
+    const before = original.get(node.id);
+    const after = positions.get(node.id);
+    if (!before || !after) return;
+    if (Math.abs(before.x - after.x) < 1e-6 && Math.abs(before.y - after.y) < 1e-6) return;
+    targets.set(node.id, { x: after.x, y: after.y });
+  });
+  return targets;
+}
+
 // skills/sql2er/scripts/engine/adapter.ts
 var makeBBox = (model) => {
   const { width, height } = measureNodeSize(model);
@@ -4641,11 +4728,20 @@ var DEFAULT_SETTINGS = {
   comment: false,
   hideAttrs: false,
   fontScale: 1,
-  attrMode: "auto"
+  attrMode: "auto",
+  autoAvoid: true
 };
 function clampFontScale2(scale) {
   if (!Number.isFinite(scale)) return 1;
   return Math.min(1.6, Math.max(0.4, scale));
+}
+function normalizeSettings(settings) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    fontScale: clampFontScale2(settings.fontScale),
+    autoAvoid: settings.autoAvoid !== false
+  };
 }
 function deltaToScale(delta) {
   return clampFontScale2(1 + (Number.isFinite(delta) ? delta : 0) * 0.1);
@@ -4673,8 +4769,7 @@ function runLayoutOnGraph(kind, graph, nodes, edges) {
   }
 }
 function generate(opts) {
-  const settings = { ...DEFAULT_SETTINGS, ...opts.settings ?? {} };
-  settings.fontScale = clampFontScale2(settings.fontScale);
+  const settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...opts.settings ?? {} });
   const { result, format } = parseInput(opts.input, opts.format ?? "auto");
   if (!result.tables.length) {
     throw new Error("No tables parsed from input (tried " + (opts.format ?? "auto") + ").");
@@ -4693,23 +4788,28 @@ function generate(opts) {
   const state = { version: 1, input: opts.input, format, settings, nodes, edges };
   applyAttrMode(state);
   if (layout === "optimal") tightenCompact(state);
+  applyAutoAvoid(state);
   return state;
 }
 function runLayout(state, kind) {
+  state.settings = normalizeSettings(state.settings);
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
   runLayoutOnGraph(kind, graph, state.nodes, state.edges);
   if (kind === "optimal" && state.settings.attrMode === "auto")
     state.settings.attrMode = "moderate";
   applyAttrMode(state);
   if (kind === "optimal") tightenCompact(state);
+  applyAutoAvoid(state);
   return { ...state };
 }
 function setFontScale(state, delta) {
+  state.settings = normalizeSettings(state.settings);
   const fontScale = deltaToScale(delta);
   const settings = { ...state.settings, fontScale };
   const next = { ...state, settings };
   styleAndSize(next.nodes, next.edges, settings);
   applyAttrMode(next);
+  applyAutoAvoid(next);
   return next;
 }
 function centroid(nodes) {
@@ -4725,6 +4825,7 @@ function centroid(nodes) {
   return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
 }
 function rotate(state, degrees) {
+  state.settings = normalizeSettings(state.settings);
   const theta = (Number(degrees) || 0) * Math.PI / 180;
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
@@ -4737,6 +4838,7 @@ function rotate(state, degrees) {
     n.x = cx + dx * cos - dy * sin;
     n.y = cy + dx * sin + dy * cos;
   });
+  applyAutoAvoid(state);
   return { ...state };
 }
 var currentLabelMode = (state) => state.settings.comment ? "comment" : "name";
@@ -4759,8 +4861,10 @@ function applyLabelsByMode(state) {
   });
 }
 function restyleAfterLabelEdit(state) {
+  state.settings = normalizeSettings(state.settings);
   styleAndSize(state.nodes, state.edges, state.settings);
   applyAttrMode(state);
+  applyAutoAvoid(state);
 }
 function resolveNodeById(state, id) {
   const node = state.nodes.find((n) => n.id === id);
@@ -5131,6 +5235,12 @@ function applyAttrMode(state) {
   if (state.settings.attrMode === "compact") placeAttributesCompact(state);
   else if (state.settings.attrMode === "moderate") placeAttributesModerate(state);
 }
+function applyAutoAvoid(state) {
+  state.settings = normalizeSettings(state.settings);
+  if (!state.settings.autoAvoid) return;
+  const targets = computeAutoAvoidTargets(state.nodes, measureNodeSize);
+  applyNodePositionTargets(state.nodes, targets);
+}
 function measuredRingRadii(state) {
   const attrsBy = /* @__PURE__ */ new Map();
   state.nodes.forEach((n) => {
@@ -5161,16 +5271,25 @@ function tightenCompact(state) {
   applyAttrMode(state);
 }
 function setAttrMode(state, mode) {
+  state.settings = normalizeSettings(state.settings);
   const settings = { ...state.settings, attrMode: mode };
   const next = { ...state, settings };
   styleAndSize(next.nodes, next.edges, settings);
   applyAttrMode(next);
+  applyAutoAvoid(next);
   return next;
 }
 function settle(state) {
+  state.settings = normalizeSettings(state.settings);
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
   arrangeLayout(graph);
   applyAttrMode(state);
+  applyAutoAvoid(state);
+}
+function setAutoAvoid(state, enabled) {
+  state.settings = normalizeSettings({ ...state.settings, autoAvoid: enabled });
+  if (enabled) applyAutoAvoid(state);
+  return { ...state };
 }
 function move(state, arg, x, y, raw) {
   const node = resolveNode(state, arg);
@@ -6095,6 +6214,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --hide-attrs                   skeleton only \u2014 generate NO attributes (tighter,
                                      cleaner layout); decided here, not at export
       --attrs auto|compact|moderate  attribute orbit mode (default auto)
+      --auto-avoid true|false    resolve node overlaps after layout/edit (default true)
       --layout optimal|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
@@ -6117,6 +6237,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   labels mode <name|comment>
                            Switch generated labels without clearing manual labels.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (\u2248\xB10.1/step).
+  avoid <on|off>           Toggle automatic node overlap avoidance for this state.
   export <drawio|svg|png|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
                                      (--out base.ext -> base-<name>.ext per component)
@@ -6141,7 +6262,8 @@ function main() {
           colored: boolFlag(flags.colored, true),
           comment: boolFlag(flags.comment),
           hideAttrs: boolFlag(flags["hide-attrs"]),
-          attrMode: ATTR_MODES.includes(flags.attrs) ? flags.attrs : "auto"
+          attrMode: ATTR_MODES.includes(flags.attrs) ? flags.attrs : "auto",
+          autoAvoid: boolFlag(flags["auto-avoid"], true)
         }
       });
       saveState(flags, state);
@@ -6270,6 +6392,16 @@ function main() {
       const next = setFontScale(loadState(flags), delta);
       saveState(flags, next);
       process.stdout.write(`fontScale=${next.settings.fontScale.toFixed(2)}
+`);
+      printState(next, flags);
+      break;
+    }
+    case "avoid": {
+      const mode = _[1];
+      if (mode !== "on" && mode !== "off") throw new Error("avoid <on|off>");
+      const next = setAutoAvoid(loadState(flags), mode === "on");
+      saveState(flags, next);
+      process.stdout.write(`autoAvoid=${next.settings.autoAvoid ? "on" : "off"}
 `);
       printState(next, flags);
       break;

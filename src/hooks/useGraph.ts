@@ -3,9 +3,10 @@ import { I18N, type Language } from "../i18n";
 import { detectLang } from "../language";
 import { parseSQLTables } from "../parser/sql";
 import { parseDBML } from "../parser/dbml";
-import { generateChenModelData, patchRelationshipLinkPoints } from "../builder";
+import { generateChenModelData, measureNodeSize, patchRelationshipLinkPoints } from "../builder";
 import {
   applyInitialComponentPositions,
+  animateNodesToTargets,
   arrangeLayout,
   forceAlignLayout,
   smoothFitView,
@@ -20,6 +21,7 @@ import { attachEntityDragSync } from "../graph/attachEntityDragSync";
 import { attachForceLoop } from "../graph/forceLoop";
 import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
+import { computeAutoAvoidTargets } from "../graph/autoAvoid";
 import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
 import type { ERNodeModel, GraphLike, ParsedTable, SnapshotRecord } from "../types";
 import type { HistoryManager } from "../history";
@@ -32,6 +34,7 @@ export interface GenerateOptions {
   showComment?: boolean;
   hideFields?: boolean;
   fontScale?: number;
+  autoAvoid?: boolean;
   positionMap?: Map<string, { x?: number; y?: number; label?: string }> | null;
 }
 
@@ -53,6 +56,7 @@ export interface UseGraphResult {
   hideFields: boolean;
   fontScale: number;
   forceOn: boolean;
+  autoAvoid: boolean;
   hasGraph: boolean;
   error: string | null;
   loading: boolean;
@@ -63,6 +67,7 @@ export interface UseGraphResult {
   setHideFields: (next: boolean) => void;
   setFontScale: (next: number) => void;
   setForceOn: (next: boolean) => void;
+  setAutoAvoid: (next: boolean) => void;
   setError: (next: string | null) => void;
   // commands
   handleGenerate: (opts?: GenerateOptions) => void;
@@ -100,6 +105,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [hideFields, setHideFieldsState] = useState(false);
   const [fontScale, setFontScaleState] = useState(1);
   const [forceOn, setForceOnState] = useState(false);
+  const [autoAvoid, setAutoAvoidState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasGraph, setHasGraph] = useState(false);
@@ -111,6 +117,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const historyRef = useRef<HistoryManager>(createHistoryManager());
   const forceCtrlRef = useRef<ForceLoopController | null>(null);
   const forceOnRef = useRef(false);
+  const autoAvoidRef = useRef(false);
 
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
@@ -121,6 +128,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     showComment,
     hideFields,
     fontScale,
+    autoAvoid,
     t,
   });
   stateRef.current = {
@@ -129,6 +137,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     showComment,
     hideFields,
     fontScale,
+    autoAvoid,
     t,
   };
 
@@ -168,6 +177,47 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     if (graph && !graph.destroyed) patchRelationshipLinkPoints(graph);
   };
 
+  const graphNodeSize = (node: ERNodeModel) => {
+    const item = graphRef.current?.findById(node.id);
+    if (item && "getBBox" in item) {
+      const bbox = item.getBBox();
+      return { width: bbox.width, height: bbox.height };
+    }
+    return measureNodeSize(node);
+  };
+
+  const applyGraphAutoAvoid = (duration = 300, onFinish?: () => void): boolean => {
+    const graph = graphRef.current;
+    if (!graph || graph.destroyed) {
+      onFinish?.();
+      return false;
+    }
+    const nodes = graph.getNodes().map((node) => node.getModel() as ERNodeModel);
+    const targets = computeAutoAvoidTargets(nodes, graphNodeSize);
+    if (!targets.size) {
+      onFinish?.();
+      return false;
+    }
+    animateNodesToTargets(graph, targets, duration, () => {
+      patchRelationshipLinkPoints(graph);
+      graph.refresh?.();
+      onFinish?.();
+    });
+    return true;
+  };
+
+  const persistAfterOptionalAutoAvoid = (delayMs = 0) => {
+    if (autoAvoidRef.current) {
+      applyGraphAutoAvoid(300, () => {
+        if (delayMs > 0) scheduleCurrentSnapshotPersist(delayMs);
+        else void persistCurrentSnapshot();
+      });
+      return;
+    }
+    if (delayMs > 0) scheduleCurrentSnapshotPersist(delayMs);
+    else void persistCurrentSnapshot();
+  };
+
   // 公共关闭：智能布局 / 强制对齐 / 切换历史 / 显隐属性 / 重新生成
   // 都会让"持续力导向"复位为关闭。状态、ref、控制器三处同步。
   const disableForceIfOn = () => {
@@ -184,6 +234,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     const useShowComment = genOpts.showComment ?? cur.showComment;
     const useHideFields = genOpts.hideFields ?? cur.hideFields;
     const useFontScale = genOpts.fontScale ?? cur.fontScale;
+    const useAutoAvoid = genOpts.autoAvoid ?? cur.autoAvoid;
     const positionMap = genOpts.positionMap ?? null;
 
     try {
@@ -293,7 +344,13 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
             setTimeout(() => {
               if (graphRef.current && !graphRef.current.destroyed) {
                 spreadDisconnectedComponents(graphRef.current, () => {
-                  smoothFitView(graphRef.current, 800, "easeOutCubic");
+                  if (autoAvoidRef.current) {
+                    applyGraphAutoAvoid(360, () =>
+                      smoothFitView(graphRef.current, 800, "easeOutCubic"),
+                    );
+                  } else {
+                    smoothFitView(graphRef.current, 800, "easeOutCubic");
+                  }
                 });
               }
             }, 30);
@@ -317,6 +374,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       graph.render();
 
       applyGraphStyles(graph, useIsColored, useFontScale);
+      if (useAutoAvoid && positionMap) applyGraphAutoAvoid(0);
 
       // 初始渲染后使用平滑动画调整视图
       setTimeout(() => smoothFitView(graph, 600, "easeOutQuart"), 200);
@@ -339,7 +397,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       setupNodeDoubleClickEdit(graph as any, container, {
         onBeforeChange: () => historyRef.current.record(graph),
         onAfterChange: () => {
-          void persistCurrentSnapshot();
+          persistAfterOptionalAutoAvoid();
         },
       });
       attachEntityDragSync(
@@ -347,7 +405,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         historyRef.current,
         () => forceOnRef.current,
         () => {
-          void persistCurrentSnapshot();
+          persistAfterOptionalAutoAvoid();
         },
       );
 
@@ -424,7 +482,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     if (graph.refresh) graph.refresh();
     graph.paint();
     graph.setAutoPaint(true);
-    scheduleCurrentSnapshotPersist();
+    persistAfterOptionalAutoAvoid(700);
   };
 
   const setHideFields = (next: boolean) => {
@@ -442,7 +500,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         stateRef.current.fontScale,
       );
     }
-    scheduleCurrentSnapshotPersist();
+    persistAfterOptionalAutoAvoid(700);
   };
 
   const setFontScale = (next: number) => {
@@ -451,7 +509,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setFontScaleState(safeNext);
     if (hasGraph && graphRef.current) {
       applyGraphStyles(graphRef.current, stateRef.current.isColored, safeNext);
-      scheduleCurrentSnapshotPersist();
+      persistAfterOptionalAutoAvoid(700);
     }
   };
 
@@ -459,6 +517,17 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     forceOnRef.current = next;
     setForceOnState(next);
     if (forceCtrlRef.current) forceCtrlRef.current.setEnabled(next);
+  };
+
+  const setAutoAvoid = (next: boolean) => {
+    autoAvoidRef.current = next;
+    stateRef.current.autoAvoid = next;
+    setAutoAvoidState(next);
+    if (!next || !hasGraph || !graphRef.current || graphRef.current.destroyed) return;
+    historyRef.current.record(graphRef.current);
+    applyGraphAutoAvoid(360, () => {
+      void persistCurrentSnapshot();
+    });
   };
 
   const restoreFromSnapshot = (snap: SnapshotRecord) => {
@@ -526,7 +595,11 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     historyRef.current.record(graphRef.current);
     const containerWidth = containerRef.current?.offsetWidth || 1200;
     forceAlignLayout(graphRef.current, containerWidth);
-    scheduleCurrentSnapshotPersist(1200);
+    if (autoAvoidRef.current) {
+      window.setTimeout(() => persistAfterOptionalAutoAvoid(), 900);
+    } else {
+      scheduleCurrentSnapshotPersist(1200);
+    }
   };
 
   const handleArrangeLayout = () => {
@@ -534,7 +607,11 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     disableForceIfOn();
     historyRef.current.record(graphRef.current);
     arrangeLayout(graphRef.current);
-    scheduleCurrentSnapshotPersist(1200);
+    if (autoAvoidRef.current) {
+      window.setTimeout(() => persistAfterOptionalAutoAvoid(), 900);
+    } else {
+      scheduleCurrentSnapshotPersist(1200);
+    }
   };
 
   return {
@@ -548,6 +625,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     hideFields,
     fontScale,
     forceOn,
+    autoAvoid,
     hasGraph,
     error,
     loading,
@@ -557,6 +635,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setHideFields,
     setFontScale,
     setForceOn,
+    setAutoAvoid,
     setError,
     handleGenerate,
     handleForceAlign,

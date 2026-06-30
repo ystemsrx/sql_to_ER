@@ -51,6 +51,8 @@ node $AGENT move users 600 400 --state er.json
 node $AGENT nudge users 20 -10 --state er.json
 ```
 
+Automatic overlap avoidance is on by default and moves attributes first, then relationship diamonds, never entity rectangles. Use `avoid off` only when the user explicitly wants to preserve exact positions.
+
 Prefer `layout optimal` after major edits. Use `attrs compact` for the smallest attribute footprint and `attrs moderate` for a more even ring. Use `swap`, `move`, and `nudge` only when diagnostics or visual review show a local issue.
 
 4. Export and review:
@@ -67,6 +69,7 @@ Always export SVG or PNG and inspect the image before finishing. Ensure labels a
 
 - `crossings` / `overlaps`: run `layout optimal`; for a small local crossing, try `swap`.
 - `attrOverlaps` / `attrCrossings`: compare `attrs compact` and `attrs moderate`, then keep the clearer result.
+- Unwanted automatic movement: run `avoid off`; turn it back on with `avoid on` before final review when possible.
 - `COMPONENTS > 1`: keep related clusters in one diagram, or use `export <fmt> --split` for separate files.
 - Awkward aspect ratio: try `rotate 90`.
 - Busy attribute-heavy diagram: regenerate with `--hide-attrs` only if a skeleton-only answer satisfies the user.

@@ -530,7 +530,8 @@ body.history-open .skill-install-pill {
 .colorize-toggle,
 .attrs-toggle,
 .history-toggle,
-.force-toggle {
+.force-toggle,
+.avoid-toggle {
   position: absolute;
   left: 16px;
   width: 40px;
@@ -572,11 +573,14 @@ body.history-open .skill-install-pill {
   top: 208px;
 }
 
+.avoid-toggle {
+  top: 256px;
+}
 
 .font-size-slider {
   position: absolute;
   left: 16px;
-  top: 264px;
+  top: 312px;
   width: 40px;
   height: 172px;
   box-sizing: border-box;
@@ -668,7 +672,8 @@ body.history-open .skill-install-pill {
 .colorize-toggle:hover,
 .attrs-toggle:hover,
 .history-toggle:hover,
-.force-toggle:hover {
+.force-toggle:hover,
+.avoid-toggle:hover {
   transform: scale(1.06);
   border-color: var(--app-accent);
   box-shadow: 0 6px 16px rgba(20, 20, 19, 0.1);
@@ -678,7 +683,8 @@ body.history-open .skill-install-pill {
 .colorize-toggle:active,
 .attrs-toggle:active,
 .history-toggle:active,
-.force-toggle:active {
+.force-toggle:active,
+.avoid-toggle:active {
   transform: scale(0.95);
 }
 
@@ -686,7 +692,8 @@ body.history-open .skill-install-pill {
 .colorize-toggle > svg,
 .attrs-toggle > svg,
 .history-toggle > svg,
-.force-toggle > svg {
+.force-toggle > svg,
+.avoid-toggle > svg {
   font-size: 16px;
   color: var(--app-ink-2);
   display: block;
@@ -697,7 +704,8 @@ body.history-open .skill-install-pill {
 .colorize-toggle:hover > svg,
 .attrs-toggle:hover > svg,
 .history-toggle:hover > svg,
-.force-toggle:hover > svg {
+.force-toggle:hover > svg,
+.avoid-toggle:hover > svg {
   color: var(--app-accent-warm);
 }
 
@@ -720,6 +728,24 @@ body.history-open .skill-install-pill {
   color: #b04a2c;
 }
 
+.avoid-toggle.active {
+  background: linear-gradient(135deg, #d1fae5 0%, #cffafe 55%, #dbeafe 100%);
+  border-color: rgba(14, 165, 233, 0.34);
+  box-shadow: 0 4px 14px rgba(20, 184, 166, 0.18);
+}
+
+.avoid-toggle.active > svg {
+  color: #0f8f8c;
+}
+
+.avoid-toggle.active:hover {
+  background: linear-gradient(135deg, #a7f3d0 0%, #a5f3fc 55%, #bfdbfe 100%);
+  border-color: rgba(20, 184, 166, 0.5);
+}
+
+.avoid-toggle.active:hover > svg {
+  color: #0f766e;
+}
 
 .colorize-toggle.active {
   background: linear-gradient(135deg, #dbeafe 0%, #f3e8ff 50%, #ffe4e6 100%);
@@ -742,13 +768,15 @@ body.history-open .skill-install-pill {
 
 .attrs-toggle,
 .colorize-toggle,
-.force-toggle {
+.force-toggle,
+.avoid-toggle {
   overflow: hidden;
 }
 
 .attrs-toggle::after,
 .colorize-toggle::after,
-.force-toggle::after {
+.force-toggle::after,
+.avoid-toggle::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -770,13 +798,15 @@ body.history-open .skill-install-pill {
 }
 
 .colorize-toggle:not(.active)::after,
-.force-toggle:not(.active)::after {
+.force-toggle:not(.active)::after,
+.avoid-toggle:not(.active)::after {
   transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
 }
 
 .attrs-toggle:hover::after,
 .colorize-toggle:hover::after,
-.force-toggle:hover::after {
+.force-toggle:hover::after,
+.avoid-toggle:hover::after {
   background: var(--app-accent-warm);
 }
 
@@ -1163,6 +1193,7 @@ body.history-open .skill-install-pill {
   .attrs-toggle:hover,
   .history-toggle:hover,
   .force-toggle:hover,
+  .avoid-toggle:hover,
   .font-size-slider:hover {
     transform: none;
     border-color: var(--app-border);
@@ -1182,8 +1213,16 @@ body.history-open .skill-install-pill {
   .colorize-toggle:active,
   .attrs-toggle:active,
   .history-toggle:active,
-  .force-toggle:active {
+  .force-toggle:active,
+  .avoid-toggle:active {
     transform: scale(1.1);
+  }
+
+  .avoid-toggle {
+    left: auto;
+    right: 16px;
+    top: auto;
+    bottom: 64px;
   }
 
   .font-size-slider {
@@ -1860,6 +1899,7 @@ body.is-lang-fading .lang-fade-target {
 .attrs-toggle:focus-visible,
 .history-toggle:focus-visible,
 .force-toggle:focus-visible,
+.avoid-toggle:focus-visible,
 .font-size-slider:focus-visible,
 .skill-install-copy:focus-visible,
 .github-corner:focus-visible {

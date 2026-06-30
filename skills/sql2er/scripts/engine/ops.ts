@@ -19,6 +19,7 @@ import {
   computeAttributeRotationTargets,
   computeMovedEntityRelationshipTargets,
 } from "@app/graph/entityMoveSync";
+import { computeAutoAvoidTargets } from "@app/graph/autoAvoid";
 import type { EREdgeModel, ERNodeModel, ParseResult } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import { stressLayout, ringRadiusFor } from "./skeleton";
@@ -40,6 +41,7 @@ export interface Settings {
   //   compact  — reuse the app's show-attributes packer (shortest non-overlapping)
   //   moderate — one uniform ring (every attribute the same distance from the entity)
   attrMode: AttrMode;
+  autoAvoid: boolean;
 }
 
 export interface State {
@@ -57,11 +59,21 @@ export const DEFAULT_SETTINGS: Settings = {
   hideAttrs: false,
   fontScale: 1,
   attrMode: "auto",
+  autoAvoid: true,
 };
 
 export function clampFontScale(scale: number): number {
   if (!Number.isFinite(scale)) return 1;
   return Math.min(1.6, Math.max(0.4, scale));
+}
+
+function normalizeSettings(settings: Settings): Settings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    fontScale: clampFontScale(settings.fontScale),
+    autoAvoid: settings.autoAvoid !== false,
+  };
 }
 
 /** delta (0 = default) → font scale. ±1 ≈ ±0.1; clamped to the app's 0.4–1.6. */
@@ -113,8 +125,7 @@ function runLayoutOnGraph(
 }
 
 export function generate(opts: GenerateOptions): State {
-  const settings: Settings = { ...DEFAULT_SETTINGS, ...(opts.settings ?? {}) };
-  settings.fontScale = clampFontScale(settings.fontScale);
+  const settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...(opts.settings ?? {}) });
   const { result, format } = parseInput(opts.input, opts.format ?? "auto");
   if (!result.tables.length) {
     throw new Error("No tables parsed from input (tried " + (opts.format ?? "auto") + ").");
@@ -134,25 +145,30 @@ export function generate(opts: GenerateOptions): State {
   const state: State = { version: 1, input: opts.input, format, settings, nodes, edges };
   applyAttrMode(state);
   if (layout === "optimal") tightenCompact(state);
+  applyAutoAvoid(state);
   return state;
 }
 
 export function runLayout(state: State, kind: LayoutKind): State {
+  state.settings = normalizeSettings(state.settings);
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
   runLayoutOnGraph(kind, graph, state.nodes, state.edges);
   if (kind === "optimal" && state.settings.attrMode === "auto")
     state.settings.attrMode = "moderate";
   applyAttrMode(state);
   if (kind === "optimal") tightenCompact(state);
+  applyAutoAvoid(state);
   return { ...state };
 }
 
 export function setFontScale(state: State, delta: number): State {
+  state.settings = normalizeSettings(state.settings);
   const fontScale = deltaToScale(delta);
   const settings = { ...state.settings, fontScale };
   const next: State = { ...state, settings };
   styleAndSize(next.nodes, next.edges, settings); // re-measures + re-styles in place
   applyAttrMode(next); // keep compact/moderate tidy after a size change
+  applyAutoAvoid(next);
   return next;
 }
 
@@ -173,6 +189,7 @@ function centroid(nodes: ERNodeModel[]): { cx: number; cy: number } {
 }
 
 export function rotate(state: State, degrees: number): State {
+  state.settings = normalizeSettings(state.settings);
   const theta = ((Number(degrees) || 0) * Math.PI) / 180;
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
@@ -185,6 +202,7 @@ export function rotate(state: State, degrees: number): State {
     n.x = cx + dx * cos - dy * sin;
     n.y = cy + dx * sin + dy * cos;
   });
+  applyAutoAvoid(state);
   return { ...state };
 }
 
@@ -230,8 +248,10 @@ function applyLabelsByMode(state: State): void {
 }
 
 function restyleAfterLabelEdit(state: State): void {
+  state.settings = normalizeSettings(state.settings);
   styleAndSize(state.nodes, state.edges, state.settings);
   applyAttrMode(state);
+  applyAutoAvoid(state);
 }
 
 function resolveNodeById(state: State, id: string): LabelNode {
@@ -720,6 +740,13 @@ function applyAttrMode(state: State): void {
   // "auto" → leave the layout-native placement untouched
 }
 
+function applyAutoAvoid(state: State): void {
+  state.settings = normalizeSettings(state.settings);
+  if (!state.settings.autoAvoid) return;
+  const targets = computeAutoAvoidTargets(state.nodes, measureNodeSize);
+  applyNodePositionTargets(state.nodes, targets);
+}
+
 // Per-entity ring radius for the compact re-layout, measured from the CURRENT (compact)
 // positions: the farthest attribute centre, but CLAMPED to the moderate ring so the
 // override can only ever TIGHTEN the skeleton, never spread it. (Compact greedily pushes
@@ -761,17 +788,27 @@ function tightenCompact(state: State): void {
 }
 
 export function setAttrMode(state: State, mode: AttrMode): State {
+  state.settings = normalizeSettings(state.settings);
   const settings = { ...state.settings, attrMode: mode };
   const next: State = { ...state, settings };
   styleAndSize(next.nodes, next.edges, settings); // ensure label fontSize for sizing
   applyAttrMode(next);
+  applyAutoAvoid(next);
   return next;
 }
 
 function settle(state: State) {
+  state.settings = normalizeSettings(state.settings);
   const graph = styleAndSize(state.nodes, state.edges, state.settings);
   arrangeLayout(graph);
   applyAttrMode(state);
+  applyAutoAvoid(state);
+}
+
+export function setAutoAvoid(state: State, enabled: boolean): State {
+  state.settings = normalizeSettings({ ...state.settings, autoAvoid: enabled });
+  if (enabled) applyAutoAvoid(state);
+  return { ...state };
 }
 
 export function move(state: State, arg: string, x: number, y: number, raw: boolean): EditResult {

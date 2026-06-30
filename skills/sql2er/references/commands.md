@@ -7,6 +7,7 @@
 - [describe](#describe)
 - [layout](#layout-optimalarrange)
 - [attrs](#attrs-autocompactmoderate)
+- [avoid](#avoid-onoff)
 - [labels](#labels)
 - [move / nudge / swap](#move--nudge--swap)
 - [rotate](#rotate-degrees)
@@ -38,6 +39,7 @@ Parse, build, lay out, and save state.
 | `--comment`                       | off       | label nodes with comments (falls back to names when absent) |
 | `--hide-attrs`                    | off       | generation-only skeleton mode; no attribute ellipses        |
 | `--attrs auto\|compact\|moderate` | `auto`    | attribute orbit mode                                        |
+| `--auto-avoid true\|false`        | `true`    | automatically move ellipses/diamonds away from overlaps     |
 | `--layout optimal\|arrange\|none` | `optimal` | initial layout                                              |
 
 `--hide-attrs` is decided only on `generate`. Later `layout`, `attrs`, and `export` commands keep the saved graph as-is; export has no attribute visibility toggle.
@@ -93,6 +95,15 @@ Re-place attribute ellipses around their unchanged entity. The mode persists acr
 
 Check the result with `describe` and compare `attrOverlaps` / `attrCrossings`.
 
+## avoid `<on|off>`
+
+Toggle automatic node-overlap avoidance for the saved state. It is on by default and runs after layout/edit/font/label changes. It moves attributes first, relationship diamonds second, and never moves entity rectangles.
+
+```bash
+node $AGENT avoid off --state er.json
+node $AGENT avoid on --state er.json
+```
+
 ## labels
 
 Relabel nodes without regenerating or moving the skeleton. Use exact node ids from `describe`.
@@ -117,7 +128,7 @@ node $AGENT labels mode comment --state er.json
 - `nudge <id|label> <dx> <dy>`: shift an entity by delta; its attributes and connected relationship diamonds follow.
 - `swap <a> <b>`: exchange two entity positions.
 
-Each runs one `arrange` pass afterward. Use `--raw` to skip settling. Coordinates are unbounded; exports fit the view to the graph.
+Each runs one `arrange` pass afterward. Use `--raw` to skip settling and automatic avoidance. Coordinates are unbounded; exports fit the view to the graph.
 
 ## rotate `<degrees>`
 

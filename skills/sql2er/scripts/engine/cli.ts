@@ -12,6 +12,7 @@ import {
   setLabelMode,
   setLabels,
   resetLabels,
+  setAutoAvoid,
   move,
   nudge,
   swap,
@@ -138,6 +139,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --hide-attrs                   skeleton only — generate NO attributes (tighter,
                                      cleaner layout); decided here, not at export
       --attrs auto|compact|moderate  attribute orbit mode (default auto)
+      --auto-avoid true|false    resolve node overlaps after layout/edit (default true)
       --layout optimal|arrange|none  (default optimal)
   describe                 Print skeleton + diagnostics + ASCII map.
       --full                         also list attributes
@@ -160,6 +162,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   labels mode <name|comment>
                            Switch generated labels without clearing manual labels.
   fontsize <delta>         0 = default; negative = smaller, positive = larger (≈±0.1/step).
+  avoid <on|off>           Toggle automatic node overlap avoidance for this state.
   export <drawio|svg|png|json> Write output. --out <file> (else stdout).
       --split                        one diagram per disconnected component
                                      (--out base.ext -> base-<name>.ext per component)
@@ -192,6 +195,7 @@ function main(): void {
           attrMode: ATTR_MODES.includes(flags.attrs as AttrMode)
             ? (flags.attrs as AttrMode)
             : "auto",
+          autoAvoid: boolFlag(flags["auto-avoid"], true),
         },
       });
       saveState(flags, state);
@@ -313,6 +317,15 @@ function main(): void {
       const next = setFontScale(loadState(flags), delta);
       saveState(flags, next);
       process.stdout.write(`fontScale=${next.settings.fontScale.toFixed(2)}\n`);
+      printState(next, flags);
+      break;
+    }
+    case "avoid": {
+      const mode = _[1];
+      if (mode !== "on" && mode !== "off") throw new Error("avoid <on|off>");
+      const next = setAutoAvoid(loadState(flags), mode === "on");
+      saveState(flags, next);
+      process.stdout.write(`autoAvoid=${next.settings.autoAvoid ? "on" : "off"}\n`);
       printState(next, flags);
       break;
     }

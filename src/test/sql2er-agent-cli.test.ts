@@ -42,6 +42,7 @@ type AgentState = {
     hideAttrs: boolean;
     fontScale: number;
     attrMode: "auto" | "compact" | "moderate";
+    autoAvoid?: boolean;
   };
   nodes: Array<{
     id: string;
@@ -74,10 +75,44 @@ function distance(a: { x: number; y: number }, b: { x: number; y: number }): num
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function aabbOverlap(
+  a: { x: number; y: number },
+  as: { width: number; height: number },
+  b: { x: number; y: number },
+  bs: { width: number; height: number },
+  margin = 4,
+): boolean {
+  return (
+    Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + margin &&
+    Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + margin
+  );
+}
+
 function nodePosition(state: AgentState, id: string): { x: number; y: number } {
   const node = state.nodes.find((n) => n.id === id);
   if (!node) throw new Error(`missing node ${id}`);
   return { x: node.x, y: node.y };
+}
+
+function exportedBoxes(statePath: string): Array<{
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}> {
+  const exported = runAgent(["export", "json", "--state", statePath]);
+  expect(exported.status).toBe(0);
+  return JSON.parse(exported.stdout).nodes;
+}
+
+function boxById(
+  boxes: Array<{ id: string; x: number; y: number; w: number; h: number }>,
+  id: string,
+) {
+  const box = boxes.find((n) => n.id === id);
+  if (!box) throw new Error(`missing exported node ${id}`);
+  return box;
 }
 
 function expectPointOnSegment(
@@ -123,6 +158,7 @@ function makeAttributeRingState(count: number): AgentState {
       hideAttrs: false,
       fontScale: 1,
       attrMode: "auto",
+      autoAvoid: false,
     },
     nodes,
     edges: nodes
@@ -147,6 +183,7 @@ function makeRelabelState(): AgentState {
       hideAttrs: false,
       fontScale: 1,
       attrMode: "auto",
+      autoAvoid: false,
     },
     nodes: [
       {
@@ -195,6 +232,41 @@ function makeRelabelState(): AgentState {
         target: "rel-posts-users-user_id-0",
         edgeType: "entity-relationship",
         label: "1",
+      },
+    ],
+  };
+}
+
+function makeOverlappingState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: false,
+      fontScale: 1,
+      attrMode: "auto",
+    },
+    nodes: [
+      { id: "entity-users", type: "entity", label: "users", nodeType: "entity", x: 0, y: 0 },
+      {
+        id: "attr-users-name",
+        type: "attribute",
+        label: "name",
+        nodeType: "attribute",
+        parentEntity: "entity-users",
+        x: 8,
+        y: 0,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-users-name",
+        source: "entity-users",
+        target: "attr-users-name",
+        edgeType: "entity-attribute",
       },
     ],
   };
@@ -407,6 +479,83 @@ describe("sql2er agent CLI layout modes", () => {
 
       expect(arranged.status).toBe(0);
       expect(readState(state).nodes.find((n) => n.id === "entity-a")?.x).toBeGreaterThan(900);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sql2er agent CLI auto avoidance", () => {
+  it("auto-avoids overlaps by default after a mutating command", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeOverlappingState()));
+
+      const adjusted = runAgent(["fontsize", "0", "--state", state]);
+
+      expect(adjusted.status).toBe(0);
+      const next = readState(state);
+      const boxes = exportedBoxes(state);
+      expect(next.settings.autoAvoid).toBe(true);
+      expect(nodePosition(next, "entity-users")).toEqual({ x: 0, y: 0 });
+      const entity = boxById(boxes, "entity-users");
+      const attr = boxById(boxes, "attr-users-name");
+      expect(
+        aabbOverlap(entity, { width: entity.w, height: entity.h }, attr, {
+          width: attr.w,
+          height: attr.h,
+        }),
+      ).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("can disable auto avoidance for the saved state", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeOverlappingState()));
+
+      const disabled = runAgent(["avoid", "off", "--state", state]);
+      expect(disabled.status).toBe(0);
+      const adjusted = runAgent(["fontsize", "0", "--state", state]);
+
+      expect(adjusted.status).toBe(0);
+      const next = readState(state);
+      const boxes = exportedBoxes(state);
+      expect(next.settings.autoAvoid).toBe(false);
+      const entity = boxById(boxes, "entity-users");
+      const attr = boxById(boxes, "attr-users-name");
+      expect(
+        aabbOverlap(entity, { width: entity.w, height: entity.h }, attr, {
+          width: attr.w,
+          height: attr.h,
+        }),
+      ).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("can disable auto avoidance at generate time", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+
+      const generated = runAgent([
+        "generate",
+        "--text",
+        schema,
+        "--auto-avoid",
+        "false",
+        "--state",
+        state,
+      ]);
+
+      expect(generated.status).toBe(0);
+      expect(readState(state).settings.autoAvoid).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
