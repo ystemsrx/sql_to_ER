@@ -36,7 +36,7 @@ interface TrackState {
   didDrag: boolean;
 }
 
-export interface HistoryRenderRange {
+interface HistoryRenderRange {
   start: number;
   end: number;
 }
@@ -51,7 +51,7 @@ interface HistoryCardVisualStateInput {
   viewportWidth: number;
 }
 
-export interface HistoryCardVisualState {
+interface HistoryCardVisualState {
   shift: number;
   x: number;
   y: number;
@@ -62,7 +62,7 @@ export interface HistoryCardVisualState {
   zIndex: number;
 }
 
-export function getHistoryRenderRange(total: number, currentScroll: number): HistoryRenderRange {
+function getHistoryRenderRange(total: number, currentScroll: number): HistoryRenderRange {
   if (total <= 0) return { start: 0, end: -1 };
   const scroll = Number.isFinite(currentScroll) ? currentScroll : 0;
   // 与 opacity 公式严格对应：只有 -5 < (index - currentScroll) < 7 的卡片可见。
@@ -73,7 +73,7 @@ export function getHistoryRenderRange(total: number, currentScroll: number): His
   };
 }
 
-export function computeHistoryCardVisualState({
+function computeHistoryCardVisualState({
   index,
   currentScroll,
   targetScroll,

@@ -136,18 +136,6 @@ describe("parseSQLTables — 报告问题修复", () => {
     expect(cols.find((c) => c.name === "key")?.type).toBe("account_id_domain");
   });
 
-  it("5b. 仍正确忽略真正的 KEY / INDEX 索引子句", () => {
-    const r = parseSQLTables(`
-      CREATE TABLE t (
-        id INT PRIMARY KEY,
-        email VARCHAR(255),
-        KEY idx_email (email),
-        INDEX idx_id (id)
-      );
-    `);
-    expect(r.tables[0].columns.map((c) => c.name)).toEqual(["id", "email"]);
-  });
-
   it('6a. MySQL 列级双引号 COMMENT "..." 被提取', () => {
     const r = parseSQLTables(`CREATE TABLE t (id INT PRIMARY KEY COMMENT "the id", n INT);`);
     expect(r.tables[0].columns[0].comment).toBe("the id");

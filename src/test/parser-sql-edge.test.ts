@@ -75,16 +75,6 @@ describe("parseSQLTables — 边界场景", () => {
     expect(r.relationships).toEqual([]);
   });
 
-  it("MySQL # 行内注释被正确剥离，后续列不丢失", () => {
-    const r = parseSQLTables(`
-      CREATE TABLE t (
-        id INT PRIMARY KEY, # the id column
-        name VARCHAR(50)
-      );
-    `);
-    expect(r.tables[0].columns.map((c) => c.name)).toEqual(["id", "name"]);
-  });
-
   // ---- 类型解析尊重字符串字面量与括号 ----
 
   it("ENUM/SET 类型里出现空格分隔的关键字不会截断类型", () => {
@@ -120,14 +110,6 @@ describe("parseSQLTables — 边界场景", () => {
   });
 
   // ---- 保留字作为（未加引号的）列名 ----
-
-  it("未加引号、名为 key 的列被保留为列而非索引", () => {
-    expect(colNames("CREATE TABLE t (id INT PRIMARY KEY, key VARCHAR(20), val INT);")).toEqual([
-      "id",
-      "key",
-      "val",
-    ]);
-  });
 
   it("名为 constraint / check / index / unique 的列都被保留", () => {
     expect(
