@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = resolve(__dirname, "../..");
 
-const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const read = (path: string) => readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
 
 describe("static landing page content", () => {
   it("puts the agent skill install item first and removes the old third feature", () => {
