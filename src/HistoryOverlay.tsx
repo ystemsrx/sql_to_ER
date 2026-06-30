@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { I18N } from "./i18n";
 import type { SnapshotRecord } from "./types";
 import {
@@ -34,6 +34,112 @@ interface TrackState {
   // 本次按下后是否真的发生了拖动；用来抑制 pointerup 之后那次
   // "幽灵 click" —— 否则在聚焦卡上拖完一松手就会被当成点击恢复。
   didDrag: boolean;
+}
+
+export interface HistoryRenderRange {
+  start: number;
+  end: number;
+}
+
+interface HistoryCardVisualStateInput {
+  index: number;
+  currentScroll: number;
+  targetScroll: number;
+  isDragging: boolean;
+  previousShift: number;
+  isMobile: boolean;
+  viewportWidth: number;
+}
+
+export interface HistoryCardVisualState {
+  shift: number;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  scale: number;
+  opacity: number;
+  zIndex: number;
+}
+
+export function getHistoryRenderRange(total: number, currentScroll: number): HistoryRenderRange {
+  if (total <= 0) return { start: 0, end: -1 };
+  const scroll = Number.isFinite(currentScroll) ? currentScroll : 0;
+  // 与 opacity 公式严格对应：只有 -5 < (index - currentScroll) < 7 的卡片可见。
+  // 边界 opacity 为 0 的卡片不进 DOM，视觉等价但避免加载和合成无效缩略图。
+  return {
+    start: Math.max(0, Math.floor(scroll - 5) + 1),
+    end: Math.min(total - 1, Math.ceil(scroll + 7) - 1),
+  };
+}
+
+export function computeHistoryCardVisualState({
+  index,
+  currentScroll,
+  targetScroll,
+  isDragging,
+  previousShift,
+  isMobile,
+  viewportWidth,
+}: HistoryCardVisualStateInput): HistoryCardVisualState {
+  const rel = index - currentScroll;
+  const distanceToFocus = Math.abs(index - targetScroll);
+  const highlight = Math.max(0, 1 - distanceToFocus * 1.0);
+
+  const isTarget = !isDragging && Math.round(targetScroll) === index;
+  const isCloseEnough = Math.abs(rel) < 0.6;
+  // 静止吸附时聚焦卡 shift→1 完全抽离；
+  // 拖动时给最近的卡一个 0~0.55 的部分抬起，按 highlight 平滑过渡，
+  // 这样手在动的过程中也能看到当前会停在哪张卡片上。
+  let shiftTarget = isTarget && isCloseEnough ? 1 : 0;
+  if (isDragging) {
+    shiftTarget = Math.max(shiftTarget, highlight * 0.4);
+  }
+  const shift = previousShift + (shiftTarget - previousShift) * 0.1;
+
+  const highlightOffsetX = highlight * (isMobile ? 40 : 80);
+  const highlightRotY = highlight * 15;
+
+  const trackX = (isMobile ? -80 : -viewportWidth * 0.18) + highlightOffsetX;
+  const trackY = 0;
+  const trackZ = -rel * (isMobile ? 320 : 550);
+  // 把轨道侧基础旋转从 -55° 收一点到 -42°，
+  // 让非焦点卡也能稍微正对屏幕，缩略图内容更易辨识
+  const trackRotY = -42 + highlightRotY;
+
+  const activeX = isMobile ? 0 : viewportWidth * 0.15;
+  const activeY = 0;
+  const activeZ = 120;
+  const activeRotY = 0;
+
+  const x = trackX + (activeX - trackX) * shift;
+  const y = trackY + (activeY - trackY) * shift;
+  const z = trackZ + (activeZ - trackZ) * shift;
+  const rotY = trackRotY + (activeRotY - trackRotY) * shift;
+  const scale = 0.75 + 0.4 * shift;
+
+  let opacity = 1;
+  if (rel > 5) opacity = Math.max(0, 1 - (rel - 5) * 0.5);
+  if (rel < -3) opacity = Math.max(0, 1 + (rel + 3) * 0.5);
+
+  return {
+    shift,
+    x,
+    y,
+    z,
+    rotY,
+    scale,
+    opacity,
+    zIndex: Math.round(1000 - Math.abs(rel) * 10 + shift * 100),
+  };
+}
+
+function sameRange(a: HistoryRenderRange, b: HistoryRenderRange) {
+  return a.start === b.start && a.end === b.end;
+}
+
+function historyCardTransform(state: HistoryCardVisualState) {
+  return `translate3d(-50%, -50%, 0) translateX(${state.x}px) translateY(${state.y}px) translateZ(${state.z}px) rotateY(${state.rotY}deg) scale(${state.scale})`;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -75,6 +181,27 @@ export const HistoryOverlay = ({
   // 数据驱动：图越扁，缩略图被 contain 缩到的高度越小，下方留白越多，
   // 完全靠顶看起来"飘"。把空白按比例分给上方，瘦高图直接 0%（本身就铺满）。
   const [thumbY, setThumbY] = useState<Record<string, number>>({});
+  const thumbMeasureKeysRef = useRef<Record<string, string>>({});
+  const [renderRange, setRenderRange] = useState<HistoryRenderRange>(() =>
+    getHistoryRenderRange(0, 0),
+  );
+  const renderRangeRef = useRef(renderRange);
+  renderRangeRef.current = renderRange;
+
+  const setRenderRangeIfChanged = (next: HistoryRenderRange) => {
+    if (sameRange(renderRangeRef.current, next)) return;
+    renderRangeRef.current = next;
+    setRenderRange(next);
+  };
+
+  const renderedEntries = useMemo(() => {
+    const entries: Array<{ snap: SnapshotRecord; index: number }> = [];
+    for (let i = renderRange.start; i <= renderRange.end; i++) {
+      const snap = items[i];
+      if (snap) entries.push({ snap, index: i });
+    }
+    return entries;
+  }, [items, renderRange.start, renderRange.end]);
 
   // 列表变化或重新打开时，重置滚动到第 0 张
   useEffect(() => {
@@ -83,6 +210,8 @@ export const HistoryOverlay = ({
     s.targetScroll = 0;
     s.currentScroll = 0;
     s.shiftValues = items.map(() => 0);
+    cardRefs.current.length = items.length;
+    setRenderRangeIfChanged(getHistoryRenderRange(items.length, 0));
     setFocusIdx(0);
     setHintVisible(true);
   }, [open, items.length]);
@@ -98,11 +227,13 @@ export const HistoryOverlay = ({
     const thumbH = cardH - 18 - cardH * 0.38;
     const containerRatio = thumbW / thumbH;
 
-    items.forEach((snap) => {
+    renderedEntries.forEach(({ snap }) => {
       if (!snap || !snap.thumbnail) return;
+      if (thumbMeasureKeysRef.current[snap.id] === snap.thumbnail) return;
       const img = new Image();
       img.onload = () => {
         if (cancelled) return;
+        thumbMeasureKeysRef.current[snap.id] = snap.thumbnail || "";
         const iw = img.naturalWidth;
         const ih = img.naturalHeight;
         if (!iw || !ih) return;
@@ -119,7 +250,7 @@ export const HistoryOverlay = ({
     return () => {
       cancelled = true;
     };
-  }, [open, items.length]);
+  }, [open, renderedEntries]);
 
   useEffect(() => {
     if (!open) return;
@@ -210,6 +341,7 @@ export const HistoryOverlay = ({
       const s = stateRef.current;
       const isMobile = window.innerWidth < 768;
       s.currentScroll += (s.targetScroll - s.currentScroll) * 0.08;
+      setRenderRangeIfChanged(getHistoryRenderRange(total, s.currentScroll));
 
       const focusedIndex = Math.round(s.targetScroll);
       if (focusedIndex !== focusIdxRef.current) {
@@ -217,58 +349,26 @@ export const HistoryOverlay = ({
         setFocusIdx(focusedIndex);
       }
 
-      for (let i = 0; i < total; i++) {
-        const rel = i - s.currentScroll;
-        const distanceToFocus = Math.abs(i - s.targetScroll);
-        const highlight = Math.max(0, 1 - distanceToFocus * 1.0);
-
-        const isTarget = !s.isDragging && Math.round(s.targetScroll) === i;
-        const isCloseEnough = Math.abs(rel) < 0.6;
-        // 静止吸附时聚焦卡 shift→1 完全抽离；
-        // 拖动时给最近的卡一个 0~0.55 的部分抬起，按 highlight 平滑过渡，
-        // 这样手在动的过程中也能看到当前会停在哪张卡片上。
-        let shiftTarget = isTarget && isCloseEnough ? 1 : 0;
-        if (s.isDragging) {
-          shiftTarget = Math.max(shiftTarget, highlight * 0.4);
-        }
+      const range = renderRangeRef.current;
+      for (let i = range.start; i <= range.end; i++) {
         if (s.shiftValues[i] === undefined) s.shiftValues[i] = 0;
-        s.shiftValues[i] += (shiftTarget - s.shiftValues[i]) * 0.1;
-        const shift = s.shiftValues[i];
-
-        const highlightOffsetX = highlight * (isMobile ? 40 : 80);
-        const highlightRotY = highlight * 15;
-
-        const trackX =
-          (isMobile ? -80 : -window.innerWidth * 0.18) + highlightOffsetX;
-        const trackY = 0;
-        const trackZ = -rel * (isMobile ? 320 : 550);
-        // 把轨道侧基础旋转从 -55° 收一点到 -42°，
-        // 让非焦点卡也能稍微正对屏幕，缩略图内容更易辨识
-        const trackRotY = -42 + highlightRotY;
-
-        const activeX = isMobile ? 0 : window.innerWidth * 0.15;
-        const activeY = 0;
-        const activeZ = 120;
-        const activeRotY = 0;
-
-        const x = trackX + (activeX - trackX) * shift;
-        const y = trackY + (activeY - trackY) * shift;
-        const z = trackZ + (activeZ - trackZ) * shift;
-        const rotY = trackRotY + (activeRotY - trackRotY) * shift;
-        const scale = 0.75 + 0.4 * shift;
-
-        let opacity = 1;
-        if (rel > 5) opacity = Math.max(0, 1 - (rel - 5) * 0.5);
-        if (rel < -3) opacity = Math.max(0, 1 + (rel + 3) * 0.5);
+        const visual = computeHistoryCardVisualState({
+          index: i,
+          currentScroll: s.currentScroll,
+          targetScroll: s.targetScroll,
+          isDragging: s.isDragging,
+          previousShift: s.shiftValues[i],
+          isMobile,
+          viewportWidth: window.innerWidth,
+        });
+        s.shiftValues[i] = visual.shift;
 
         const el = cardRefs.current[i];
         if (el) {
-          el.style.transform = `translate3d(-50%, -50%, 0) translateX(${x}px) translateY(${y}px) translateZ(${z}px) rotateY(${rotY}deg) scale(${scale})`;
-          el.style.opacity = String(opacity);
-          el.style.zIndex = String(
-            Math.round(1000 - Math.abs(rel) * 10 + shift * 100),
-          );
-          el.style.setProperty("--shift", String(shift));
+          el.style.transform = historyCardTransform(visual);
+          el.style.opacity = String(visual.opacity);
+          el.style.zIndex = String(visual.zIndex);
+          el.style.setProperty("--shift", String(visual.shift));
         }
       }
 
@@ -354,7 +454,7 @@ export const HistoryOverlay = ({
       ) : (
         <>
           <div ref={trackRef} className="history-track">
-            {items.map((snap, i) => {
+            {renderedEntries.map(({ snap, index: i }) => {
               const entityCount = (snap.nodes || []).filter(
                 (n) =>
                   typeof n.id === "string" && n.id.indexOf("entity-") === 0,
