@@ -549,4 +549,102 @@ describe("attachEntityDragSync", () => {
       nowSpy.mockRestore();
     }
   });
+
+  it("merges auto-avoid targets into the same drag-end return animation", () => {
+    const graph = new FakeGraph(
+      [
+        { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+        { id: "entity-b", type: "entity", label: "b", nodeType: "entity", x: 300, y: 100 },
+        {
+          id: "attr-a-name",
+          type: "attribute",
+          label: "name",
+          nodeType: "attribute",
+          parentEntity: "entity-a",
+          x: 150,
+          y: 100,
+        },
+        {
+          id: "rel-a-b",
+          type: "relationship",
+          label: "a_b",
+          nodeType: "relationship",
+          x: 200,
+          y: 220,
+        },
+      ],
+      [
+        {
+          id: "edge-a-attr",
+          source: "entity-a",
+          target: "attr-a-name",
+          edgeType: "entity-attribute",
+        },
+        {
+          id: "edge-a-rel",
+          source: "entity-a",
+          target: "rel-a-b",
+          edgeType: "entity-relationship",
+        },
+        {
+          id: "edge-rel-b",
+          source: "rel-a-b",
+          target: "entity-b",
+          edgeType: "relationship-entity",
+        },
+      ],
+    );
+    const entity = graph.findById("entity-a") as FakeNode;
+    const attr = graph.findById("attr-a-name") as FakeNode;
+    const onAfterChange = vi.fn();
+    const completeDragTargets = vi.fn(() => new Map([["attr-a-name", { x: 260, y: 180 }]]));
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancelRaf = globalThis.cancelAnimationFrame;
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      rafCallbacks.push(callback);
+      return rafCallbacks.length;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => undefined) as typeof cancelAnimationFrame;
+
+    try {
+      (attachEntityDragSync as any)(
+        graph,
+        {
+          record: () => undefined,
+          undo: () => false,
+          redo: () => false,
+          reset: () => undefined,
+          canUndo: () => false,
+          canRedo: () => false,
+        },
+        () => false,
+        onAfterChange,
+        completeDragTargets,
+      );
+
+      graph.emit("node:dragstart", { item: entity });
+      Object.assign(entity.getModel(), { x: 160, y: 180 });
+      graph.emit("node:drag", { item: entity });
+      graph.emit("node:dragend", { item: entity });
+
+      expect(completeDragTargets).toHaveBeenCalledTimes(1);
+      expect(onAfterChange).not.toHaveBeenCalled();
+      const first = rafCallbacks.shift();
+      expect(first).toBeDefined();
+      first?.(0);
+      const last = rafCallbacks.shift();
+      expect(last).toBeDefined();
+      last?.(280);
+
+      expect(attr.getModel().x).toBeCloseTo(260, 6);
+      expect(attr.getModel().y).toBeCloseTo(180, 6);
+      expect(onAfterChange).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCancelRaf;
+      nowSpy.mockRestore();
+    }
+  });
 });

@@ -193,7 +193,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       return false;
     }
     const nodes = graph.getNodes().map((node) => node.getModel() as ERNodeModel);
-    const targets = computeAutoAvoidTargets(nodes, graphNodeSize);
+    const edges = graph.getEdges().map((edge) => edge.getModel());
+    const targets = computeAutoAvoidTargets(nodes, graphNodeSize, { edges });
     if (!targets.size) {
       onFinish?.();
       return false;
@@ -406,6 +407,10 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         () => forceOnRef.current,
         () => {
           persistAfterOptionalAutoAvoid();
+        },
+        (projectedNodes, edges) => {
+          if (!autoAvoidRef.current) return new Map();
+          return computeAutoAvoidTargets(projectedNodes, graphNodeSize, { edges });
         },
       );
 

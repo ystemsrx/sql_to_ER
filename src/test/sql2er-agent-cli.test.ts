@@ -75,6 +75,21 @@ function distance(a: { x: number; y: number }, b: { x: number; y: number }): num
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+const cross2 = (ax: number, ay: number, bx: number, by: number): number => ax * by - ay * bx;
+
+function segmentsIntersect(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+  d: { x: number; y: number },
+): boolean {
+  const d1 = cross2(d.x - c.x, d.y - c.y, a.x - c.x, a.y - c.y);
+  const d2 = cross2(d.x - c.x, d.y - c.y, b.x - c.x, b.y - c.y);
+  const d3 = cross2(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+  const d4 = cross2(b.x - a.x, b.y - a.y, d.x - a.x, d.y - a.y);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
 function aabbOverlap(
   a: { x: number; y: number },
   as: { width: number; height: number },
@@ -267,6 +282,56 @@ function makeOverlappingState(): AgentState {
         source: "entity-users",
         target: "attr-users-name",
         edgeType: "entity-attribute",
+      },
+    ],
+  };
+}
+
+function makeAttributeConnectorCrossingState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: false,
+      fontScale: 1,
+      attrMode: "auto",
+    },
+    nodes: [
+      { id: "entity-users", type: "entity", label: "users", nodeType: "entity", x: 0, y: 0 },
+      {
+        id: "attr-users-name",
+        type: "attribute",
+        label: "name",
+        nodeType: "attribute",
+        parentEntity: "entity-users",
+        x: 160,
+        y: 0,
+      },
+      { id: "entity-orders", type: "entity", label: "orders", nodeType: "entity", x: 80, y: -140 },
+      {
+        id: "rel-orders-users",
+        type: "relationship",
+        label: "placed by",
+        nodeType: "relationship",
+        x: 80,
+        y: 140,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-users-name",
+        source: "entity-users",
+        target: "attr-users-name",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-orders-rel",
+        source: "entity-orders",
+        target: "rel-orders-users",
+        edgeType: "entity-relationship",
       },
     ],
   };
@@ -556,6 +621,41 @@ describe("sql2er agent CLI auto avoidance", () => {
 
       expect(generated.status).toBe(0);
       expect(readState(state).settings.autoAvoid).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("moves an attribute connector away from relationship-line crossings", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeAttributeConnectorCrossingState()));
+
+      const before = readState(state);
+      expect(
+        segmentsIntersect(
+          nodePosition(before, "entity-users"),
+          nodePosition(before, "attr-users-name"),
+          nodePosition(before, "entity-orders"),
+          nodePosition(before, "rel-orders-users"),
+        ),
+      ).toBe(true);
+
+      const adjusted = runAgent(["fontsize", "0", "--state", state]);
+
+      expect(adjusted.status).toBe(0);
+      const next = readState(state);
+      expect(next.settings.autoAvoid).toBe(true);
+      expect(nodePosition(next, "entity-users")).toEqual({ x: 0, y: 0 });
+      expect(
+        segmentsIntersect(
+          nodePosition(next, "entity-users"),
+          nodePosition(next, "attr-users-name"),
+          nodePosition(next, "entity-orders"),
+          nodePosition(next, "rel-orders-users"),
+        ),
+      ).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

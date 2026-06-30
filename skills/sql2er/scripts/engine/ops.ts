@@ -743,7 +743,7 @@ function applyAttrMode(state: State): void {
 function applyAutoAvoid(state: State): void {
   state.settings = normalizeSettings(state.settings);
   if (!state.settings.autoAvoid) return;
-  const targets = computeAutoAvoidTargets(state.nodes, measureNodeSize);
+  const targets = computeAutoAvoidTargets(state.nodes, measureNodeSize, { edges: state.edges });
   applyNodePositionTargets(state.nodes, targets);
 }
 

@@ -1,16 +1,23 @@
-import type { GraphLike } from "../types";
+import type { EREdgeModel, ERNodeModel, GraphLike } from "../types";
 import type { HistoryManager } from "../history";
 import { animateNodesToTargets } from "../layout/animation";
 import {
   computeAttributeRotationTargets,
   computeMovedEntityRelationshipTargets,
   type NodeSize,
+  type Point,
 } from "./entityMoveSync";
 
 interface DraggableGraph extends GraphLike {
   on(event: string, handler: (e: any) => void): void;
   setItemState(item: unknown, state: string, value: boolean): void;
 }
+
+export type DragEndTargetCompleter = (
+  projectedNodes: ERNodeModel[],
+  edges: EREdgeModel[],
+  baseTargets: Map<string, Point>,
+) => Map<string, Point>;
 
 /**
  * 给 G6 graph 装上交互：
@@ -28,6 +35,7 @@ export function attachEntityDragSync(
   history: HistoryManager,
   isForceActive?: () => boolean,
   onAfterChange?: () => void,
+  completeDragEndTargets?: DragEndTargetCompleter,
 ): void {
   graph.on("node:mouseenter", (e: any) => {
     graph.setItemState(e.item, "hover", true);
@@ -53,6 +61,11 @@ export function attachEntityDragSync(
 
   const graphNodeModels = () => graph.getNodes().map((n: any) => n.getModel());
   const graphEdgeModels = () => graph.getEdges().map((e: any) => e.getModel());
+  const projectedNodeModels = (targets: Map<string, Point>): ERNodeModel[] =>
+    graphNodeModels().map((model) => {
+      const target = targets.get(model.id);
+      return target ? { ...model, x: target.x, y: target.y } : { ...model };
+    });
   const measureNode = (model: { id?: string; width?: unknown; height?: unknown }): NodeSize => {
     const item = typeof model.id === "string" ? graph.findById(model.id) : null;
     const bbox =
@@ -244,10 +257,8 @@ export function attachEntityDragSync(
           measureNode,
           dragStartPositions,
         );
-        const finalNodeModels = graphNodeModels().map((model) => {
-          const target = relationshipResult.relationshipTargets.get(model.id);
-          return target ? { ...model, x: target.x, y: target.y } : model;
-        });
+        const projectedRelationshipTargets = new Map(relationshipResult.relationshipTargets);
+        const finalNodeModels = projectedNodeModels(projectedRelationshipTargets);
         const attrTargets = computeAttributeRotationTargets(
           finalNodeModels,
           graphEdgeModels(),
@@ -262,6 +273,14 @@ export function attachEntityDragSync(
             if (relationshipReturnOffsets.has(id)) finalTargets.set(id, target);
           });
         }
+        const projectedTargets = new Map(projectedRelationshipTargets);
+        finalTargets.forEach((target, id) => projectedTargets.set(id, target));
+        const additionalTargets = completeDragEndTargets?.(
+          projectedNodeModels(projectedTargets),
+          graphEdgeModels(),
+          new Map(finalTargets),
+        );
+        additionalTargets?.forEach((target, id) => finalTargets.set(id, target));
         if (finalTargets.size)
           animateNodesToTargets(
             graph,

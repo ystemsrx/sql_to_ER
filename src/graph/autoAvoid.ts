@@ -1,8 +1,10 @@
-import type { ERNodeModel } from "../types";
+import type { EREdgeModel, ERNodeModel } from "../types";
 import type { NodeSize, NodeSizeResolver, Point } from "./entityMoveSync";
 
 export interface AutoAvoidOptions {
   enabled?: boolean;
+  edges?: EREdgeModel[];
+  avoidAttributeEdges?: boolean;
   margin?: number;
   maxIterations?: number;
 }
@@ -14,6 +16,7 @@ const DEFAULT_SIZE: Record<string, NodeSize> = {
 };
 
 const FALLBACK_SIZE: NodeSize = { width: 80, height: 40 };
+const TAU = Math.PI * 2;
 
 const positionOf = (node: ERNodeModel): Point => ({
   x: typeof node.x === "number" ? node.x : 0,
@@ -40,6 +43,264 @@ const movePriority = (node: ERNodeModel): number => {
 };
 
 const deterministicSign = (a: string, b: string): number => (a < b ? 1 : -1);
+
+interface PositionedNode {
+  id: string;
+  x: number;
+  y: number;
+  size: NodeSize;
+}
+
+interface EdgeSegment {
+  source: string;
+  target: string;
+  a: Point;
+  b: Point;
+}
+
+const boxOverlapAt = (a: Point, as: NodeSize, b: Point, bs: NodeSize, gap = 0): boolean =>
+  Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap &&
+  Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
+
+const cross2 = (ax: number, ay: number, bx: number, by: number): number => ax * by - ay * bx;
+
+const segmentsIntersect = (a: Point, b: Point, c: Point, d: Point): boolean => {
+  const d1 = cross2(d.x - c.x, d.y - c.y, a.x - c.x, a.y - c.y);
+  const d2 = cross2(d.x - c.x, d.y - c.y, b.x - c.x, b.y - c.y);
+  const d3 = cross2(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+  const d4 = cross2(b.x - a.x, b.y - a.y, d.x - a.x, d.y - a.y);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+};
+
+const segmentHitsBox = (a: Point, b: Point, center: Point, size: NodeSize, inset = 0): boolean => {
+  const minX = center.x - size.width / 2 + inset;
+  const maxX = center.x + size.width / 2 - inset;
+  const minY = center.y - size.height / 2 + inset;
+  const maxY = center.y + size.height / 2 - inset;
+  if (minX >= maxX || minY >= maxY) return false;
+  if (a.x > minX && a.x < maxX && a.y > minY && a.y < maxY) return true;
+  if (b.x > minX && b.x < maxX && b.y > minY && b.y < maxY) return true;
+  return (
+    segmentsIntersect(a, b, { x: minX, y: minY }, { x: maxX, y: minY }) ||
+    segmentsIntersect(a, b, { x: maxX, y: minY }, { x: maxX, y: maxY }) ||
+    segmentsIntersect(a, b, { x: maxX, y: maxY }, { x: minX, y: maxY }) ||
+    segmentsIntersect(a, b, { x: minX, y: maxY }, { x: minX, y: minY })
+  );
+};
+
+const boundaryPoint = (record: PositionedNode, target: Point): Point => {
+  const dx = target.x - record.x;
+  const dy = target.y - record.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return { x: record.x, y: record.y };
+  const ux = dx / len;
+  const uy = dy / len;
+  const halfW = record.size.width / 2;
+  const halfH = record.size.height / 2;
+  const sx = Math.abs(ux) > 1e-9 ? halfW / Math.abs(ux) : Infinity;
+  const sy = Math.abs(uy) > 1e-9 ? halfH / Math.abs(uy) : Infinity;
+  const extent = Math.min(sx, sy);
+  return { x: record.x + ux * extent, y: record.y + uy * extent };
+};
+
+const makeRecord = (
+  node: ERNodeModel,
+  positions: Map<string, Point>,
+  sizes: Map<string, NodeSize>,
+): PositionedNode => {
+  const point = positions.get(node.id) ?? positionOf(node);
+  return {
+    id: node.id,
+    x: point.x,
+    y: point.y,
+    size: sizes.get(node.id) ?? fallbackSize(node),
+  };
+};
+
+const segmentForEdge = (
+  edge: EREdgeModel,
+  nodeById: Map<string, ERNodeModel>,
+  positions: Map<string, Point>,
+  sizes: Map<string, NodeSize>,
+): EdgeSegment | null => {
+  const source = nodeById.get(edge.source);
+  const target = nodeById.get(edge.target);
+  if (!source || !target) return null;
+  const s = makeRecord(source, positions, sizes);
+  const t = makeRecord(target, positions, sizes);
+  return {
+    source: edge.source,
+    target: edge.target,
+    a: boundaryPoint(s, { x: t.x, y: t.y }),
+    b: boundaryPoint(t, { x: s.x, y: s.y }),
+  };
+};
+
+const edgeTouches = (edge: EdgeSegment, id: string): boolean =>
+  edge.source === id || edge.target === id;
+
+const connectorForAttribute = (
+  entity: ERNodeModel,
+  attribute: ERNodeModel,
+  point: Point,
+  positions: Map<string, Point>,
+  sizes: Map<string, NodeSize>,
+): EdgeSegment => {
+  const entityRecord = makeRecord(entity, positions, sizes);
+  const attrRecord: PositionedNode = {
+    id: attribute.id,
+    x: point.x,
+    y: point.y,
+    size: sizes.get(attribute.id) ?? fallbackSize(attribute),
+  };
+  return {
+    source: entity.id,
+    target: attribute.id,
+    a: boundaryPoint(entityRecord, point),
+    b: boundaryPoint(attrRecord, { x: entityRecord.x, y: entityRecord.y }),
+  };
+};
+
+const minAttributeRadius = (
+  entity: ERNodeModel,
+  attribute: ERNodeModel,
+  angle: number,
+  sizes: Map<string, NodeSize>,
+  gap: number,
+): number => {
+  const entitySize = sizes.get(entity.id) ?? fallbackSize(entity);
+  const attrSize = sizes.get(attribute.id) ?? fallbackSize(attribute);
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const entityHalfW = entitySize.width / 2;
+  const entityHalfH = entitySize.height / 2;
+  const attrHalfW = attrSize.width / 2;
+  const attrHalfH = attrSize.height / 2;
+  const entityExtent = Math.min(
+    Math.abs(ux) > 1e-9 ? entityHalfW / Math.abs(ux) : Infinity,
+    Math.abs(uy) > 1e-9 ? entityHalfH / Math.abs(uy) : Infinity,
+  );
+  const attrExtent = Math.min(
+    Math.abs(ux) > 1e-9 ? attrHalfW / Math.abs(ux) : Infinity,
+    Math.abs(uy) > 1e-9 ? attrHalfH / Math.abs(uy) : Infinity,
+  );
+  return entityExtent + attrExtent + gap;
+};
+
+function applyAttributeLineAvoidance(
+  nodes: ERNodeModel[],
+  edges: EREdgeModel[],
+  positions: Map<string, Point>,
+  sizes: Map<string, NodeSize>,
+  margin: number,
+): void {
+  if (!edges.length) return;
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const attributes = nodes
+    .filter((node) => node.nodeType === "attribute" && typeof node.parentEntity === "string")
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const currentEdges = () =>
+    edges
+      .map((edge) => segmentForEdge(edge, nodeById, positions, sizes))
+      .filter((edge): edge is EdgeSegment => !!edge);
+
+  const placementIsClear = (attribute: ERNodeModel, entity: ERNodeModel, point: Point): boolean => {
+    const attrSize = sizes.get(attribute.id) ?? fallbackSize(attribute);
+    const connector = connectorForAttribute(entity, attribute, point, positions, sizes);
+    const edgeSegments = currentEdges();
+
+    for (const other of nodes) {
+      if (other.id === attribute.id) continue;
+      const otherPoint = positions.get(other.id) ?? positionOf(other);
+      const otherSize = sizes.get(other.id) ?? fallbackSize(other);
+      if (boxOverlapAt(point, attrSize, otherPoint, otherSize, margin)) return false;
+      if (
+        other.id !== entity.id &&
+        segmentHitsBox(connector.a, connector.b, otherPoint, otherSize, 1)
+      ) {
+        return false;
+      }
+    }
+
+    for (const edge of edgeSegments) {
+      if (!edgeTouches(edge, entity.id) && !edgeTouches(edge, attribute.id)) {
+        if (segmentsIntersect(connector.a, connector.b, edge.a, edge.b)) return false;
+      }
+      if (!edgeTouches(edge, attribute.id)) {
+        if (segmentHitsBox(edge.a, edge.b, point, attrSize, 1)) return false;
+      }
+    }
+
+    return true;
+  };
+
+  const nearestClearPoint = (attribute: ERNodeModel, entity: ERNodeModel): Point | null => {
+    const entityPoint = positions.get(entity.id) ?? positionOf(entity);
+    const current = positions.get(attribute.id) ?? positionOf(attribute);
+    const dx = current.x - entityPoint.x;
+    const dy = current.y - entityPoint.y;
+    const currentRadius = Math.hypot(dx, dy);
+    const baseAngle = currentRadius > 1e-6 ? Math.atan2(dy, dx) : 0;
+    const baseRadius = Math.max(
+      currentRadius,
+      minAttributeRadius(entity, attribute, baseAngle, sizes, margin + 10),
+    );
+    let best: { point: Point; score: number } | null = null;
+
+    const consider = (angle: number, radius: number): void => {
+      const minR = minAttributeRadius(entity, attribute, angle, sizes, margin + 10);
+      const r = Math.max(radius, minR);
+      const point = {
+        x: entityPoint.x + r * Math.cos(angle),
+        y: entityPoint.y + r * Math.sin(angle),
+      };
+      if (!placementIsClear(attribute, entity, point)) return;
+      const score = Math.hypot(point.x - current.x, point.y - current.y);
+      if (!best || score < best.score) best = { point, score };
+    };
+
+    const angleDeltas = [0];
+    const angleSteps = 72;
+    for (let step = 1; step <= angleSteps / 2; step++) {
+      const delta = (step / angleSteps) * TAU;
+      angleDeltas.push(delta, -delta);
+    }
+
+    const radiusOffsets = [0];
+    const radiusStep = 8;
+    for (let step = 1; step <= 120; step++) {
+      const offset = step * radiusStep;
+      radiusOffsets.push(offset, -offset);
+    }
+
+    for (const angleDelta of angleDeltas) {
+      const angle = baseAngle + angleDelta;
+      for (const radiusOffset of radiusOffsets) {
+        consider(angle, baseRadius + radiusOffset);
+        if (best && best.score <= radiusStep) return best.point;
+      }
+    }
+
+    return best?.point ?? null;
+  };
+
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false;
+    for (const attribute of attributes) {
+      const entity = nodeById.get(String(attribute.parentEntity));
+      if (!entity) continue;
+      const current = positions.get(attribute.id) ?? positionOf(attribute);
+      if (placementIsClear(attribute, entity, current)) continue;
+      const target = nearestClearPoint(attribute, entity);
+      if (!target) continue;
+      positions.set(attribute.id, target);
+      moved = true;
+    }
+    if (!moved) break;
+  }
+}
 
 export function computeAutoAvoidTargets(
   nodes: ERNodeModel[],
@@ -104,6 +365,10 @@ export function computeAutoAvoidTargets(
     }
 
     if (maxMove < 0.1) break;
+  }
+
+  if (options.avoidAttributeEdges !== false) {
+    applyAttributeLineAvoidance(nodes, options.edges ?? [], positions, sizes, margin);
   }
 
   const targets = new Map<string, Point>();

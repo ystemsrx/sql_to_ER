@@ -6,8 +6,7 @@ g.requestAnimationFrame = (cb) => {
   cb(clock);
   return 0;
 };
-g.cancelAnimationFrame = () => {
-};
+g.cancelAnimationFrame = () => {};
 
 // skills/sql2er/scripts/engine/cli.ts
 import { readFileSync, writeFileSync, existsSync, readFileSync as rf } from "node:fs";
@@ -164,7 +163,8 @@ var tokenize = (s) => {
   let i = 0;
   let line = 1;
   const n = s.length;
-  const push = (type, value, start, end, q) => toks.push({ type, value, start, end, line, ...q ? { q } : {} });
+  const push = (type, value, start, end, q) =>
+    toks.push({ type, value, start, end, line, ...(q ? { q } : {}) });
   while (i < n) {
     const ch = s[i];
     if (ch === "\n") {
@@ -308,7 +308,7 @@ var tokenize = (s) => {
   return toks;
 };
 var isNameTok = (t) => !!t && (t.type === "word" || t.type === "ident");
-var kw = (t) => t && t.type === "word" ? t.value.toUpperCase() : null;
+var kw = (t) => (t && t.type === "word" ? t.value.toUpperCase() : null);
 var readCommentValue = (t) => {
   if (!t) return null;
   if (t.type === "str") return t.value;
@@ -336,7 +336,7 @@ var TYPE_STOP = /* @__PURE__ */ new Set([
   "STORAGE",
   "COMPRESSION",
   "VISIBLE",
-  "INVISIBLE"
+  "INVISIBLE",
 ]);
 var KNOWN_TYPES = /* @__PURE__ */ new Set([
   "INT",
@@ -429,7 +429,7 @@ var KNOWN_TYPES = /* @__PURE__ */ new Set([
   "SQL_VARIANT",
   "ARRAY",
   "VARIANT",
-  "OBJECT"
+  "OBJECT",
 ]);
 var readQualifiedName = (toks, from) => {
   if (!isNameTok(toks[from])) return null;
@@ -485,7 +485,9 @@ var parseColumnNameList = (toks, openIdx) => {
   const close = matchParen(toks, openIdx);
   if (close === -1) return [];
   const inner = toks.slice(openIdx + 1, close);
-  return splitByComma(inner).map((seg) => seg.find(isNameTok)?.value).filter((v) => !!v);
+  return splitByComma(inner)
+    .map((seg) => seg.find(isNameTok)?.value)
+    .filter((v) => !!v);
 };
 var splitStatements = (toks) => {
   const stmts = [];
@@ -575,7 +577,7 @@ var parseColumn = (el, acc) => {
         acc.foreignKeys.push({
           column: name,
           referencedTable: q.name,
-          referencedColumn
+          referencedColumn,
         });
       }
     }
@@ -585,7 +587,7 @@ var parseColumn = (el, acc) => {
     name,
     type: typeStr,
     isPrimaryKey,
-    comment
+    comment,
   };
   if (isUnique && !isPrimaryKey) col.isUnique = true;
   acc.columns.push(col);
@@ -617,7 +619,7 @@ var parseForeignKeyConstraint = (el, acc) => {
   acc.foreignKeys.push({
     column: fkCols.join(", "),
     referencedTable: q.name,
-    referencedColumn: refCols.join(", ")
+    referencedColumn: refCols.join(", "),
   });
 };
 var parseUniqueConstraint = (el, acc) => {
@@ -636,7 +638,10 @@ var parseElement = (el, acc) => {
   }
   switch (head) {
     case "CONSTRAINT": {
-      if (isNameTok(el[1]) && ["PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "KEY", "INDEX"].includes(kw(el[2]) ?? "")) {
+      if (
+        isNameTok(el[1]) &&
+        ["PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "KEY", "INDEX"].includes(kw(el[2]) ?? "")
+      ) {
         parseElement(el.slice(2), acc);
       } else {
         parseColumn(el, acc);
@@ -655,7 +660,10 @@ var parseElement = (el, acc) => {
     }
     case "UNIQUE": {
       const second = el[1];
-      const isConstraint = second && second.type === "punct" && second.value === "(" || kw(second) === "KEY" || kw(second) === "INDEX";
+      const isConstraint =
+        (second && second.type === "punct" && second.value === "(") ||
+        kw(second) === "KEY" ||
+        kw(second) === "INDEX";
       if (isConstraint) parseUniqueConstraint(el, acc);
       else parseColumn(el, acc);
       return;
@@ -679,7 +687,7 @@ var parseElement = (el, acc) => {
       return;
     }
     case "EXCLUDE": {
-      if (kw(el[1]) === "USING" || el[1] && el[1].type === "punct" && el[1].value === "(") return;
+      if (kw(el[1]) === "USING" || (el[1] && el[1].type === "punct" && el[1].value === "(")) return;
       parseColumn(el, acc);
       return;
     }
@@ -690,7 +698,13 @@ var parseElement = (el, acc) => {
       parseColumn(el, acc);
   }
 };
-var CREATE_MODIFIERS = /* @__PURE__ */ new Set(["TEMP", "TEMPORARY", "GLOBAL", "LOCAL", "UNLOGGED"]);
+var CREATE_MODIFIERS = /* @__PURE__ */ new Set([
+  "TEMP",
+  "TEMPORARY",
+  "GLOBAL",
+  "LOCAL",
+  "UNLOGGED",
+]);
 var parseAlter = (toks, cleaned) => {
   let p = 1;
   if (kw(toks[p]) !== "TABLE") return null;
@@ -705,7 +719,7 @@ var parseAlter = (toks, cleaned) => {
     foreignKeys: [],
     uniqueSingleCols: /* @__PURE__ */ new Set(),
     tableName: nameRead.name,
-    cleaned
+    cleaned,
   };
   for (const action of splitByComma(toks.slice(nameRead.next))) {
     if (kw(action[0]) !== "ADD") continue;
@@ -716,7 +730,12 @@ var parseAlter = (toks, cleaned) => {
     }
     if (el.length) parseElement(el, acc);
   }
-  if (!acc.columns.length && !acc.foreignKeys.length && !acc.primaryKeys.length && !acc.uniqueSingleCols.size) {
+  if (
+    !acc.columns.length &&
+    !acc.foreignKeys.length &&
+    !acc.primaryKeys.length &&
+    !acc.uniqueSingleCols.size
+  ) {
     return null;
   }
   return {
@@ -725,7 +744,7 @@ var parseAlter = (toks, cleaned) => {
     columns: acc.columns,
     foreignKeys: acc.foreignKeys,
     primaryKeys: acc.primaryKeys,
-    uniqueSingleCols: acc.uniqueSingleCols
+    uniqueSingleCols: acc.uniqueSingleCols,
   };
 };
 var parseCommentOn = (toks) => {
@@ -745,7 +764,7 @@ var parseCommentOn = (toks) => {
       tableFull: segs.slice(0, -1).join("."),
       tableShort: segs[segs.length - 2],
       column: segs[segs.length - 1],
-      value
+      value,
     };
   }
   return {
@@ -753,7 +772,7 @@ var parseCommentOn = (toks) => {
     target: "table",
     tableFull: nameRead.name,
     tableShort: segs[segs.length - 1],
-    value
+    value,
   };
 };
 var extractTableComment = (suffix) => {
@@ -808,7 +827,7 @@ var parseStatement = (toks, cleaned) => {
     foreignKeys: [],
     uniqueSingleCols: /* @__PURE__ */ new Set(),
     tableName,
-    cleaned
+    cleaned,
   };
   for (const el of splitByComma(bodyToks)) parseElement(el, acc);
   for (const col of acc.columns) {
@@ -821,16 +840,14 @@ var parseStatement = (toks, cleaned) => {
     columns: acc.columns,
     primaryKeys: acc.primaryKeys,
     foreignKeys: acc.foreignKeys,
-    ...tableComment ? { comment: tableComment } : {}
+    ...(tableComment ? { comment: tableComment } : {}),
   };
   return { kind: "table", table, uniqueSingleCols: acc.uniqueSingleCols };
 };
 var parseSQLTables = (sql) => {
   const cleaned = blankComments(sql);
   const allToks = tokenize(cleaned);
-  const results = splitStatements(allToks).map(
-    (stmt) => parseStatement(stmt, cleaned)
-  );
+  const results = splitStatements(allToks).map((stmt) => parseStatement(stmt, cleaned));
   const tableByName = /* @__PURE__ */ new Map();
   for (const r of results) {
     if (r && r.kind === "table") tableByName.set(r.table.name, r.table);
@@ -846,11 +863,13 @@ var parseSQLTables = (sql) => {
         name: r.name,
         columns: src ? src.columns.map((c) => ({ ...c })) : [],
         primaryKeys: src ? [...src.primaryKeys] : [],
-        foreignKeys: []
+        foreignKeys: [],
       });
     }
   }
-  const findTable = (full, short2) => tables.find((tb) => tb.name === full) ?? (short2 ? tables.find((tb) => tb.name === short2) : void 0);
+  const findTable = (full, short2) =>
+    tables.find((tb) => tb.name === full) ??
+    (short2 ? tables.find((tb) => tb.name === short2) : void 0);
   for (const r of results) {
     if (!r || r.kind !== "alter") continue;
     const t = findTable(r.table);
@@ -891,7 +910,7 @@ var parseSQLTables = (sql) => {
         label: fk.column,
         fromCardinality,
         toCardinality: "1",
-        ...fkCol?.comment ? { comment: fkCol.comment } : {}
+        ...(fkCol?.comment ? { comment: fkCol.comment } : {}),
       });
     }
   }
@@ -1176,7 +1195,10 @@ var splitLogicalLines = (body) => {
   return lines;
 };
 var parseRefTarget = (raw) => {
-  let cleaned = raw.trim().replace(/^,+|,+$/g, "").trim();
+  let cleaned = raw
+    .trim()
+    .replace(/^,+|,+$/g, "")
+    .trim();
   const lb = indexOfUnquoted(cleaned, "[");
   if (lb !== -1) {
     const rb = findMatchingBracket(cleaned, lb);
@@ -1190,7 +1212,11 @@ var parseRefTarget = (raw) => {
   let column = segs[segs.length - 1];
   const composite = column.match(/^\(\s*([\s\S]+?)\s*\)$/);
   if (composite) {
-    column = composite[1].split(",").map((s) => s.trim()).filter(Boolean).join(", ");
+    column = composite[1]
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(", ");
   }
   return { table: segs[segs.length - 2], column };
 };
@@ -1200,19 +1226,20 @@ var parseInlineRef = (refValue) => {
   const target = parseRefTarget(m[2]);
   return target ? { op: m[1], target } : null;
 };
-var parseColumnAttrs = (attrsRaw) => splitTopLevelCommas(attrsRaw).map((part) => {
-  const colon = indexOfUnquoted(part, ":");
-  if (colon === -1) {
+var parseColumnAttrs = (attrsRaw) =>
+  splitTopLevelCommas(attrsRaw).map((part) => {
+    const colon = indexOfUnquoted(part, ":");
+    if (colon === -1) {
+      return {
+        key: part.trim().toLowerCase().replace(/\s+/g, " "),
+        value: null,
+      };
+    }
     return {
-      key: part.trim().toLowerCase().replace(/\s+/g, " "),
-      value: null
+      key: part.slice(0, colon).trim().toLowerCase().replace(/\s+/g, " "),
+      value: part.slice(colon + 1).trim(),
     };
-  }
-  return {
-    key: part.slice(0, colon).trim().toLowerCase().replace(/\s+/g, " "),
-    value: part.slice(colon + 1).trim()
-  };
-});
+  });
 var findSettingsBracket = (s) => {
   let i = 0;
   let last = null;
@@ -1308,14 +1335,14 @@ var parseRefBody = (rawBody) => {
       const right = body.slice(i + 2).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      return from && to ? { from, to, op: "<>", ...comment ? { comment } : {} } : null;
+      return from && to ? { from, to, op: "<>", ...(comment ? { comment } : {}) } : null;
     }
     if (ch === "<" || ch === ">" || ch === "-") {
       const left = body.slice(0, i).trim();
       const right = body.slice(i + 1).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      if (from && to) return { from, to, op: ch, ...comment ? { comment } : {} };
+      if (from && to) return { from, to, op: ch, ...(comment ? { comment } : {}) };
     }
     i++;
   }
@@ -1334,7 +1361,8 @@ var classifyHeader = (header) => {
   if (/^Note\b/i.test(header)) return "unknown";
   return "unknown";
 };
-var TOP_KEYWORD_RE = /^(TablePartial|TableGroup|Table|Ref|Project|Enum|DiagramView|records|Note)\b/i;
+var TOP_KEYWORD_RE =
+  /^(TablePartial|TableGroup|Table|Ref|Project|Enum|DiagramView|records|Note)\b/i;
 var findNextKeyword = (src, from) => {
   let i = from;
   while (i < src.length) {
@@ -1426,12 +1454,12 @@ var parseTableHeader = (header) => {
     if (rb !== -1) h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
   }
   const m = h.match(
-    new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "i")
+    new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "i"),
   );
   if (!m) return null;
   return {
     name: cleanIdentifier(m[1]),
-    alias: m[2] ? cleanIdentifier(m[2]) : void 0
+    alias: m[2] ? cleanIdentifier(m[2]) : void 0,
   };
 };
 var opToCardinality = (op) => {
@@ -1455,7 +1483,7 @@ var addRelationship = (ref, relationships, tableByName) => {
     label: ref.from.column,
     fromCardinality: card.from,
     toCardinality: card.to,
-    ...ref.comment ? { comment: ref.comment } : {}
+    ...(ref.comment ? { comment: ref.comment } : {}),
   });
   const t = tableByName.get(ref.from.table);
   if (t) {
@@ -1463,7 +1491,7 @@ var addRelationship = (ref, relationships, tableByName) => {
     t.foreignKeys.push({
       column: ref.from.column,
       referencedTable: ref.to.table,
-      referencedColumn: ref.to.column
+      referencedColumn: ref.to.column,
     });
   }
 };
@@ -1558,7 +1586,7 @@ var parseDBML = (dbml) => {
           foreignKeys.push({
             column: column.name,
             referencedTable: inlineRef.target.table,
-            referencedColumn: inlineRef.target.column
+            referencedColumn: inlineRef.target.column,
           });
           const card = opToCardinality(inlineRef.op);
           relationships.push({
@@ -1566,7 +1594,7 @@ var parseDBML = (dbml) => {
             to: inlineRef.target.table,
             label: column.name,
             fromCardinality: card.from,
-            toCardinality: card.to
+            toCardinality: card.to,
           });
         }
         columns.push(column);
@@ -1585,7 +1613,7 @@ var parseDBML = (dbml) => {
         columns,
         primaryKeys,
         foreignKeys,
-        ...tableNote ? { comment: tableNote } : {}
+        ...(tableNote ? { comment: tableNote } : {}),
       };
       tables.push(table);
       tableByName.set(head.name, table);
@@ -1613,7 +1641,8 @@ var parseDBML = (dbml) => {
     if (!fromTable) continue;
     const col = fromTable.columns.find((c) => c.name === rel.label);
     if (!col) continue;
-    const isOnlySinglePk = fromTable.primaryKeys.length === 1 && fromTable.primaryKeys[0] === col.name;
+    const isOnlySinglePk =
+      fromTable.primaryKeys.length === 1 && fromTable.primaryKeys[0] === col.name;
     if (col.isUnique || isOnlySinglePk) {
       rel.fromCardinality = "1";
     }
@@ -1629,8 +1658,15 @@ var pickLabel = (name, comment, labelMode) => {
   if (labelMode === "comment") return c || n;
   return c || n;
 };
-var resolveAttrLabel = (column, labelMode) => pickLabel(column.name || "", column.comment, labelMode);
-var generateChenModelData = (tables, relationships, isColored = true, labelMode = "name", hideFields = false) => {
+var resolveAttrLabel = (column, labelMode) =>
+  pickLabel(column.name || "", column.comment, labelMode);
+var generateChenModelData = (
+  tables,
+  relationships,
+  isColored = true,
+  labelMode = "name",
+  hideFields = false,
+) => {
   const nodes = [];
   const edges = [];
   const entityMap = /* @__PURE__ */ new Map();
@@ -1652,20 +1688,20 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
       style: {
         fill: "#ffffff",
         stroke: isColored ? "#595959" : "#000000",
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
           fill: "#000000",
-          fontWeight: "bold"
-        }
+          fontWeight: "bold",
+        },
       },
       // 添加节点分类信息，用于布局算法
-      nodeType: "entity"
+      nodeType: "entity",
     });
     if (!hideFields) {
       const fkOnlyColumns = new Set(
-        table.foreignKeys.map((fk) => fk.column).filter((col) => !table.primaryKeys.includes(col))
+        table.foreignKeys.map((fk) => fk.column).filter((col) => !table.primaryKeys.includes(col)),
       );
       table.columns.forEach((column, colIndex) => {
         if (fkOnlyColumns.has(column.name)) return;
@@ -1681,18 +1717,18 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
           // 移除固定位置
           keyType: isPrimaryKey ? "pk" : "normal",
           style: {
-            fill: isColored ? isPrimaryKey ? "#f6ffed" : "#fffbe6" : "#ffffff",
-            stroke: isColored ? isPrimaryKey ? "#52c41a" : "#faad14" : "#000000",
-            lineWidth: isPrimaryKey ? 2 : 1
+            fill: isColored ? (isPrimaryKey ? "#f6ffed" : "#fffbe6") : "#ffffff",
+            stroke: isColored ? (isPrimaryKey ? "#52c41a" : "#faad14") : "#000000",
+            lineWidth: isPrimaryKey ? 2 : 1,
           },
           labelCfg: {
             style: {
               fill: "#000000",
-              fontWeight: isPrimaryKey ? "bold" : "normal"
-            }
+              fontWeight: isPrimaryKey ? "bold" : "normal",
+            },
           },
           nodeType: "attribute",
-          parentEntity: entityId
+          parentEntity: entityId,
           // 标记父实体
         });
         edges.push({
@@ -1700,9 +1736,9 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
           source: entityId,
           target: attributeId,
           style: {
-            stroke: "#000000"
+            stroke: "#000000",
           },
-          edgeType: "entity-attribute"
+          edgeType: "entity-attribute",
         });
       });
     }
@@ -1723,16 +1759,16 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
           fill: "#ffffff",
           stroke: isColored ? "#595959" : "#000000",
           lineWidth: 2,
-          lineDash: [4, 4]
+          lineDash: [4, 4],
         },
         labelCfg: {
           style: {
             fill: isColored ? "#999999" : "#666666",
-            fontWeight: "bold"
-          }
+            fontWeight: "bold",
+          },
         },
         nodeType: "entity",
-        isPlaceholder: true
+        isPlaceholder: true,
       });
     }
   });
@@ -1745,7 +1781,10 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
     if (rel.comment) return rel.comment;
     const fromTable = tableByName.get(rel.from);
     if (!fromTable) return void 0;
-    const cols = rel.label.split(",").map((s) => s.trim()).filter(Boolean);
+    const cols = rel.label
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     for (const c of cols) {
       const found = fromTable.columns.find((col) => col.name === c);
       if (found?.comment) return found.comment;
@@ -1766,15 +1805,15 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
       style: {
         fill: isColored ? "#f9f0ff" : "#ffffff",
         stroke: isColored ? "#722ed1" : "#000000",
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
-          fill: "#000000"
-        }
+          fill: "#000000",
+        },
       },
       nodeType: "relationship",
-      isSelfLoop
+      isSelfLoop,
     });
     const fromLabel = rel.fromCardinality ?? "N";
     const toLabel = rel.toCardinality ?? "1";
@@ -1787,18 +1826,18 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
       curveOffset: isSelfLoop ? 22 : void 0,
       style: {
         stroke: "#000000",
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
           fill: "#000000",
           background: {
             fill: "#ffffff",
-            padding: [2, 4, 2, 4]
-          }
-        }
+            padding: [2, 4, 2, 4],
+          },
+        },
       },
-      edgeType: "entity-relationship"
+      edgeType: "entity-relationship",
     });
     edges.push({
       id: `edge-${relationshipId}-entity-${rel.to}-${relIndex}-2`,
@@ -1809,18 +1848,18 @@ var generateChenModelData = (tables, relationships, isColored = true, labelMode 
       curveOffset: isSelfLoop ? 22 : void 0,
       style: {
         stroke: "#000000",
-        lineWidth: 2
+        lineWidth: 2,
       },
       labelCfg: {
         style: {
           fill: "#000000",
           background: {
             fill: "#ffffff",
-            padding: [2, 4, 2, 4]
-          }
-        }
+            padding: [2, 4, 2, 4],
+          },
+        },
       },
-      edgeType: "relationship-entity"
+      edgeType: "relationship-entity",
     });
   });
   return { nodes, edges };
@@ -1837,7 +1876,8 @@ var getTextWidth = (text, fontSize) => {
   return width;
 };
 var getFontScale = (fontSize, baseFontSize) => fontSize / baseFontSize;
-var getShrinkOnlyScale = (fontSize, baseFontSize) => Math.min(1, getFontScale(fontSize, baseFontSize));
+var getShrinkOnlyScale = (fontSize, baseFontSize) =>
+  Math.min(1, getFontScale(fontSize, baseFontSize));
 var getAttributeHeight = (fontSize, hasUnderline) => {
   const scale = getShrinkOnlyScale(fontSize, 15);
   const minHeight = 40 * scale;
@@ -1883,7 +1923,8 @@ var measureNodeSize = (model) => {
   const type = model.nodeType || "entity";
   const base = NODE_FONT_BASE[type] ?? 15;
   const raw = model.labelCfg?.style?.fontSize;
-  const parsed = typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseFloat(raw) : NaN;
+  const parsed =
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseFloat(raw) : NaN;
   const fontSize = Number.isFinite(parsed) && parsed > 0 ? parsed : base;
   const label = model.label == null ? "" : String(model.label);
   if (type === "entity") return measureEntitySize(label, fontSize);
@@ -1925,8 +1966,10 @@ var smoothFitView = (graph, duration = 800, easing = "easeOutCubic") => {
       graph.fitView(20);
       return;
     }
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity;
+    let minY = Infinity,
+      maxY = -Infinity;
     nodes.forEach((node) => {
       const bbox = node.getBBox();
       minX = Math.min(minX, bbox.minX);
@@ -2130,7 +2173,9 @@ var forceAlignLayout = (graph, containerWidth) => {
     const buildRelSubtree = (relId, parentEntityId) => {
       placed.add(relId);
       const node = { id: relId, type: "rel", children: [] };
-      const ents = Array.from(coreAdj.get(relId) || []).filter((id) => isEnt(id) && id !== parentEntityId && !placed.has(id)).sort();
+      const ents = Array.from(coreAdj.get(relId) || [])
+        .filter((id) => isEnt(id) && id !== parentEntityId && !placed.has(id))
+        .sort();
       ents.forEach((eid) => {
         placed.add(eid);
         node.children.push(buildEntityNode(eid));
@@ -2139,7 +2184,9 @@ var forceAlignLayout = (graph, containerWidth) => {
     };
     const buildEntityNode = (entityId) => {
       const node = { id: entityId, type: "entity", children: [] };
-      const rels = Array.from(coreAdj.get(entityId) || []).filter((id) => isRel(id) && !placed.has(id)).sort();
+      const rels = Array.from(coreAdj.get(entityId) || [])
+        .filter((id) => isRel(id) && !placed.has(id))
+        .sort();
       rels.forEach((rid) => {
         const relEnts = Array.from(coreAdj.get(rid) || []).filter(isEnt);
         const hasUnplacedEnt = relEnts.some((e) => e !== entityId && !placed.has(e));
@@ -2162,11 +2209,11 @@ var forceAlignLayout = (graph, containerWidth) => {
       const dist = Math.max(defaultDist, minDist || 0);
       const pos = {
         x: parentPos.x + Math.cos(angle) * dist,
-        y: parentPos.y + Math.sin(angle) * dist
+        y: parentPos.y + Math.sin(angle) * dist,
       };
       targets.set(node.id, pos);
       if (!node.children.length) return;
-      const forwardLimit = Math.PI * 5 / 6;
+      const forwardLimit = (Math.PI * 5) / 6;
       const effective = Math.min(sectorSize, forwardLimit);
       if (node.children.length === 1) {
         placeNode(node.children[0], pos, myR, angle, effective, 0);
@@ -2177,9 +2224,7 @@ var forceAlignLayout = (graph, containerWidth) => {
         const leaves = countLeaves(c);
         return { node: c, leaves, sector: effective * (leaves / totalLeaves) };
       });
-      const needed = Math.max(
-        ...kids.map((k) => approxWidth(k.node) / Math.max(k.sector, 0.05))
-      );
+      const needed = Math.max(...kids.map((k) => approxWidth(k.node) / Math.max(k.sector, 0.05)));
       let cur = angle - effective / 2;
       kids.forEach((k) => {
         const cAngle = cur + k.sector / 2;
@@ -2191,7 +2236,9 @@ var forceAlignLayout = (graph, containerWidth) => {
       if (!subtrees.length) return;
       const rootPos = targets.get(rootId);
       const rootR = radii.get(rootId);
-      const annotated = subtrees.map((st) => ({ st, leaves: countLeaves(st) })).sort((a, b) => b.leaves - a.leaves);
+      const annotated = subtrees
+        .map((st) => ({ st, leaves: countLeaves(st) }))
+        .sort((a, b) => b.leaves - a.leaves);
       const upper = [];
       let upLeaves = 0;
       const lower = [];
@@ -2207,14 +2254,14 @@ var forceAlignLayout = (graph, containerWidth) => {
       });
       const placeHalf = (sts, center) => {
         if (!sts.length) return;
-        const totalSpan = Math.PI * 5 / 6;
+        const totalSpan = (Math.PI * 5) / 6;
         const total = sts.reduce((s, x) => s + countLeaves(x), 0);
         const needed = Math.max(
           ...sts.map((st) => {
             const leaves = countLeaves(st);
             const span = totalSpan * (leaves / total);
             return approxWidth(st) / Math.max(span, 0.05);
-          })
+          }),
         );
         let cur = center - totalSpan / 2;
         sts.forEach((st) => {
@@ -2225,11 +2272,13 @@ var forceAlignLayout = (graph, containerWidth) => {
           cur += span;
         });
       };
-      placeHalf(upper, 3 * Math.PI / 2);
+      placeHalf(upper, (3 * Math.PI) / 2);
       placeHalf(lower, Math.PI / 2);
     };
     mainPath.filter(isEnt).forEach((eid) => {
-      const branchRels = Array.from(coreAdj.get(eid) || []).filter((r) => isRel(r) && !placed.has(r)).sort();
+      const branchRels = Array.from(coreAdj.get(eid) || [])
+        .filter((r) => isRel(r) && !placed.has(r))
+        .sort();
       if (!branchRels.length) return;
       const subtrees = [];
       branchRels.forEach((rid) => {
@@ -2243,7 +2292,9 @@ var forceAlignLayout = (graph, containerWidth) => {
       placeSubtreesAroundRoot(eid, subtrees);
     });
     mainPath.filter(isRel).forEach((rid) => {
-      const extraEnts = Array.from(coreAdj.get(rid) || []).filter((e) => isEnt(e) && !placed.has(e)).sort();
+      const extraEnts = Array.from(coreAdj.get(rid) || [])
+        .filter((e) => isEnt(e) && !placed.has(e))
+        .sort();
       if (!extraEnts.length) return;
       const subtrees = extraEnts.map((eid) => {
         placed.add(eid);
@@ -2260,10 +2311,10 @@ var forceAlignLayout = (graph, containerWidth) => {
       if (anchorId) {
         const aPos = targets.get(anchorId);
         const aR = radii.get(anchorId);
-        placeNode(subtree, aPos, aR, Math.PI / 2, Math.PI * 2 / 3, 0);
+        placeNode(subtree, aPos, aR, Math.PI / 2, (Math.PI * 2) / 3, 0);
       } else {
         targets.set(id, { x: 0, y: 0 });
-        placeNode(subtree, { x: 0, y: 0 }, 0, Math.PI / 2, Math.PI * 2 / 3, 0);
+        placeNode(subtree, { x: 0, y: 0 }, 0, Math.PI / 2, (Math.PI * 2) / 3, 0);
       }
     });
     ids.forEach((id) => {
@@ -2278,7 +2329,8 @@ var forceAlignLayout = (graph, containerWidth) => {
         const r = radii.get(placedEnts[0]);
         targets.set(id, { x: p.x, y: p.y + r + myR + GAP2 });
       } else {
-        let mx = 0, my = 0;
+        let mx = 0,
+          my = 0;
         placedEnts.forEach((e) => {
           const p = targets.get(e);
           mx += p.x;
@@ -2291,7 +2343,8 @@ var forceAlignLayout = (graph, containerWidth) => {
         const dx = p2.x - p1.x;
         const dy = p2.y - p1.y;
         const len = Math.hypot(dx, dy) || 1;
-        let perpX = -dy / len, perpY = dx / len;
+        let perpX = -dy / len,
+          perpY = dx / len;
         const flip = deterministicHash(id) % 2 === 0 ? 1 : -1;
         perpX *= flip;
         perpY *= flip;
@@ -2306,7 +2359,10 @@ var forceAlignLayout = (graph, containerWidth) => {
         targets.set(id, { x: m?.x || 0, y: m?.y || 0 });
       }
     });
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity;
     targets.forEach((pos, id) => {
       const r = radii.get(id) || 30;
       minX = Math.min(minX, pos.x - r);
@@ -2353,10 +2409,12 @@ var forceAlignLayout = (graph, containerWidth) => {
     const attrR = Math.max(...attrs.map(getRadius2));
     const ring = entityR + attrR + 8;
     const relNeighbors = Array.from(coreAdj.get(eid) || []).filter(isRel);
-    const relAngles = relNeighbors.map((rid) => {
-      const rp = globalTargets.get(rid);
-      return rp ? normalizeAngle(Math.atan2(rp.y - center.y, rp.x - center.x)) : null;
-    }).filter((a) => a !== null);
+    const relAngles = relNeighbors
+      .map((rid) => {
+        const rp = globalTargets.get(rid);
+        return rp ? normalizeAngle(Math.atan2(rp.y - center.y, rp.x - center.x)) : null;
+      })
+      .filter((a) => a !== null);
     const sortedRels = relAngles.slice().sort((a, b) => a - b);
     const arcs = [];
     if (!sortedRels.length) {
@@ -2365,7 +2423,8 @@ var forceAlignLayout = (graph, containerWidth) => {
       const pad = 0.25;
       for (let i = 0; i < sortedRels.length; i++) {
         const a = sortedRels[i];
-        const b = sortedRels[(i + 1) % sortedRels.length] + (i === sortedRels.length - 1 ? Math.PI * 2 : 0);
+        const b =
+          sortedRels[(i + 1) % sortedRels.length] + (i === sortedRels.length - 1 ? Math.PI * 2 : 0);
         const rawStart = a + pad;
         const rawEnd = b - pad;
         const len = rawEnd - rawStart;
@@ -2374,11 +2433,13 @@ var forceAlignLayout = (graph, containerWidth) => {
       if (!arcs.length) arcs.push({ start: 0, length: Math.PI * 2, count: 0 });
     }
     const totalLen = arcs.reduce((s, a) => s + a.length, 0);
-    const sortedAttrs = attrs.slice().sort((a, b) => a.getModel().id.localeCompare(b.getModel().id));
+    const sortedAttrs = attrs
+      .slice()
+      .sort((a, b) => a.getModel().id.localeCompare(b.getModel().id));
     const n = sortedAttrs.length;
     let remaining = n;
     arcs.forEach((arc) => {
-      arc.count = Math.floor(arc.length / totalLen * n);
+      arc.count = Math.floor((arc.length / totalLen) * n);
       remaining -= arc.count;
     });
     const bySize = arcs.slice().sort((a, b) => b.length - a.length);
@@ -2391,16 +2452,16 @@ var forceAlignLayout = (graph, containerWidth) => {
         const attrNode = sortedAttrs[attrIdx++];
         globalTargets.set(attrNode.getModel().id, {
           x: center.x + Math.cos(angle) * ring,
-          y: center.y + Math.sin(angle) * ring
+          y: center.y + Math.sin(angle) * ring,
         });
       }
     });
     while (attrIdx < n) {
       const attrNode = sortedAttrs[attrIdx];
-      const angle = attrIdx / n * Math.PI * 2;
+      const angle = (attrIdx / n) * Math.PI * 2;
       globalTargets.set(attrNode.getModel().id, {
         x: center.x + Math.cos(angle) * ring,
-        y: center.y + Math.sin(angle) * ring
+        y: center.y + Math.sin(angle) * ring,
       });
       attrIdx++;
     }
@@ -2418,7 +2479,8 @@ var forceAlignLayout = (graph, containerWidth) => {
       let moved = 0;
       for (let i = 0; i < meta.length; i++) {
         for (let j = i + 1; j < meta.length; j++) {
-          const a = meta[i], b = meta[j];
+          const a = meta[i],
+            b = meta[j];
           const pa = globalTargets.get(a.id);
           const pb = globalTargets.get(b.id);
           if (!pa || !pb) continue;
@@ -2433,7 +2495,8 @@ var forceAlignLayout = (graph, containerWidth) => {
             const bLocked = mainChainIds.has(b.id);
             const pushA = aLocked ? 0 : overlap / (bLocked ? 1 : 2);
             const pushB = bLocked ? 0 : overlap / (aLocked ? 1 : 2);
-            const nx = dx / dist, ny = dy / dist;
+            const nx = dx / dist,
+              ny = dy / dist;
             pa.x -= nx * pushA;
             pa.y -= ny * pushA;
             pb.x += nx * pushB;
@@ -2490,7 +2553,7 @@ var segmentsCross = (a1, a2, b1, b2) => {
   const d2 = cross(b1.x, b1.y, b2.x, b2.y, a2.x, a2.y);
   const d3 = cross(a1.x, a1.y, a2.x, a2.y, b1.x, b1.y);
   const d4 = cross(a1.x, a1.y, a2.x, a2.y, b2.x, b2.y);
-  return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 };
 var arrangeLayout = (graph) => {
   if (!graph || graph.destroyed) return;
@@ -2522,7 +2585,7 @@ var arrangeLayout = (graph) => {
   const ellipseBoundary = (rx, ry, cosT, sinT) => {
     if (rx <= 0 || ry <= 0) return 0;
     const denom = Math.sqrt(ry * ry * cosT * cosT + rx * rx * sinT * sinT);
-    return denom > 1e-9 ? rx * ry / denom : 0;
+    return denom > 1e-9 ? (rx * ry) / denom : 0;
   };
   const diamondBoundary2 = (rx, ry, cosT, sinT) => {
     if (rx <= 0 || ry <= 0) return 0;
@@ -2543,16 +2606,18 @@ var arrangeLayout = (graph) => {
     const sType = sourceNode.getModel().nodeType;
     const tType = targetNode.getModel().nodeType;
     if (sType === "relationship" && tType === "entity") {
-      if (!relationshipConnections.has(source)) relationshipConnections.set(source, /* @__PURE__ */ new Set());
+      if (!relationshipConnections.has(source))
+        relationshipConnections.set(source, /* @__PURE__ */ new Set());
       relationshipConnections.get(source).add(targetNode);
     } else if (tType === "relationship" && sType === "entity") {
-      if (!relationshipConnections.has(target)) relationshipConnections.set(target, /* @__PURE__ */ new Set());
+      if (!relationshipConnections.has(target))
+        relationshipConnections.set(target, /* @__PURE__ */ new Set());
       relationshipConnections.get(target).add(sourceNode);
     }
   });
   const entityInfo = /* @__PURE__ */ new Map();
-  entityNodes.forEach(
-    (e) => entityInfo.set(e.getModel().id, { node: e, attrs: [], rels: [], satellites: [] })
+  entityNodes.forEach((e) =>
+    entityInfo.set(e.getModel().id, { node: e, attrs: [], rels: [], satellites: [] }),
   );
   attributeNodes.forEach((a) => {
     const pid = a.getModel().parentEntity;
@@ -2581,7 +2646,7 @@ var arrangeLayout = (graph) => {
     entityPositions.set(m.id, { x: m.x, y: m.y });
   });
   const gapAngle = 1.3;
-  const adaptiveGap = (K) => K > 0 ? Math.min(gapAngle, Math.PI / K) : gapAngle;
+  const adaptiveGap = (K) => (K > 0 ? Math.min(gapAngle, Math.PI / K) : gapAngle);
   const halfGap = gapAngle / 2;
   const baseRing = /* @__PURE__ */ new Map();
   const systemRadius = /* @__PURE__ */ new Map();
@@ -2609,9 +2674,12 @@ var arrangeLayout = (graph) => {
     const binRelCount = info.satellites.length - orbitalCount;
     orbitalCounts.set(id, orbitalCount);
     binRelCounts.set(id, binRelCount);
-    const maxSatelliteRadius = orbitalCount > 0 ? Math.max(...orbitalSatellites.map((s) => getRadius2(s.node))) : 0;
-    const maxSatAxisMax = orbitalCount > 0 ? Math.max(...orbitalSatellites.map((s) => getAxisMax(s.node))) : 0;
-    let ohx = 0, ohy = 0;
+    const maxSatelliteRadius =
+      orbitalCount > 0 ? Math.max(...orbitalSatellites.map((s) => getRadius2(s.node))) : 0;
+    const maxSatAxisMax =
+      orbitalCount > 0 ? Math.max(...orbitalSatellites.map((s) => getAxisMax(s.node))) : 0;
+    let ohx = 0,
+      ohy = 0;
     orbitalSatellites.forEach((s) => {
       const sb = s.node.getBBox();
       if (sb.width / 2 > ohx) ohx = sb.width / 2;
@@ -2632,13 +2700,14 @@ var arrangeLayout = (graph) => {
         const segmentSize = usableAngle / binRelCount;
         const maxPerSegment = Math.max(1, Math.ceil(orbitalCount / binRelCount));
         const avgExtent = sumExtents / orbitalCount;
-        tangentialFloor = avgExtent * maxPerSegment / segmentSize;
+        tangentialFloor = (avgExtent * maxPerSegment) / segmentSize;
       } else {
         tangentialFloor = sumExtents / (2 * Math.PI);
       }
     }
     tangentialFloors.set(id, tangentialFloor);
-    let ringR = orbitalCount > 0 ? Math.max(ehx + ohx + 8, ehy + ohy + 8, tangentialFloor) : entityRadius;
+    let ringR =
+      orbitalCount > 0 ? Math.max(ehx + ohx + 8, ehy + ohy + 8, tangentialFloor) : entityRadius;
     baseRing.set(id, ringR);
     systemRadius.set(id, ringR + maxSatelliteRadius);
   });
@@ -2667,7 +2736,9 @@ var arrangeLayout = (graph) => {
     const ehx = entityHalfX.get(id) ?? 30;
     const ehy = entityHalfY.get(id) ?? 30;
     const rh = getRelHalfSize(relNode);
-    return rectBoundary2(ehx, ehy, ux, uy) + diamondBoundary2(rh.x, rh.y, ux, uy) + minEntityRelationGap;
+    return (
+      rectBoundary2(ehx, ehy, ux, uy) + diamondBoundary2(rh.x, rh.y, ux, uy) + minEntityRelationGap
+    );
   };
   const computePairGeometryMinDistance = (idA, idB, relNode, posA, posB) => {
     const dx = posB.x - posA.x;
@@ -2675,7 +2746,10 @@ var arrangeLayout = (graph) => {
     const dist = Math.hypot(dx, dy) || 1;
     const ux = dx / dist;
     const uy = dy / dist;
-    return computeEntityRelMinCenterDistance(idA, relNode, ux, uy) + computeEntityRelMinCenterDistance(idB, relNode, -ux, -uy);
+    return (
+      computeEntityRelMinCenterDistance(idA, relNode, ux, uy) +
+      computeEntityRelMinCenterDistance(idB, relNode, -ux, -uy)
+    );
   };
   const computeEqualGapRelationshipAnchor = (idA, idB, relNode, posA, posB) => {
     const dx = posB.x - posA.x;
@@ -2696,7 +2770,7 @@ var arrangeLayout = (graph) => {
     const distFromA = Math.min(Math.max(idealFromA, minFromA), Math.max(minFromA, maxFromA));
     return {
       x: posA.x + ux * distFromA,
-      y: posA.y + uy * distFromA
+      y: posA.y + uy * distFromA,
     };
   };
   const computeLegacyAttributeClearance = (id, relR) => {
@@ -2732,8 +2806,10 @@ var arrangeLayout = (graph) => {
     if (msA <= 0 || msB <= 0 || orbA <= 0 || orbB <= 0 || brA <= 0 || brB <= 0) return 0;
     const thetaA = computeClosestAngle(idA);
     const thetaB = computeClosestAngle(idB);
-    const cosA = Math.cos(thetaA), sinA = Math.sin(thetaA);
-    const cosB = Math.cos(thetaB), sinB = Math.sin(thetaB);
+    const cosA = Math.cos(thetaA),
+      sinA = Math.sin(thetaA);
+    const cosB = Math.cos(thetaB),
+      sinB = Math.sin(thetaB);
     const rA = orbitR(
       entityHalfX.get(idA) ?? 30,
       entityHalfY.get(idA) ?? 30,
@@ -2741,7 +2817,7 @@ var arrangeLayout = (graph) => {
       orbitHalfY.get(idA) ?? 0,
       cosA,
       sinA,
-      tangentialFloors.get(idA) ?? 0
+      tangentialFloors.get(idA) ?? 0,
     );
     const rB = orbitR(
       entityHalfX.get(idB) ?? 30,
@@ -2750,7 +2826,7 @@ var arrangeLayout = (graph) => {
       orbitHalfY.get(idB) ?? 0,
       cosB,
       sinB,
-      tangentialFloors.get(idB) ?? 0
+      tangentialFloors.get(idB) ?? 0,
     );
     const blockR = msA + msB + 8;
     const alongA = cosA * rA;
@@ -2767,17 +2843,21 @@ var arrangeLayout = (graph) => {
     relationshipPairs.push({
       idA: entityA.getModel().id,
       idB: entityB.getModel().id,
-      relNode
+      relNode,
     });
   });
-  const pairKey = (idA, idB) => idA < idB ? idA + "|" + idB : idB + "|" + idA;
+  const pairKey = (idA, idB) => (idA < idB ? idA + "|" + idB : idB + "|" + idA);
   const connectedPairKeys = /* @__PURE__ */ new Set();
   const pairDesired = /* @__PURE__ */ new Map();
   relationshipPairs.forEach((p) => {
     const attrAttr = computePairAttrAttrSum(p.idA, p.idB);
     const posA = entityPositions.get(p.idA);
     const posB = entityPositions.get(p.idB);
-    const geometryMin = posA && posB ? computePairGeometryMinDistance(p.idA, p.idB, p.relNode, posA, posB) : computeLegacyAttributeClearance(p.idA, getRadius2(p.relNode)) + computeLegacyAttributeClearance(p.idB, getRadius2(p.relNode));
+    const geometryMin =
+      posA && posB
+        ? computePairGeometryMinDistance(p.idA, p.idB, p.relNode, posA, posB)
+        : computeLegacyAttributeClearance(p.idA, getRadius2(p.relNode)) +
+          computeLegacyAttributeClearance(p.idB, getRadius2(p.relNode));
     const want = Math.max(geometryMin, attrAttr);
     const k = pairKey(p.idA, p.idB);
     connectedPairKeys.add(k);
@@ -2792,7 +2872,9 @@ var arrangeLayout = (graph) => {
   });
   const safeGap = 35;
   const entityIds = Array.from(entityPositions.keys());
-  const maxSysR = entityIds.length ? Math.max(...entityIds.map((id) => systemRadius.get(id) || 60)) : 80;
+  const maxSysR = entityIds.length
+    ? Math.max(...entityIds.map((id) => systemRadius.get(id) || 60))
+    : 80;
   const entityCellSize = Math.max(120, maxSysR * 2 + safeGap);
   for (let iter = 0; iter < 300; iter++) {
     let maxMove = 0;
@@ -2821,7 +2903,7 @@ var arrangeLayout = (graph) => {
       const diff = target - dist;
       const nx = dx / dist;
       const ny = dy / dist;
-      const move2 = diff * factor / 2;
+      const move2 = (diff * factor) / 2;
       posA.x -= nx * move2;
       posA.y -= ny * move2;
       posB.x += nx * move2;
@@ -2831,7 +2913,7 @@ var arrangeLayout = (graph) => {
     const entityItems = entityIds.map((id) => ({
       id,
       pos: entityPositions.get(id),
-      r: systemRadius.get(id)
+      r: systemRadius.get(id),
     }));
     const grid = buildGrid(entityItems, entityCellSize);
     for (let i = 0; i < entityItems.length; i++) {
@@ -2862,7 +2944,7 @@ var arrangeLayout = (graph) => {
       const centerPos = entityPositions.get(centerId);
       if (!centerPos) return;
       const nArr = Array.from(neighbors);
-      const idealStep = Math.PI * 2 / nArr.length;
+      const idealStep = (Math.PI * 2) / nArr.length;
       const activation = idealStep * 0.5;
       for (let i = 0; i < nArr.length; i++) {
         const pi = entityPositions.get(nArr[i]);
@@ -2888,14 +2970,16 @@ var arrangeLayout = (graph) => {
           const sign = diff >= 0 ? 1 : -1;
           let arc = shortfall * Math.min(di, dj) * 0.02;
           if (arc > 2.5) arc = 2.5;
-          const dai = arc / di * -sign;
-          const daj = arc / dj * sign;
-          const cosI = Math.cos(dai), sinI = Math.sin(dai);
+          const dai = (arc / di) * -sign;
+          const daj = (arc / dj) * sign;
+          const cosI = Math.cos(dai),
+            sinI = Math.sin(dai);
           const newDxi = dxi * cosI - dyi * sinI;
           const newDyi = dxi * sinI + dyi * cosI;
           pi.x = centerPos.x + newDxi;
           pi.y = centerPos.y + newDyi;
-          const cosJ = Math.cos(daj), sinJ = Math.sin(daj);
+          const cosJ = Math.cos(daj),
+            sinJ = Math.sin(daj);
           const newDxj = dxj * cosJ - dyj * sinJ;
           const newDyj = dxj * sinJ + dyj * cosJ;
           pj.x = centerPos.x + newDxj;
@@ -2938,7 +3022,8 @@ var arrangeLayout = (graph) => {
             const pa = entityPositions.get(idA);
             const pb = entityPositions.get(idB);
             if (!pa || !pb) continue;
-            const tmpX = pa.x, tmpY = pa.y;
+            const tmpX = pa.x,
+              tmpY = pa.y;
             pa.x = pb.x;
             pa.y = pb.y;
             pb.x = tmpX;
@@ -2976,16 +3061,16 @@ var arrangeLayout = (graph) => {
       const dist = Math.hypot(dx, dy) || 1;
       const requiredDist = Math.max(
         pairDesired.get(pairKey(idA, idB)) ?? 0,
-        computePairGeometryMinDistance(idA, idB, relNode, posA, posB)
+        computePairGeometryMinDistance(idA, idB, relNode, posA, posB),
       );
       if (!requiredDist || dist >= requiredDist) return;
       const missing = requiredDist - dist;
       const nx = dx / dist;
       const ny = dy / dist;
-      posA.x -= nx * missing / 2;
-      posA.y -= ny * missing / 2;
-      posB.x += nx * missing / 2;
-      posB.y += ny * missing / 2;
+      posA.x -= (nx * missing) / 2;
+      posA.y -= (ny * missing) / 2;
+      posB.x += (nx * missing) / 2;
+      posB.y += (ny * missing) / 2;
     });
   };
   ensureRelationshipClearance();
@@ -3019,7 +3104,8 @@ var arrangeLayout = (graph) => {
       const total = Math.PI * 2;
       for (let i = 0; i < sortedAngles.length; i++) {
         const curr = sortedAngles[i];
-        const next = sortedAngles[(i + 1) % sortedAngles.length] + (i === sortedAngles.length - 1 ? total : 0);
+        const next =
+          sortedAngles[(i + 1) % sortedAngles.length] + (i === sortedAngles.length - 1 ? total : 0);
         const start = curr + halfGapEntity;
         const end = next - halfGapEntity;
         if (end > start) segments.push({ start, end });
@@ -3030,7 +3116,7 @@ var arrangeLayout = (graph) => {
       segments = [{ start: 0, end: Math.PI * 2 }];
     }
     const orbitalSatellites = satellites.filter(
-      (s) => s.type === "attr" || s.type === "rel" && !s.otherEntity
+      (s) => s.type === "attr" || (s.type === "rel" && !s.otherEntity),
     );
     if (!orbitalSatellites.length) return;
     const sortedSatellites = orbitalSatellites.slice().sort((a, b) => {
@@ -3042,8 +3128,8 @@ var arrangeLayout = (graph) => {
     });
     const totalCount = sortedSatellites.length;
     const totalAngle = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
-    const segCounts = segments.map(
-      (s) => Math.max(0, Math.round(totalCount * (s.end - s.start) / totalAngle))
+    const segCounts = segments.map((s) =>
+      Math.max(0, Math.round((totalCount * (s.end - s.start)) / totalAngle)),
     );
     let allocated = segCounts.reduce((sum, c) => sum + c, 0);
     while (allocated < totalCount) {
@@ -3125,7 +3211,7 @@ var arrangeLayout = (graph) => {
     groupedRelations.get(key).push({
       relNode,
       relRadius: getRadius2(relNode),
-      entities: [entityA, entityB]
+      entities: [entityA, entityB],
     });
   });
   groupedRelations.forEach((list) => {
@@ -3148,7 +3234,9 @@ var arrangeLayout = (graph) => {
     const baseY = targets.get(sample.relNode.getModel().id)?.y || (posA.y + posB.y) / 2;
     const maxRadius = Math.max(...list.map((item) => item.relRadius));
     const offsetStep = maxRadius * 2 + 16;
-    const sorted = list.slice().sort((a, b) => a.relNode.getModel().id.localeCompare(b.relNode.getModel().id));
+    const sorted = list
+      .slice()
+      .sort((a, b) => a.relNode.getModel().id.localeCompare(b.relNode.getModel().id));
     const mid = (sorted.length - 1) / 2;
     sorted.forEach((item, idx) => {
       const offsetIndex = idx - mid;
@@ -3168,14 +3256,16 @@ var arrangeLayout = (graph) => {
     });
     const relIdArr = [];
     relPositions.forEach((_, id) => relIdArr.push(id));
-    const maxRelR = relIdArr.length ? Math.max(...relIdArr.map((id) => relRadii.get(id) || 30)) : 30;
+    const maxRelR = relIdArr.length
+      ? Math.max(...relIdArr.map((id) => relRadii.get(id) || 30))
+      : 30;
     const relCellSize = Math.max(60, maxRelR * 2 + 14);
     for (let iter = 0; iter < 80; iter++) {
       let moved = 0;
       const relItems = relIdArr.map((id) => ({
         id,
         pos: relPositions.get(id),
-        r: relRadii.get(id) || 30
+        r: relRadii.get(id) || 30,
       }));
       const relGrid = buildGrid(relItems, relCellSize);
       for (let i = 0; i < relItems.length; i++) {
@@ -3211,12 +3301,7 @@ var arrangeLayout = (graph) => {
           const dy = pos.y - center.y;
           let dist = Math.hypot(dx, dy);
           if (dist === 0) dist = 0.01;
-          const limit = computeEntityRelMinCenterDistance(
-            em.id,
-            relNode,
-            dx / dist,
-            dy / dist
-          );
+          const limit = computeEntityRelMinCenterDistance(em.id, relNode, dx / dist, dy / dist);
           if (dist < limit) {
             const push = limit - dist;
             const nx = dx / dist;
@@ -3243,18 +3328,18 @@ var arrangeLayout = (graph) => {
     const allNodes = graph.getNodes();
     const lockedCoreIds = /* @__PURE__ */ new Set([
       ...entityNodes.map((n) => n.getModel().id),
-      ...relationshipNodes.map((n) => n.getModel().id)
+      ...relationshipNodes.map((n) => n.getModel().id),
     ]);
     const metaArr = allNodes.map((n) => ({
       id: n.getModel().id,
-      r: getRadius2(n)
+      r: getRadius2(n),
     }));
     metaArr.forEach((m) => {
       if (!targets.has(m.id)) {
         const model = graph.findById(m.id)?.getModel();
         targets.set(m.id, {
           x: typeof model?.x === "number" ? model.x : 0,
-          y: typeof model?.y === "number" ? model.y : 0
+          y: typeof model?.y === "number" ? model.y : 0,
         });
       }
     });
@@ -3265,7 +3350,7 @@ var arrangeLayout = (graph) => {
       const items = metaArr.map((m) => ({
         id: m.id,
         r: m.r,
-        pos: targets.get(m.id)
+        pos: targets.get(m.id),
       }));
       const grid = buildGrid(items, cellSize);
       for (let i = 0; i < items.length; i++) {
@@ -3327,14 +3412,21 @@ var segmentsIntersect = (x1, y1, x2, y2, x3, y3, x4, y4) => {
   const d2 = cross2(x4 - x3, y4 - y3, x2 - x3, y2 - y3);
   const d3 = cross2(x2 - x1, y2 - y1, x3 - x1, y3 - y1);
   const d4 = cross2(x2 - x1, y2 - y1, x4 - x1, y4 - y1);
-  return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 };
 var segmentHitsRect = (sx1, sy1, sx2, sy2, cx, cy, hw, hh) => {
-  const x1 = cx - hw, x2 = cx + hw;
-  const y1 = cy - hh, y2 = cy + hh;
+  const x1 = cx - hw,
+    x2 = cx + hw;
+  const y1 = cy - hh,
+    y2 = cy + hh;
   if (sx1 > x1 && sx1 < x2 && sy1 > y1 && sy1 < y2) return true;
   if (sx2 > x1 && sx2 < x2 && sy2 > y1 && sy2 < y2) return true;
-  return segmentsIntersect(sx1, sy1, sx2, sy2, x1, y1, x2, y1) || segmentsIntersect(sx1, sy1, sx2, sy2, x2, y1, x2, y2) || segmentsIntersect(sx1, sy1, sx2, sy2, x2, y2, x1, y2) || segmentsIntersect(sx1, sy1, sx2, sy2, x1, y2, x1, y1);
+  return (
+    segmentsIntersect(sx1, sy1, sx2, sy2, x1, y1, x2, y1) ||
+    segmentsIntersect(sx1, sy1, sx2, sy2, x2, y1, x2, y2) ||
+    segmentsIntersect(sx1, sy1, sx2, sy2, x2, y2, x1, y2) ||
+    segmentsIntersect(sx1, sy1, sx2, sy2, x1, y2, x1, y1)
+  );
 };
 var distributeAttributeAngles = (N, relAngles) => {
   if (N <= 0) return { angles: [], halfWindows: [] };
@@ -3343,10 +3435,10 @@ var distributeAttributeAngles = (N, relAngles) => {
     const step = TAU / N;
     return {
       angles: Array.from({ length: N }, (_, i) => i * step),
-      halfWindows: Array.from({ length: N }, () => step * 0.48)
+      halfWindows: Array.from({ length: N }, () => step * 0.48),
     };
   }
-  const sorted = relAngles.map((a) => (a % TAU + TAU) % TAU).sort((a, b) => a - b);
+  const sorted = relAngles.map((a) => ((a % TAU) + TAU) % TAU).sort((a, b) => a - b);
   const target = TAU / (N + K);
   const arcs = sorted.map((start, i) => {
     const end = sorted[(i + 1) % K];
@@ -3357,7 +3449,7 @@ var distributeAttributeAngles = (N, relAngles) => {
       start,
       width,
       raw,
-      count: Math.max(0, Math.round(raw))
+      count: Math.max(0, Math.round(raw)),
     };
   });
   let total = arcs.reduce((s, a) => s + a.count, 0);
@@ -3393,12 +3485,12 @@ var distributeAttributeAngles = (N, relAngles) => {
     }
   });
   while (angles.length < N) {
-    angles.push(angles.length / N * TAU);
-    halfWindows.push(TAU / N * 0.48);
+    angles.push((angles.length / N) * TAU);
+    halfWindows.push((TAU / N) * 0.48);
   }
   return {
     angles: angles.slice(0, N),
-    halfWindows: halfWindows.slice(0, N)
+    halfWindows: halfWindows.slice(0, N),
   };
 };
 var computeAttributePositions = (graph, newAttrNodes) => {
@@ -3417,12 +3509,10 @@ var computeAttributePositions = (graph, newAttrNodes) => {
       y: m.y || 0,
       halfW: (bbox.width || 80) / 2,
       halfH: (bbox.height || 40) / 2,
-      nodeType: m.nodeType
+      nodeType: m.nodeType,
     };
   });
-  const entityMap = new Map(
-    existing.filter((n) => n.nodeType === "entity").map((n) => [n.id, n])
-  );
+  const entityMap = new Map(existing.filter((n) => n.nodeType === "entity").map((n) => [n.id, n]));
   const nodeById = new Map(existing.map((n) => [n.id, n]));
   const obstacleEdges = [];
   graph.getEdges().forEach((e) => {
@@ -3438,7 +3528,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
       x1: p1.x,
       y1: p1.y,
       x2: p2.x,
-      y2: p2.y
+      y2: p2.y,
     });
   });
   const relAnglesByEntity = /* @__PURE__ */ new Map();
@@ -3465,7 +3555,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
     relAnglesByEntity.get(entId).push(ang);
   });
   const entityOrder = Array.from(byEntity.keys()).sort(
-    (a, b) => byEntity.get(b).length - byEntity.get(a).length
+    (a, b) => byEntity.get(b).length - byEntity.get(a).length,
   );
   entityOrder.forEach((entityId) => {
     const attrs = byEntity.get(entityId);
@@ -3477,7 +3567,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
       const sz = estimateAttributeHalfSize(
         a.label,
         a.labelCfg?.style?.fontSize,
-        a.keyType === "pk"
+        a.keyType === "pk",
       );
       a._halfW = sz.halfW;
       a._halfH = sz.halfH;
@@ -3512,8 +3602,10 @@ var computeAttributePositions = (graph, newAttrNodes) => {
           const py2 = ent.y + R * dy;
           const entBorder = nodeBorderPoint(ent, px2, py2);
           const attrBorder = attrBorderTowardEnt(px2, py2);
-          const nex1 = entBorder.x, ney1 = entBorder.y;
-          const nex2 = attrBorder.x, ney2 = attrBorder.y;
+          const nex1 = entBorder.x,
+            ney1 = entBorder.y;
+          const nex2 = attrBorder.x,
+            ney2 = attrBorder.y;
           let bad = false;
           if (flags.rectNode) {
             for (let k = 0; k < existing.length; k++) {
@@ -3567,7 +3659,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
             nex1,
             ney1,
             nex2,
-            ney2
+            ney2,
           };
         }
         return null;
@@ -3575,18 +3667,18 @@ var computeAttributePositions = (graph, newAttrNodes) => {
       const slotDeltas = [0];
       const SAMPLES = 8;
       for (let k = 1; k <= SAMPLES; k++) {
-        const f = k / SAMPLES * halfWindow;
+        const f = (k / SAMPLES) * halfWindow;
         slotDeltas.push(f, -f);
       }
       const circleDeltas = [];
       const CIRCLE_SAMPLES = 18;
       for (let k = 1; k < CIRCLE_SAMPLES; k++) {
-        let d = k / CIRCLE_SAMPLES * TAU;
+        let d = (k / CIRCLE_SAMPLES) * TAU;
         if (d > Math.PI) d -= TAU;
         circleDeltas.push(d);
       }
       const normDev = (d) => {
-        let x = (d % TAU + TAU) % TAU;
+        let x = ((d % TAU) + TAU) % TAU;
         if (x > Math.PI) x = TAU - x;
         return x;
       };
@@ -3594,25 +3686,25 @@ var computeAttributePositions = (graph, newAttrNodes) => {
         rectNode: true,
         edgeNode: true,
         edgeCross: true,
-        rectPierce: true
+        rectPierce: true,
       };
       const NO_CROSS = {
         rectNode: true,
         edgeNode: true,
         edgeCross: false,
-        rectPierce: true
+        rectPierce: true,
       };
       const NO_CROSS_PIERCE = {
         rectNode: true,
         edgeNode: true,
         edgeCross: false,
-        rectPierce: false
+        rectPierce: false,
       };
       const ONLY_NODES = {
         rectNode: true,
         edgeNode: false,
         edgeCross: false,
-        rectPierce: false
+        rectPierce: false,
       };
       const DEV_PENALTY = 75;
       const findBestInCandidates = (deltas, flags) => {
@@ -3645,7 +3737,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
           angle: baseAngle,
           R: entExtent + attrExtent + EDGE_PADDING,
           dx,
-          dy
+          dy,
         };
       }
       const px = ent.x + best.R * best.dx;
@@ -3658,7 +3750,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
         y: py,
         halfW: attrHW,
         halfH: attrHH,
-        nodeType: "attribute"
+        nodeType: "attribute",
       };
       existing.push(record);
       nodeById.set(attr.id, record);
@@ -3670,7 +3762,7 @@ var computeAttributePositions = (graph, newAttrNodes) => {
         x1: eBorder.x,
         y1: eBorder.y,
         x2: aBorder.x,
-        y2: aBorder.y
+        y2: aBorder.y,
       });
     });
   });
@@ -3701,15 +3793,15 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
             lineWidth: 2,
             lineDash: [4, 4],
             shadowColor: "rgba(14, 165, 233, 0.2)",
-            shadowBlur: 10
+            shadowBlur: 10,
           };
           styles.labelCfg = {
             style: {
               fill: "#0f172a",
               fontWeight: "700",
               fontFamily: "Poppins",
-              fontStyle: "italic"
-            }
+              fontStyle: "italic",
+            },
           };
         } else {
           styles.style = {
@@ -3717,14 +3809,14 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
             stroke: "#0ea5e9",
             lineWidth: 2,
             shadowColor: "rgba(14, 165, 233, 0.2)",
-            shadowBlur: 10
+            shadowBlur: 10,
           };
           styles.labelCfg = {
             style: {
               fill: "#0f172a",
               fontWeight: "700",
-              fontFamily: "Poppins"
-            }
+              fontFamily: "Poppins",
+            },
           };
         }
       } else if (model.nodeType === "relationship") {
@@ -3733,10 +3825,10 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
           stroke: "#8b5cf6",
           lineWidth: 2,
           shadowColor: "rgba(139, 92, 246, 0.2)",
-          shadowBlur: 10
+          shadowBlur: 10,
         };
         styles.labelCfg = {
-          style: { fill: "#0f172a", fontFamily: "Poppins" }
+          style: { fill: "#0f172a", fontFamily: "Poppins" },
         };
       } else if (model.nodeType === "attribute") {
         if (model.keyType === "pk") {
@@ -3745,27 +3837,27 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
             stroke: "#10b981",
             lineWidth: 2,
             shadowColor: "rgba(16, 185, 129, 0.2)",
-            shadowBlur: 5
+            shadowBlur: 5,
           };
           styles.labelCfg = {
             style: {
               fill: "#0f172a",
               fontWeight: "700",
-              fontFamily: "Poppins"
-            }
+              fontFamily: "Poppins",
+            },
           };
         } else {
           styles.style = {
             fill: "#ffffff",
             stroke: "#94a3b8",
-            lineWidth: 2
+            lineWidth: 2,
           };
           styles.labelCfg = {
             style: {
               fill: "#475569",
               fontWeight: "normal",
-              fontFamily: "Poppins"
-            }
+              fontFamily: "Poppins",
+            },
           };
         }
       }
@@ -3774,7 +3866,7 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
         fill: "#ffffff",
         stroke: "#1e293b",
         lineWidth: 2,
-        shadowBlur: 0
+        shadowBlur: 0,
       };
       if (model.isPlaceholder) {
         styles.style.lineDash = [4, 4];
@@ -3784,24 +3876,24 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
             fill: "#64748b",
             fontWeight: "bold",
             fontStyle: "italic",
-            fontFamily: "Poppins"
-          }
+            fontFamily: "Poppins",
+          },
         };
       } else {
         styles.labelCfg = {
           style: {
             fill: "#1e293b",
             fontWeight: model.nodeType === "entity" || model.keyType === "pk" ? "bold" : "normal",
-            fontFamily: "Poppins"
-          }
+            fontFamily: "Poppins",
+          },
         };
       }
     }
     styles.labelCfg = {
       style: {
-        ...styles.labelCfg?.style ?? {},
-        fontSize: nodeFontSize(model, safeFontScale)
-      }
+        ...(styles.labelCfg?.style ?? {}),
+        fontSize: nodeFontSize(model, safeFontScale),
+      },
     };
     graphInstance.updateItem(node, styles);
   });
@@ -3810,7 +3902,7 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
       style: {
         stroke: "#000000",
         lineWidth: 1.5,
-        endArrow: false
+        endArrow: false,
       },
       labelCfg: {
         style: {
@@ -3819,10 +3911,10 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
           background: {
             fill: "#ffffff",
             padding: [2, 4, 2, 4],
-            radius: 2
-          }
-        }
-      }
+            radius: 2,
+          },
+        },
+      },
     });
   });
   graphInstance.paint();
@@ -3833,7 +3925,7 @@ var updateGraphStyles = (graphInstance, colored, fontScale = 1) => {
 var DEFAULT_SIZES = {
   entity: { width: 120, height: 52 },
   relationship: { width: 82, height: 52 },
-  attribute: { width: 90, height: 44 }
+  attribute: { width: 90, height: 44 },
 };
 var FALLBACK_SIZE = { width: 80, height: 40 };
 var MIN_ENTITY_RELATION_GAP = 28;
@@ -3841,15 +3933,17 @@ var ATTRIBUTE_DIAMOND_GAP = 8;
 var TAU2 = Math.PI * 2;
 var positionOf = (node) => ({
   x: typeof node.x === "number" ? node.x : 0,
-  y: typeof node.y === "number" ? node.y : 0
+  y: typeof node.y === "number" ? node.y : 0,
 });
-var fallbackSize = (node) => DEFAULT_SIZES[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE;
+var fallbackSize = (node) =>
+  DEFAULT_SIZES[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE;
 var safeSize = (node, sizeOf) => {
   const measured = sizeOf?.(node) ?? fallbackSize(node);
   const fallback = fallbackSize(node);
   return {
     width: Number.isFinite(measured.width) && measured.width > 0 ? measured.width : fallback.width,
-    height: Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height
+    height:
+      Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height,
   };
 };
 var rectBoundary = (rx, ry, ux, uy) => {
@@ -3880,10 +3974,12 @@ var startPositionOf = (startPositions, node) => {
   if (!point) return null;
   return {
     x: typeof point.x === "number" ? point.x : positionOf(node).x,
-    y: typeof point.y === "number" ? point.y : positionOf(node).y
+    y: typeof point.y === "number" ? point.y : positionOf(node).y,
   };
 };
-var boxesOverlap = (a, as, b, bs, gap = 0) => Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap && Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
+var boxesOverlap = (a, as, b, bs, gap = 0) =>
+  Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap &&
+  Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
 function entityIdsForRelationship(relId, nodeById, edges) {
   const ids = [];
   edges.forEach((edge) => {
@@ -3921,10 +4017,16 @@ function computeRelationshipAnchor(entityA, entityB, relationship, sizeOf) {
   const fromA = maxFromA > minFromA ? Math.min(Math.max(idealFromA, minFromA), maxFromA) : dist / 2;
   return {
     x: a.x + ux * fromA,
-    y: a.y + uy * fromA
+    y: a.y + uy * fromA,
   };
 }
-function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, sizeOf, startPositions) {
+function computeMovedEntityRelationshipTargets(
+  nodes,
+  edges,
+  movedEntityIds,
+  sizeOf,
+  startPositions,
+) {
   const movedIds = new Set(movedEntityIds);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const relationshipTargets = /* @__PURE__ */ new Map();
@@ -3941,7 +4043,7 @@ function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, siz
       const entityNow = positionOf(entity);
       relationshipTargets.set(relationship.id, {
         x: relStart.x + entityNow.x - entityStart.x,
-        y: relStart.y + entityNow.y - entityStart.y
+        y: relStart.y + entityNow.y - entityStart.y,
       });
       affectedEntityIds.add(entity.id);
       return;
@@ -3952,7 +4054,7 @@ function computeMovedEntityRelationshipTargets(nodes, edges, movedEntityIds, siz
       if (!entityA || !entityB) return;
       relationshipTargets.set(
         relationship.id,
-        computeRelationshipAnchor(entityA, entityB, relationship, sizeOf)
+        computeRelationshipAnchor(entityA, entityB, relationship, sizeOf),
       );
       affectedEntityIds.add(entityA.id);
       affectedEntityIds.add(entityB.id);
@@ -3983,30 +4085,45 @@ function computeAttributeRotationTargets(nodes, edges, entityIds, sizeOf) {
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
     if (!source || !target) return;
-    const entity = source.nodeType === "entity" ? source : target.nodeType === "entity" ? target : null;
-    const relationship = source.nodeType === "relationship" ? source : target.nodeType === "relationship" ? target : null;
+    const entity =
+      source.nodeType === "entity" ? source : target.nodeType === "entity" ? target : null;
+    const relationship =
+      source.nodeType === "relationship"
+        ? source
+        : target.nodeType === "relationship"
+          ? target
+          : null;
     if (!entity || !relationship || !entityIdSet.has(entity.id)) return;
-    if (!relationshipIdsByEntity.has(entity.id)) relationshipIdsByEntity.set(entity.id, /* @__PURE__ */ new Set());
+    if (!relationshipIdsByEntity.has(entity.id))
+      relationshipIdsByEntity.set(entity.id, /* @__PURE__ */ new Set());
     relationshipIdsByEntity.get(entity.id).add(relationship.id);
   });
   const attrsByEntity = /* @__PURE__ */ new Map();
   nodes.forEach((node) => {
-    if (node.nodeType === "attribute" && typeof node.parentEntity === "string" && entityIdSet.has(node.parentEntity)) {
+    if (
+      node.nodeType === "attribute" &&
+      typeof node.parentEntity === "string" &&
+      entityIdSet.has(node.parentEntity)
+    ) {
       if (!attrsByEntity.has(node.parentEntity)) attrsByEntity.set(node.parentEntity, []);
       attrsByEntity.get(node.parentEntity).push(node);
     }
   });
-  const relationshipObstacles = nodes.filter((node) => node.nodeType === "relationship").map((node) => ({ node, pos: positionOf(node), size: safeSize(node, sizeOf) }));
-  const attributeObstacles = nodes.filter((node) => node.nodeType === "attribute").map((node) => ({
-    node,
-    pos: positionOf(node),
-    size: safeSize(node, sizeOf)
-  }));
+  const relationshipObstacles = nodes
+    .filter((node) => node.nodeType === "relationship")
+    .map((node) => ({ node, pos: positionOf(node), size: safeSize(node, sizeOf) }));
+  const attributeObstacles = nodes
+    .filter((node) => node.nodeType === "attribute")
+    .map((node) => ({
+      node,
+      pos: positionOf(node),
+      size: safeSize(node, sizeOf),
+    }));
   const pointFor = (entity, radius, angle) => {
     const c = positionOf(entity);
     return {
       x: c.x + radius * Math.cos(angle),
-      y: c.y + radius * Math.sin(angle)
+      y: c.y + radius * Math.sin(angle),
     };
   };
   const candidateOverlaps = (attr, point, attrSize, relatedRelationshipIds) => {
@@ -4028,7 +4145,8 @@ function computeAttributeRotationTargets(nodes, edges, entityIds, sizeOf) {
     const entity = nodeById.get(entityId);
     if (!entity) return;
     const attrs = attrsByEntity.get(entityId) ?? [];
-    const relatedRelationshipIds = relationshipIdsByEntity.get(entityId) ?? /* @__PURE__ */ new Set();
+    const relatedRelationshipIds =
+      relationshipIdsByEntity.get(entityId) ?? /* @__PURE__ */ new Set();
     if (!attrs.length || !relatedRelationshipIds.size) return;
     attrs.forEach((attr) => {
       const center = positionOf(entity);
@@ -4043,19 +4161,26 @@ function computeAttributeRotationTargets(nodes, edges, entityIds, sizeOf) {
       const consider = (angleDelta) => {
         const point = pointFor(entity, radius, currentAngle + angleDelta);
         const score = candidateOverlaps(attr, point, attrSize, relatedRelationshipIds);
-        if (!best || score.hard < best.score.hard || score.hard === best.score.hard && score.soft < best.score.soft || score.hard === best.score.hard && score.soft === best.score.soft && Math.abs(angleDelta) < Math.abs(best.angleDelta)) {
+        if (
+          !best ||
+          score.hard < best.score.hard ||
+          (score.hard === best.score.hard && score.soft < best.score.soft) ||
+          (score.hard === best.score.hard &&
+            score.soft === best.score.soft &&
+            Math.abs(angleDelta) < Math.abs(best.angleDelta))
+        ) {
           best = { point, score, angleDelta };
         }
       };
       consider(0);
       const STEPS = 72;
       for (let step = 1; step <= STEPS / 2; step++) {
-        const delta = step / STEPS * TAU2;
+        const delta = (step / STEPS) * TAU2;
         consider(delta);
         consider(-delta);
         if (best?.score.hard === 0 && best.score.soft === 0) break;
       }
-      if (!best || best.score.hard >= currentScore.hard && best.score.soft >= currentScore.soft) {
+      if (!best || (best.score.hard >= currentScore.hard && best.score.soft >= currentScore.soft)) {
         return;
       }
       targets.set(attr.id, best.point);
@@ -4068,20 +4193,23 @@ function computeAttributeRotationTargets(nodes, edges, entityIds, sizeOf) {
 var DEFAULT_SIZE = {
   entity: { width: 120, height: 52 },
   relationship: { width: 82, height: 52 },
-  attribute: { width: 90, height: 44 }
+  attribute: { width: 90, height: 44 },
 };
 var FALLBACK_SIZE2 = { width: 80, height: 40 };
+var TAU3 = Math.PI * 2;
 var positionOf2 = (node) => ({
   x: typeof node.x === "number" ? node.x : 0,
-  y: typeof node.y === "number" ? node.y : 0
+  y: typeof node.y === "number" ? node.y : 0,
 });
-var fallbackSize2 = (node) => DEFAULT_SIZE[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE2;
+var fallbackSize2 = (node) =>
+  DEFAULT_SIZE[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE2;
 var safeSize2 = (node, sizeOf) => {
   const fallback = fallbackSize2(node);
   const measured = sizeOf?.(node) ?? fallback;
   return {
     width: Number.isFinite(measured.width) && measured.width > 0 ? measured.width : fallback.width,
-    height: Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height
+    height:
+      Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height,
   };
 };
 var movePriority = (node) => {
@@ -4089,7 +4217,197 @@ var movePriority = (node) => {
   if (node.nodeType === "relationship") return 1;
   return 0;
 };
-var deterministicSign = (a, b) => a < b ? 1 : -1;
+var deterministicSign = (a, b) => (a < b ? 1 : -1);
+var boxOverlapAt = (a, as, b, bs, gap = 0) =>
+  Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap &&
+  Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
+var cross22 = (ax, ay, bx, by) => ax * by - ay * bx;
+var segmentsIntersect2 = (a, b, c, d) => {
+  const d1 = cross22(d.x - c.x, d.y - c.y, a.x - c.x, a.y - c.y);
+  const d2 = cross22(d.x - c.x, d.y - c.y, b.x - c.x, b.y - c.y);
+  const d3 = cross22(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+  const d4 = cross22(b.x - a.x, b.y - a.y, d.x - a.x, d.y - a.y);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+};
+var segmentHitsBox = (a, b, center, size, inset = 0) => {
+  const minX = center.x - size.width / 2 + inset;
+  const maxX = center.x + size.width / 2 - inset;
+  const minY = center.y - size.height / 2 + inset;
+  const maxY = center.y + size.height / 2 - inset;
+  if (minX >= maxX || minY >= maxY) return false;
+  if (a.x > minX && a.x < maxX && a.y > minY && a.y < maxY) return true;
+  if (b.x > minX && b.x < maxX && b.y > minY && b.y < maxY) return true;
+  return (
+    segmentsIntersect2(a, b, { x: minX, y: minY }, { x: maxX, y: minY }) ||
+    segmentsIntersect2(a, b, { x: maxX, y: minY }, { x: maxX, y: maxY }) ||
+    segmentsIntersect2(a, b, { x: maxX, y: maxY }, { x: minX, y: maxY }) ||
+    segmentsIntersect2(a, b, { x: minX, y: maxY }, { x: minX, y: minY })
+  );
+};
+var boundaryPoint = (record, target) => {
+  const dx = target.x - record.x;
+  const dy = target.y - record.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return { x: record.x, y: record.y };
+  const ux = dx / len;
+  const uy = dy / len;
+  const halfW = record.size.width / 2;
+  const halfH = record.size.height / 2;
+  const sx = Math.abs(ux) > 1e-9 ? halfW / Math.abs(ux) : Infinity;
+  const sy = Math.abs(uy) > 1e-9 ? halfH / Math.abs(uy) : Infinity;
+  const extent = Math.min(sx, sy);
+  return { x: record.x + ux * extent, y: record.y + uy * extent };
+};
+var makeRecord = (node, positions, sizes) => {
+  const point = positions.get(node.id) ?? positionOf2(node);
+  return {
+    id: node.id,
+    x: point.x,
+    y: point.y,
+    size: sizes.get(node.id) ?? fallbackSize2(node),
+  };
+};
+var segmentForEdge = (edge, nodeById, positions, sizes) => {
+  const source = nodeById.get(edge.source);
+  const target = nodeById.get(edge.target);
+  if (!source || !target) return null;
+  const s = makeRecord(source, positions, sizes);
+  const t = makeRecord(target, positions, sizes);
+  return {
+    source: edge.source,
+    target: edge.target,
+    a: boundaryPoint(s, { x: t.x, y: t.y }),
+    b: boundaryPoint(t, { x: s.x, y: s.y }),
+  };
+};
+var edgeTouches = (edge, id) => edge.source === id || edge.target === id;
+var connectorForAttribute = (entity, attribute, point, positions, sizes) => {
+  const entityRecord = makeRecord(entity, positions, sizes);
+  const attrRecord = {
+    id: attribute.id,
+    x: point.x,
+    y: point.y,
+    size: sizes.get(attribute.id) ?? fallbackSize2(attribute),
+  };
+  return {
+    source: entity.id,
+    target: attribute.id,
+    a: boundaryPoint(entityRecord, point),
+    b: boundaryPoint(attrRecord, { x: entityRecord.x, y: entityRecord.y }),
+  };
+};
+var minAttributeRadius = (entity, attribute, angle, sizes, gap) => {
+  const entitySize = sizes.get(entity.id) ?? fallbackSize2(entity);
+  const attrSize = sizes.get(attribute.id) ?? fallbackSize2(attribute);
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const entityHalfW = entitySize.width / 2;
+  const entityHalfH = entitySize.height / 2;
+  const attrHalfW = attrSize.width / 2;
+  const attrHalfH = attrSize.height / 2;
+  const entityExtent = Math.min(
+    Math.abs(ux) > 1e-9 ? entityHalfW / Math.abs(ux) : Infinity,
+    Math.abs(uy) > 1e-9 ? entityHalfH / Math.abs(uy) : Infinity,
+  );
+  const attrExtent = Math.min(
+    Math.abs(ux) > 1e-9 ? attrHalfW / Math.abs(ux) : Infinity,
+    Math.abs(uy) > 1e-9 ? attrHalfH / Math.abs(uy) : Infinity,
+  );
+  return entityExtent + attrExtent + gap;
+};
+function applyAttributeLineAvoidance(nodes, edges, positions, sizes, margin) {
+  if (!edges.length) return;
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const attributes = nodes
+    .filter((node) => node.nodeType === "attribute" && typeof node.parentEntity === "string")
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const currentEdges = () =>
+    edges.map((edge) => segmentForEdge(edge, nodeById, positions, sizes)).filter((edge) => !!edge);
+  const placementIsClear = (attribute, entity, point) => {
+    const attrSize = sizes.get(attribute.id) ?? fallbackSize2(attribute);
+    const connector = connectorForAttribute(entity, attribute, point, positions, sizes);
+    const edgeSegments = currentEdges();
+    for (const other of nodes) {
+      if (other.id === attribute.id) continue;
+      const otherPoint = positions.get(other.id) ?? positionOf2(other);
+      const otherSize = sizes.get(other.id) ?? fallbackSize2(other);
+      if (boxOverlapAt(point, attrSize, otherPoint, otherSize, margin)) return false;
+      if (
+        other.id !== entity.id &&
+        segmentHitsBox(connector.a, connector.b, otherPoint, otherSize, 1)
+      ) {
+        return false;
+      }
+    }
+    for (const edge of edgeSegments) {
+      if (!edgeTouches(edge, entity.id) && !edgeTouches(edge, attribute.id)) {
+        if (segmentsIntersect2(connector.a, connector.b, edge.a, edge.b)) return false;
+      }
+      if (!edgeTouches(edge, attribute.id)) {
+        if (segmentHitsBox(edge.a, edge.b, point, attrSize, 1)) return false;
+      }
+    }
+    return true;
+  };
+  const nearestClearPoint = (attribute, entity) => {
+    const entityPoint = positions.get(entity.id) ?? positionOf2(entity);
+    const current = positions.get(attribute.id) ?? positionOf2(attribute);
+    const dx = current.x - entityPoint.x;
+    const dy = current.y - entityPoint.y;
+    const currentRadius = Math.hypot(dx, dy);
+    const baseAngle = currentRadius > 1e-6 ? Math.atan2(dy, dx) : 0;
+    const baseRadius = Math.max(
+      currentRadius,
+      minAttributeRadius(entity, attribute, baseAngle, sizes, margin + 10),
+    );
+    let best = null;
+    const consider = (angle, radius) => {
+      const minR = minAttributeRadius(entity, attribute, angle, sizes, margin + 10);
+      const r = Math.max(radius, minR);
+      const point = {
+        x: entityPoint.x + r * Math.cos(angle),
+        y: entityPoint.y + r * Math.sin(angle),
+      };
+      if (!placementIsClear(attribute, entity, point)) return;
+      const score = Math.hypot(point.x - current.x, point.y - current.y);
+      if (!best || score < best.score) best = { point, score };
+    };
+    const angleDeltas = [0];
+    const angleSteps = 72;
+    for (let step = 1; step <= angleSteps / 2; step++) {
+      const delta = (step / angleSteps) * TAU3;
+      angleDeltas.push(delta, -delta);
+    }
+    const radiusOffsets = [0];
+    const radiusStep = 8;
+    for (let step = 1; step <= 120; step++) {
+      const offset = step * radiusStep;
+      radiusOffsets.push(offset, -offset);
+    }
+    for (const angleDelta of angleDeltas) {
+      const angle = baseAngle + angleDelta;
+      for (const radiusOffset of radiusOffsets) {
+        consider(angle, baseRadius + radiusOffset);
+        if (best && best.score <= radiusStep) return best.point;
+      }
+    }
+    return best?.point ?? null;
+  };
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false;
+    for (const attribute of attributes) {
+      const entity = nodeById.get(String(attribute.parentEntity));
+      if (!entity) continue;
+      const current = positions.get(attribute.id) ?? positionOf2(attribute);
+      if (placementIsClear(attribute, entity, current)) continue;
+      const target = nearestClearPoint(attribute, entity);
+      if (!target) continue;
+      positions.set(attribute.id, target);
+      moved = true;
+    }
+    if (!moved) break;
+  }
+}
 function computeAutoAvoidTargets(nodes, sizeOf, options = {}) {
   if (options.enabled === false) return /* @__PURE__ */ new Map();
   const margin = options.margin ?? 4;
@@ -4123,7 +4441,8 @@ function computeAutoAvoidTargets(nodes, sizeOf, options = {}) {
         }
         const separateX = overlapX <= overlapY;
         const rawDelta = separateX ? bp.x - ap.x : bp.y - ap.y;
-        const sign = Math.abs(rawDelta) > 1e-6 ? Math.sign(rawDelta) : deterministicSign(a.id, b.id);
+        const sign =
+          Math.abs(rawDelta) > 1e-6 ? Math.sign(rawDelta) : deterministicSign(a.id, b.id);
         const amount = (separateX ? overlapX : overlapY) + 0.5;
         if (separateX) {
           ap.x -= sign * amount * moveA;
@@ -4138,6 +4457,9 @@ function computeAutoAvoidTargets(nodes, sizeOf, options = {}) {
       }
     }
     if (maxMove < 0.1) break;
+  }
+  if (options.avoidAttributeEdges !== false) {
+    applyAttributeLineAvoidance(nodes, options.edges ?? [], positions, sizes, margin);
   }
   const targets = /* @__PURE__ */ new Map();
   nodes.forEach((node) => {
@@ -4166,7 +4488,7 @@ var makeBBox = (model) => {
     width,
     height,
     centerX: x,
-    centerY: y
+    centerY: y,
   };
 };
 function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800) {
@@ -4175,11 +4497,11 @@ function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800)
     getID: () => model.id,
     getBBox: () => makeBBox(model),
     getContainer: () => ({}),
-    destroyed: false
+    destroyed: false,
   }));
   const edgeObjs = edgeModels.map((model) => ({
     getModel: () => model,
-    destroyed: false
+    destroyed: false,
   }));
   const byId = new Map(nodeObjs.map((n) => [n.getModel().id, n]));
   const edgeById = /* @__PURE__ */ new Map();
@@ -4189,8 +4511,7 @@ function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800)
   });
   const group = {
     getMatrix: () => [1, 0, 0, 0, 1, 0, 0, 0, 1],
-    setMatrix: () => {
-    }
+    setMatrix: () => {},
   };
   let w = width;
   let h = height;
@@ -4206,34 +4527,26 @@ function createHeadlessGraph(nodeModels, edgeModels, width = 1200, height = 800)
       const m = typeof target?.getModel === "function" ? target.getModel() : item;
       if (m && model) Object.assign(m, model);
     },
-    setAutoPaint: () => {
-    },
-    paint: () => {
-    },
-    refresh: () => {
-    },
-    refreshPositions: () => {
-    },
-    get: (key) => key === "width" ? w : key === "height" ? h : key === "group" ? group : void 0,
+    setAutoPaint: () => {},
+    paint: () => {},
+    refresh: () => {},
+    refreshPositions: () => {},
+    get: (key) => (key === "width" ? w : key === "height" ? h : key === "group" ? group : void 0),
     getZoom: () => 1,
-    zoomTo: () => {
-    },
-    fitView: () => {
-    },
-    clear: () => {
-    },
-    destroy: () => {
-    },
+    zoomTo: () => {},
+    fitView: () => {},
+    clear: () => {},
+    destroy: () => {},
     changeSize: (nextW, nextH) => {
       w = nextW;
       h = nextH;
-    }
+    },
   };
   return graph;
 }
 
 // skills/sql2er/scripts/engine/skeleton.ts
-var TAU3 = Math.PI * 2;
+var TAU4 = Math.PI * 2;
 var GAP = 8;
 var halfDiag = (m) => {
   const s = measureNodeSize(m);
@@ -4249,8 +4562,9 @@ function ringRadiusFor(entity, attrs) {
   const halves = attrs.map(maxHalfOf);
   const maxHalf = Math.max(...halves);
   const radialMin = entR + maxHalf + GAP;
-  const target = TAU3 * 0.92;
-  const sum = (R) => halves.reduce((s, h) => s + 2 * Math.asin(Math.min(0.999, (h + GAP / 2) / R)), 0);
+  const target = TAU4 * 0.92;
+  const sum = (R) =>
+    halves.reduce((s, h) => s + 2 * Math.asin(Math.min(0.999, (h + GAP / 2) / R)), 0);
   let lo = radialMin;
   let hi = radialMin;
   while (sum(hi) > target && hi < radialMin + 6e3) hi *= 1.5;
@@ -4275,8 +4589,8 @@ function smacof(pos, D, iters) {
         const dx = pos[i].x - pos[j].x;
         const dy = pos[i].y - pos[j].y;
         const dist = Math.hypot(dx, dy) || 1e-4;
-        nx += w * (pos[j].x + dij * dx / dist);
-        ny += w * (pos[j].y + dij * dy / dist);
+        nx += w * (pos[j].x + (dij * dx) / dist);
+        ny += w * (pos[j].y + (dij * dy) / dist);
         den += w;
       }
       if (den > 0) {
@@ -4319,7 +4633,7 @@ function segCross(a1, a2, b1, b2) {
   const d2 = c(b1, b2, a2);
   const d3 = c(a1, a2, b1);
   const d4 = c(a1, a2, b2);
-  return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 function countCrossings(pos, E) {
   let total = 0;
@@ -4395,14 +4709,18 @@ function balanceTwoDiamondEntities(pos, ring, foot, incident, E, rounds) {
     bMinY = Math.min(bMinY, pos[k].y - foot[k]);
     bMaxY = Math.max(bMaxY, pos[k].y + foot[k]);
   }
-  const inBox = (i) => pos[i].x - foot[i] >= bMinX - 0.5 && pos[i].x + foot[i] <= bMaxX + 0.5 && pos[i].y - foot[i] >= bMinY - 0.5 && pos[i].y + foot[i] <= bMaxY + 0.5;
+  const inBox = (i) =>
+    pos[i].x - foot[i] >= bMinX - 0.5 &&
+    pos[i].x + foot[i] <= bMaxX + 0.5 &&
+    pos[i].y - foot[i] >= bMinY - 0.5 &&
+    pos[i].y + foot[i] <= bMaxY + 0.5;
   for (let round = 0; round < rounds; round++) {
     let moved = false;
     for (const i of cands) {
       const [eA, eB] = incident.get(i);
       const myEdges = [
         [i, eA.nb],
-        [i, eB.nb]
+        [i, eB.nb],
       ];
       const d1 = diamondDist(i, eA.nb, eA.dh, pos, ring);
       const d2 = diamondDist(i, eB.nb, eB.dh, pos, ring);
@@ -4418,15 +4736,21 @@ function balanceTwoDiamondEntities(pos, ring, foot, incident, E, rounds) {
       let bx = ox;
       let by = oy;
       for (let d = 0; d < DIRS; d++) {
-        const ux = Math.cos(d / DIRS * TAU3);
-        const uy = Math.sin(d / DIRS * TAU3);
+        const ux = Math.cos((d / DIRS) * TAU4);
+        const uy = Math.sin((d / DIRS) * TAU4);
         for (const st of steps) {
           pos[i].x = ox + ux * st;
           pos[i].y = oy + uy * st;
           const n1 = diamondDist(i, eA.nb, eA.dh, pos, ring);
           const n2 = diamondDist(i, eB.nb, eB.dh, pos, ring);
           const gap = Math.abs(n1 - n2);
-          if (gap < bestGap - 0.5 && Math.max(n1, n2) <= maxOrig + 0.5 && inBox(i) && overlapFree(i) && crossingsAt(pos, myEdges, E) <= baseCross) {
+          if (
+            gap < bestGap - 0.5 &&
+            Math.max(n1, n2) <= maxOrig + 0.5 &&
+            inBox(i) &&
+            overlapFree(i) &&
+            crossingsAt(pos, myEdges, E) <= baseCross
+          ) {
             bestGap = gap;
             bx = pos[i].x;
             by = pos[i].y;
@@ -4455,7 +4779,7 @@ function rotateToTargetAspect(pos, rad, target = 1.5) {
   let bestScore = Infinity;
   let bestArea = Infinity;
   for (let deg = 0; deg < 180; deg++) {
-    const th = deg * Math.PI / 180;
+    const th = (deg * Math.PI) / 180;
     const cos2 = Math.cos(th);
     const sin2 = Math.sin(th);
     let minX = Infinity;
@@ -4477,7 +4801,7 @@ function rotateToTargetAspect(pos, rad, target = 1.5) {
     const aspect = h > 1e-6 ? w / h : Infinity;
     const score = Math.abs(aspect - target);
     const area = w * h;
-    if (score < bestScore - 1e-9 || Math.abs(score - bestScore) < 1e-9 && area < bestArea) {
+    if (score < bestScore - 1e-9 || (Math.abs(score - bestScore) < 1e-9 && area < bestArea)) {
       bestScore = score;
       bestArea = area;
       bestTheta = th;
@@ -4507,15 +4831,15 @@ function stressLayout(nodes, edges, ringOverride) {
   const ring = new Map(
     entities.map((e) => [
       e.id,
-      ringOverride?.get(e.id) ?? ringRadiusFor(e, attrsByE.get(e.id) ?? [])
-    ])
+      ringOverride?.get(e.id) ?? ringRadiusFor(e, attrsByE.get(e.id) ?? []),
+    ]),
   );
   const footprint = new Map(
     entities.map((e) => {
       const attrs = attrsByE.get(e.id) ?? [];
       const maxAttr = attrs.length ? Math.max(...attrs.map(maxHalfOf)) : 0;
       return [e.id, ring.get(e.id) + maxAttr + 6];
-    })
+    }),
   );
   const relEnts = /* @__PURE__ */ new Map();
   rels.forEach((r) => relEnts.set(r.id, []));
@@ -4523,13 +4847,15 @@ function stressLayout(nodes, edges, ringOverride) {
     if (e.edgeType === "entity-relationship") relEnts.get(e.target)?.push(e.source);
     else if (e.edgeType === "relationship-entity") relEnts.get(e.source)?.push(e.target);
   });
-  const binRels = rels.map((r) => ({ r, es: [...new Set(relEnts.get(r.id) ?? [])] })).filter((x) => x.es.length === 2);
+  const binRels = rels
+    .map((r) => ({ r, es: [...new Set(relEnts.get(r.id) ?? [])] }))
+    .filter((x) => x.es.length === 2);
   const eidx = new Map(entities.map((e, i) => [e.id, i]));
   const N = entities.length;
   const desired = /* @__PURE__ */ new Map();
   const adj = /* @__PURE__ */ new Map();
   entities.forEach((e) => adj.set(e.id, /* @__PURE__ */ new Set()));
-  const key = (a, b) => a < b ? a + "|" + b : b + "|" + a;
+  const key = (a, b) => (a < b ? a + "|" + b : b + "|" + a);
   binRels.forEach(({ r, es }) => {
     const [a, b] = es;
     const d = ring.get(a) + ring.get(b) + 2 * halfDiag(r) + 2 * 20;
@@ -4540,23 +4866,26 @@ function stressLayout(nodes, edges, ringOverride) {
   });
   const seen = /* @__PURE__ */ new Set();
   const comps = [];
-  entities.map((e) => e.id).sort().forEach((id) => {
-    if (seen.has(id)) return;
-    const stack = [id];
-    const comp = [];
-    seen.add(id);
-    while (stack.length) {
-      const cur = stack.pop();
-      comp.push(cur);
-      (adj.get(cur) ?? []).forEach((nb) => {
-        if (!seen.has(nb)) {
-          seen.add(nb);
-          stack.push(nb);
-        }
-      });
-    }
-    comps.push(comp);
-  });
+  entities
+    .map((e) => e.id)
+    .sort()
+    .forEach((id) => {
+      if (seen.has(id)) return;
+      const stack = [id];
+      const comp = [];
+      seen.add(id);
+      while (stack.length) {
+        const cur = stack.pop();
+        comp.push(cur);
+        (adj.get(cur) ?? []).forEach((nb) => {
+          if (!seen.has(nb)) {
+            seen.add(nb);
+            stack.push(nb);
+          }
+        });
+      }
+      comps.push(comp);
+    });
   const laid = comps.map((ids) => {
     const local = ids.map((id) => entities[eidx.get(id)]);
     const m = local.length;
@@ -4564,22 +4893,22 @@ function stressLayout(nodes, edges, ringOverride) {
     const INF = 1e9;
     const D = Array.from({ length: m }, () => new Array(m).fill(INF));
     for (let i = 0; i < m; i++) D[i][i] = 0;
-    ids.forEach(
-      (a) => (adj.get(a) ?? []).forEach((b) => {
+    ids.forEach((a) =>
+      (adj.get(a) ?? []).forEach((b) => {
         if (!li.has(b)) return;
         const d = desired.get(key(a, b)) ?? 300;
         const ia = li.get(a);
         const ib = li.get(b);
         D[ia][ib] = Math.min(D[ia][ib], d);
         D[ib][ia] = Math.min(D[ib][ia], d);
-      })
+      }),
     );
     for (let k = 0; k < m; k++)
       for (let i = 0; i < m; i++)
         for (let j = 0; j < m; j++) if (D[i][k] + D[k][j] < D[i][j]) D[i][j] = D[i][k] + D[k][j];
     const pos = local.map((e, i) => ({
-      x: typeof e.x === "number" ? e.x : Math.cos(i / m * TAU3) * 200,
-      y: typeof e.y === "number" ? e.y : Math.sin(i / m * TAU3) * 200
+      x: typeof e.x === "number" ? e.x : Math.cos((i / m) * TAU4) * 200,
+      y: typeof e.y === "number" ? e.y : Math.sin((i / m) * TAU4) * 200,
     }));
     const rads = local.map((e) => footprint.get(e.id));
     const idSet = new Set(ids);
@@ -4608,7 +4937,10 @@ function stressLayout(nodes, edges, ringOverride) {
       balanceTwoDiamondEntities(pos, ringLocal, rads, incident, edgesLocal, 16);
     }
     rotateToTargetAspect(pos, rads);
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     local.forEach((e, i) => {
       const r = footprint.get(e.id);
       minX = Math.min(minX, pos[i].x - r);
@@ -4729,7 +5061,7 @@ var DEFAULT_SETTINGS = {
   hideAttrs: false,
   fontScale: 1,
   attrMode: "auto",
-  autoAvoid: true
+  autoAvoid: true,
 };
 function clampFontScale2(scale) {
   if (!Number.isFinite(scale)) return 1;
@@ -4740,7 +5072,7 @@ function normalizeSettings(settings) {
     ...DEFAULT_SETTINGS,
     ...settings,
     fontScale: clampFontScale2(settings.fontScale),
-    autoAvoid: settings.autoAvoid !== false
+    autoAvoid: settings.autoAvoid !== false,
   };
 }
 function deltaToScale(delta) {
@@ -4769,7 +5101,7 @@ function runLayoutOnGraph(kind, graph, nodes, edges) {
   }
 }
 function generate(opts) {
-  const settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...opts.settings ?? {} });
+  const settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...(opts.settings ?? {}) });
   const { result, format } = parseInput(opts.input, opts.format ?? "auto");
   if (!result.tables.length) {
     throw new Error("No tables parsed from input (tried " + (opts.format ?? "auto") + ").");
@@ -4779,7 +5111,7 @@ function generate(opts) {
     result.relationships,
     settings.colored,
     settings.comment ? "comment" : "name",
-    settings.hideAttrs
+    settings.hideAttrs,
   );
   const graph = styleAndSize(nodes, edges, settings);
   const layout = opts.layout ?? "optimal";
@@ -4813,7 +5145,10 @@ function setFontScale(state, delta) {
   return next;
 }
 function centroid(nodes) {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   nodes.forEach((n) => {
     const x = typeof n.x === "number" ? n.x : 0;
     const y = typeof n.y === "number" ? n.y : 0;
@@ -4826,7 +5161,7 @@ function centroid(nodes) {
 }
 function rotate(state, degrees) {
   state.settings = normalizeSettings(state.settings);
-  const theta = (Number(degrees) || 0) * Math.PI / 180;
+  const theta = ((Number(degrees) || 0) * Math.PI) / 180;
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
   const { cx, cy } = centroid(state.nodes);
@@ -4841,7 +5176,7 @@ function rotate(state, degrees) {
   applyAutoAvoid(state);
   return { ...state };
 }
-var currentLabelMode = (state) => state.settings.comment ? "comment" : "name";
+var currentLabelMode = (state) => (state.settings.comment ? "comment" : "name");
 function ensureBaseLabels(node) {
   const current = String(node.label ?? node.id);
   if (node.nameLabel === void 0) node.nameLabel = current;
@@ -4877,11 +5212,11 @@ function resolveNode(state, arg) {
   if (byId) return byId;
   const low = arg.toLowerCase();
   const ents = state.nodes.filter(
-    (n) => n.nodeType === "entity" && String(n.label).toLowerCase() === low
+    (n) => n.nodeType === "entity" && String(n.label).toLowerCase() === low,
   );
   if (ents.length === 1) return ents[0];
   const byName = state.nodes.filter(
-    (n) => n.nodeType === "entity" && String(n.nameLabel ?? "").toLowerCase() === low
+    (n) => n.nodeType === "entity" && String(n.nameLabel ?? "").toLowerCase() === low,
   );
   if (byName.length === 1) return byName[0];
   return null;
@@ -4909,7 +5244,7 @@ function setLabels(state, labels) {
   restyleAfterLabelEdit(state);
   return {
     state: { ...state },
-    resolved: nodes.map(([node]) => ({ id: node.id, label: String(node.label ?? "") }))
+    resolved: nodes.map(([node]) => ({ id: node.id, label: String(node.label ?? "") })),
   };
 }
 function resetLabels(state, idOrAll) {
@@ -4921,7 +5256,7 @@ function resetLabels(state, idOrAll) {
   restyleAfterLabelEdit(state);
   return {
     state: { ...state },
-    resolved: nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") }))
+    resolved: nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") })),
   };
 }
 function setLabelMode(state, mode) {
@@ -4930,7 +5265,7 @@ function setLabelMode(state, mode) {
   restyleAfterLabelEdit(state);
   return {
     state: { ...state },
-    resolved: state.nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") }))
+    resolved: state.nodes.map((node) => ({ id: node.id, label: String(node.label ?? "") })),
   };
 }
 function translateCluster(state, node, dx, dy) {
@@ -4951,9 +5286,9 @@ function captureNodePositions(nodes) {
       node.id,
       {
         x: typeof node.x === "number" ? node.x : 0,
-        y: typeof node.y === "number" ? node.y : 0
-      }
-    ])
+        y: typeof node.y === "number" ? node.y : 0,
+      },
+    ]),
   );
 }
 function syncMovedEntities(state, entityIds, startPositions) {
@@ -4962,21 +5297,21 @@ function syncMovedEntities(state, entityIds, startPositions) {
     state.edges,
     entityIds,
     measureNodeSize,
-    startPositions
+    startPositions,
   );
   applyNodePositionTargets(state.nodes, relationshipTargets);
   const attrTargets = computeAttributeRotationTargets(
     state.nodes,
     state.edges,
     affectedEntityIds,
-    measureNodeSize
+    measureNodeSize,
   );
   applyNodePositionTargets(state.nodes, attrTargets);
 }
-var TAU4 = Math.PI * 2;
+var TAU5 = Math.PI * 2;
 var normAngle = (a) => {
-  let x = a % TAU4;
-  if (x < 0) x += TAU4;
+  let x = a % TAU5;
+  if (x < 0) x += TAU5;
   return x;
 };
 function placeAttributesCompact(state) {
@@ -4984,19 +5319,20 @@ function placeAttributesCompact(state) {
   if (!attrs.length) return;
   const skeleton = state.nodes.filter((n) => n.nodeType !== "attribute");
   const graph = createHeadlessGraph(skeleton, state.edges, CANVAS_W, CANVAS_H);
-  computeAttributePositions(
-    graph,
-    attrs
-  );
+  computeAttributePositions(graph, attrs);
 }
 function placeAttributesModerate(state) {
   const entById = new Map(state.nodes.filter((n) => n.nodeType === "entity").map((e) => [e.id, e]));
   const relById = new Map(
-    state.nodes.filter((n) => n.nodeType === "relationship").map((r) => [r.id, r])
+    state.nodes.filter((n) => n.nodeType === "relationship").map((r) => [r.id, r]),
   );
   const attrsByEntity = /* @__PURE__ */ new Map();
   state.nodes.forEach((n) => {
-    if (n.nodeType === "attribute" && typeof n.parentEntity === "string" && entById.has(n.parentEntity)) {
+    if (
+      n.nodeType === "attribute" &&
+      typeof n.parentEntity === "string" &&
+      entById.has(n.parentEntity)
+    ) {
       if (!attrsByEntity.has(n.parentEntity)) attrsByEntity.set(n.parentEntity, []);
       attrsByEntity.get(n.parentEntity).push(n);
     }
@@ -5024,9 +5360,13 @@ function placeAttributesModerate(state) {
       obstacles.push({ id: n.id, x: n.x ?? 0, y: n.y ?? 0, w: s.width, h: s.height });
     }
   });
-  const hits = (x, y, w, h, skipId) => obstacles.some(
-    (o) => o.id !== skipId && Math.abs(x - o.x) < (w + o.w) / 2 - 2 && Math.abs(y - o.y) < (h + o.h) / 2 - 2
-  );
+  const hits = (x, y, w, h, skipId) =>
+    obstacles.some(
+      (o) =>
+        o.id !== skipId &&
+        Math.abs(x - o.x) < (w + o.w) / 2 - 2 &&
+        Math.abs(y - o.y) < (h + o.h) / 2 - 2,
+    );
   const centre = /* @__PURE__ */ new Map();
   state.nodes.forEach((n) => {
     if (n.nodeType === "entity" || n.nodeType === "relationship")
@@ -5048,11 +5388,13 @@ function placeAttributesModerate(state) {
     const d2 = c(b1, b2, a2);
     const d3 = c(a1, a2, b1);
     const d4 = c(a1, a2, b2);
-    return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
   };
-  const connectorCrosses = (ex, ey, x, y, eid) => relSegs.some(
-    (seg) => seg.a !== eid && seg.b !== eid && properCross({ x: ex, y: ey }, { x, y }, seg.s, seg.t)
-  );
+  const connectorCrosses = (ex, ey, x, y, eid) =>
+    relSegs.some(
+      (seg) =>
+        seg.a !== eid && seg.b !== eid && properCross({ x: ex, y: ey }, { x, y }, seg.s, seg.t),
+    );
   const segHitsBox = (p1, p2, bx, by, bw, bh) => {
     const minx = bx - bw / 2;
     const maxx = bx + bw / 2;
@@ -5074,12 +5416,18 @@ function placeAttributesModerate(state) {
       }
       return true;
     };
-    return clip(-dx, p1.x - minx) && clip(dx, maxx - p1.x) && clip(-dy, p1.y - miny) && clip(dy, maxy - p1.y) && t1 > t0;
+    return (
+      clip(-dx, p1.x - minx) &&
+      clip(dx, maxx - p1.x) &&
+      clip(-dy, p1.y - miny) &&
+      clip(dy, maxy - p1.y) &&
+      t1 > t0
+    );
   };
   const boxPierced = (x, y, w, h) => relSegs.some((seg) => segHitsBox(seg.s, seg.t, x, y, w, h));
   const angleOf = (m, cx, cy) => normAngle(Math.atan2((m.y ?? 0) - cy, (m.x ?? 0) - cx));
   const order = [...attrsByEntity.keys()].sort(
-    (a, b) => (attrsByEntity.get(b)?.length ?? 0) - (attrsByEntity.get(a)?.length ?? 0)
+    (a, b) => (attrsByEntity.get(b)?.length ?? 0) - (attrsByEntity.get(a)?.length ?? 0),
   );
   order.forEach((eid) => {
     const attrs = attrsByEntity.get(eid);
@@ -5098,7 +5446,7 @@ function placeAttributesModerate(state) {
     const angWidth = (half, R2) => 2 * Math.asin(Math.min(0.999, (half + GAP2 / 2) / R2));
     const angularSum = (R2) => items.reduce((s, it) => s + angWidth(it.half, R2), 0);
     const radialMin = entR + maxHalf + GAP2;
-    const target = TAU4 * 0.92;
+    const target = TAU5 * 0.92;
     let lo = radialMin;
     let hi = radialMin;
     while (angularSum(hi) > target && hi < radialMin + 6e3) hi *= 1.5;
@@ -5110,7 +5458,7 @@ function placeAttributesModerate(state) {
     const R = hi;
     const ordered = items.slice().sort((a, b) => angleOf(a.at, ecx, ecy) - angleOf(b.at, ecx, ecy));
     const widths = ordered.map((it) => angWidth(it.half, R));
-    const slack = Math.max(0, TAU4 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
+    const slack = Math.max(0, TAU5 - widths.reduce((s, w) => s + w, 0)) / Math.max(1, n);
     const baseAngles = [];
     let acc = 0;
     for (let i = 0; i < ordered.length; i++) {
@@ -5123,13 +5471,13 @@ function placeAttributesModerate(state) {
       const TRIES = 36;
       let best = -Infinity;
       for (let t = 0; t < TRIES; t++) {
-        const ph = t / TRIES * TAU4;
+        const ph = (t / TRIES) * TAU5;
         let minGap = Infinity;
         for (const ba of baseAngles) {
           const slot = normAngle(ph + ba);
           for (const r of rels) {
             let d = Math.abs(slot - r);
-            d = Math.min(d, TAU4 - d);
+            d = Math.min(d, TAU5 - d);
             if (d < minGap) minGap = d;
           }
         }
@@ -5145,7 +5493,7 @@ function placeAttributesModerate(state) {
       const offsets = [0];
       const SLIDE = 10;
       for (let k = 1; k <= SLIDE; k++) {
-        const off = k / SLIDE * win;
+        const off = (k / SLIDE) * win;
         offsets.push(off, -off);
       }
       let bx = ecx + R * Math.cos(baseAng);
@@ -5155,7 +5503,11 @@ function placeAttributesModerate(state) {
         const a2 = baseAng + off;
         const x = ecx + R * Math.cos(a2);
         const y = ecy + R * Math.sin(a2);
-        if (!hits(x, y, it.s.width, it.s.height, eid) && !connectorCrosses(ecx, ecy, x, y, eid) && !boxPierced(x, y, it.s.width, it.s.height)) {
+        if (
+          !hits(x, y, it.s.width, it.s.height, eid) &&
+          !connectorCrosses(ecx, ecy, x, y, eid) &&
+          !boxPierced(x, y, it.s.width, it.s.height)
+        ) {
           bx = x;
           by = y;
           placed = true;
@@ -5186,7 +5538,11 @@ function placeAttributesModerate(state) {
     const s = measureNodeSize(at);
     const cx = at.x ?? 0;
     const cy = at.y ?? 0;
-    if (!boxPierced(cx, cy, s.width, s.height) && !hits(cx, cy, s.width, s.height, at.id) && !connectorCrosses(ent.x ?? 0, ent.y ?? 0, cx, cy, at.parentEntity))
+    if (
+      !boxPierced(cx, cy, s.width, s.height) &&
+      !hits(cx, cy, s.width, s.height, at.id) &&
+      !connectorCrosses(ent.x ?? 0, ent.y ?? 0, cx, cy, at.parentEntity)
+    )
       return;
     const ecx = ent.x ?? 0;
     const ecy = ent.y ?? 0;
@@ -5194,7 +5550,10 @@ function placeAttributesModerate(state) {
     const curR = Math.hypot(cx - ecx, cy - ecy) || radiusOf(ent) + half;
     const curAng = normAngle(Math.atan2(cy - ecy, cx - ecx));
     let best = null;
-    const clearCandidate = (x, y) => !hits(x, y, s.width, s.height, at.id) && !boxPierced(x, y, s.width, s.height) && !connectorCrosses(ecx, ecy, x, y, at.parentEntity);
+    const clearCandidate = (x, y) =>
+      !hits(x, y, s.width, s.height, at.id) &&
+      !boxPierced(x, y, s.width, s.height) &&
+      !connectorCrosses(ecx, ecy, x, y, at.parentEntity);
     const consider = (x, y) => {
       if (!clearCandidate(x, y)) return;
       const d = Math.hypot(x - cx, y - cy);
@@ -5203,18 +5562,18 @@ function placeAttributesModerate(state) {
     const localStep = Math.max(6, Math.min(12, half / 4));
     const localMax = Math.max(220, half * 8);
     for (let r = localStep; r <= localMax; r += localStep) {
-      const steps = Math.max(24, Math.ceil(TAU4 * r / localStep));
+      const steps = Math.max(24, Math.ceil((TAU5 * r) / localStep));
       for (let k = 0; k < steps; k++) {
-        const ang = k / steps * TAU4;
+        const ang = (k / steps) * TAU5;
         consider(cx + r * Math.cos(ang), cy + r * Math.sin(ang));
       }
       if (best && best.d + localStep < r) break;
     }
     for (let dr = 0; dr <= 8; dr++) {
       const R2 = curR + dr * (half * 0.6 + 6);
-      const steps = Math.max(36, Math.round(TAU4 * R2 / (half + 6)));
+      const steps = Math.max(36, Math.round((TAU5 * R2) / (half + 6)));
       for (let k = 0; k < steps; k++) {
-        const ang = curAng + k / steps * TAU4;
+        const ang = curAng + (k / steps) * TAU5;
         const x = ecx + R2 * Math.cos(ang);
         const y = ecy + R2 * Math.sin(ang);
         consider(x, y);
@@ -5238,7 +5597,7 @@ function applyAttrMode(state) {
 function applyAutoAvoid(state) {
   state.settings = normalizeSettings(state.settings);
   if (!state.settings.autoAvoid) return;
-  const targets = computeAutoAvoidTargets(state.nodes, measureNodeSize);
+  const targets = computeAutoAvoidTargets(state.nodes, measureNodeSize, { edges: state.edges });
   applyNodePositionTargets(state.nodes, targets);
 }
 function measuredRingRadii(state) {
@@ -5329,8 +5688,8 @@ function swap(state, argA, argB, raw) {
     state: { ...state },
     resolved: [
       { id: a.id, label: String(a.label) },
-      { id: b.id, label: String(b.label) }
-    ]
+      { id: b.id, label: String(b.label) },
+    ],
   };
 }
 function unresolved(state, arg) {
@@ -5363,33 +5722,42 @@ function splitComponents(state) {
   });
   const seen = /* @__PURE__ */ new Set();
   const comps = [];
-  entities.map((e) => e.id).sort().forEach((id) => {
-    if (seen.has(id)) return;
-    const stack = [id];
-    const comp = [];
-    seen.add(id);
-    while (stack.length) {
-      const cur = stack.pop();
-      comp.push(cur);
-      (adj.get(cur) ?? []).forEach((nb) => {
-        if (!seen.has(nb)) {
-          seen.add(nb);
-          stack.push(nb);
-        }
-      });
-    }
-    comps.push(comp);
-  });
+  entities
+    .map((e) => e.id)
+    .sort()
+    .forEach((id) => {
+      if (seen.has(id)) return;
+      const stack = [id];
+      const comp = [];
+      seen.add(id);
+      while (stack.length) {
+        const cur = stack.pop();
+        comp.push(cur);
+        (adj.get(cur) ?? []).forEach((nb) => {
+          if (!seen.has(nb)) {
+            seen.add(nb);
+            stack.push(nb);
+          }
+        });
+      }
+      comps.push(comp);
+    });
   const usedNames = /* @__PURE__ */ new Map();
   const nameFor = (entIds) => {
     const labelOf = (id) => {
       const n2 = state.nodes.find((x) => x.id === id);
       return String(n2?.nameLabel ?? n2?.label ?? id);
     };
-    const rep = entIds.slice().sort(
-      (a, b) => (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0) || labelOf(a).localeCompare(labelOf(b))
-    )[0];
-    let base = labelOf(rep).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const rep = entIds
+      .slice()
+      .sort(
+        (a, b) =>
+          (adj.get(b)?.size ?? 0) - (adj.get(a)?.size ?? 0) || labelOf(a).localeCompare(labelOf(b)),
+      )[0];
+    let base = labelOf(rep)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
     if (!base) base = "component";
     const n = usedNames.get(base) ?? 0;
     usedNames.set(base, n + 1);
@@ -5398,10 +5766,12 @@ function splitComponents(state) {
   return comps.map((entIds) => {
     const entSet = new Set(entIds);
     const relIds = new Set(
-      rels.filter((r) => {
-        const ids = [...new Set(relEnts.get(r.id) ?? [])];
-        return ids.length > 0 && ids.every((id) => entSet.has(id));
-      }).map((r) => r.id)
+      rels
+        .filter((r) => {
+          const ids = [...new Set(relEnts.get(r.id) ?? [])];
+          return ids.length > 0 && ids.every((id) => entSet.has(id));
+        })
+        .map((r) => r.id),
     );
     const nodeSet = /* @__PURE__ */ new Set([...entSet, ...relIds]);
     state.nodes.forEach((n) => {
@@ -5418,8 +5788,8 @@ function splitComponents(state) {
 import { parse as parsePath } from "node:path";
 
 // skills/sql2er/scripts/engine/describe.ts
-var num = (v, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? v : fallback;
-var short = (s, n) => s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
+var num = (v, fallback = 0) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+var short = (s, n) => (s.length > n ? s.slice(0, n - 1) + "\u2026" : s);
 var segCross2 = (a1, a2, b1, b2) => {
   const eq = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
   if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
@@ -5428,7 +5798,7 @@ var segCross2 = (a1, a2, b1, b2) => {
   const d2 = c(b1.x, b1.y, b2.x, b2.y, a2.x, a2.y);
   const d3 = c(a1.x, a1.y, a2.x, a2.y, b1.x, b1.y);
   const d4 = c(a1.x, a1.y, a2.x, a2.y, b2.x, b2.y);
-  return (d1 > 0 && d2 < 0 || d1 < 0 && d2 > 0) && (d3 > 0 && d4 < 0 || d3 < 0 && d4 > 0);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 };
 function buildScene(graph) {
   const nodes = graph.getNodes();
@@ -5448,7 +5818,7 @@ function buildScene(graph) {
         x: num(m.x),
         y: num(m.y),
         w: b.width,
-        h: b.height
+        h: b.height,
       });
       if (m.isPlaceholder) placeholders.add(m.id);
     } else if (m.nodeType === "relationship") {
@@ -5487,7 +5857,7 @@ function buildScene(graph) {
       toId,
       cardFrom,
       cardTo,
-      selfLoop: !!m.isSelfLoop || fromId !== null && fromId === toId
+      selfLoop: !!m.isSelfLoop || (fromId !== null && fromId === toId),
     };
   });
   const adj = /* @__PURE__ */ new Map();
@@ -5500,36 +5870,42 @@ function buildScene(graph) {
   });
   const seen = /* @__PURE__ */ new Set();
   const components = [];
-  [...entities].sort((a, b) => a.id.localeCompare(b.id)).forEach((e) => {
-    if (seen.has(e.id)) return;
-    const stack = [e.id];
-    const comp = [];
-    seen.add(e.id);
-    while (stack.length) {
-      const cur = stack.pop();
-      comp.push(cur);
-      (adj.get(cur) ?? []).forEach((nb) => {
-        if (!seen.has(nb)) {
-          seen.add(nb);
-          stack.push(nb);
-        }
-      });
-    }
-    components.push(comp.sort());
-  });
+  [...entities]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .forEach((e) => {
+      if (seen.has(e.id)) return;
+      const stack = [e.id];
+      const comp = [];
+      seen.add(e.id);
+      while (stack.length) {
+        const cur = stack.pop();
+        comp.push(cur);
+        (adj.get(cur) ?? []).forEach((nb) => {
+          if (!seen.has(nb)) {
+            seen.add(nb);
+            stack.push(nb);
+          }
+        });
+      }
+      components.push(comp.sort());
+    });
   const hasRel = /* @__PURE__ */ new Set();
   relationships.forEach((r) => {
     if (r.fromId) hasRel.add(r.fromId);
     if (r.toId) hasRel.add(r.toId);
   });
   const isolated = entities.filter((e) => !hasRel.has(e.id)).map((e) => e.id);
-  const segs = relationships.filter((r) => r.fromId && r.toId && !r.selfLoop).map((r) => ({ r, a: entityById.get(r.fromId), b: entityById.get(r.toId) })).filter((s) => s.a && s.b);
+  const segs = relationships
+    .filter((r) => r.fromId && r.toId && !r.selfLoop)
+    .map((r) => ({ r, a: entityById.get(r.fromId), b: entityById.get(r.toId) }))
+    .filter((s) => s.a && s.b);
   const crossings = [];
   for (let i = 0; i < segs.length; i++) {
     for (let j = i + 1; j < segs.length; j++) {
       const si = segs[i];
       const sj = segs[j];
-      const shared = si.a.id === sj.a.id || si.a.id === sj.b.id || si.b.id === sj.a.id || si.b.id === sj.b.id;
+      const shared =
+        si.a.id === sj.a.id || si.a.id === sj.b.id || si.b.id === sj.a.id || si.b.id === sj.b.id;
       if (shared) continue;
       if (segCross2(si.a, si.b, sj.a, sj.b)) crossings.push([si.r, sj.r]);
     }
@@ -5544,9 +5920,9 @@ function buildScene(graph) {
         x: r.x,
         y: r.y,
         w: b.width,
-        h: b.height
+        h: b.height,
       };
-    })
+    }),
   );
   const overlaps = [];
   for (let i = 0; i < coreInfos.length; i++) {
@@ -5554,7 +5930,10 @@ function buildScene(graph) {
       const a = coreInfos[i];
       const b = coreInfos[j];
       const gap = 2;
-      if (Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - gap && Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - gap) {
+      if (
+        Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - gap &&
+        Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - gap
+      ) {
         overlaps.push([a, b]);
       }
     }
@@ -5565,14 +5944,14 @@ function buildScene(graph) {
     y: c.y,
     w: c.w,
     h: c.h,
-    attr: false
+    attr: false,
   }));
-  attrsByEntity.forEach(
-    (list) => list.forEach((m) => {
+  attrsByEntity.forEach((list) =>
+    list.forEach((m) => {
       const b = bboxOf.get(m.id);
       if (b)
         boxes.push({ id: m.id, x: num(m.x), y: num(m.y), w: b.width, h: b.height, attr: true });
-    })
+    }),
   );
   let attrOverlaps = 0;
   for (let i = 0; i < boxes.length; i++) {
@@ -5580,7 +5959,10 @@ function buildScene(graph) {
       const a = boxes[i];
       const b = boxes[j];
       if (!a.attr && !b.attr) continue;
-      if (Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - 2 && Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - 2)
+      if (
+        Math.abs(a.x - b.x) < a.w / 2 + b.w / 2 - 2 &&
+        Math.abs(a.y - b.y) < a.h / 2 + b.h / 2 - 2
+      )
         attrOverlaps++;
     }
   }
@@ -5588,32 +5970,39 @@ function buildScene(graph) {
     const b = bboxOf.get(id);
     return b ? { x: b.centerX, y: b.centerY } : null;
   };
-  const edgeSegs = edges.map((e) => {
-    const m = e.getModel();
-    const s = centerOf(m.source);
-    const t = centerOf(m.target);
-    return s && t ? { s, t, source: m.source, target: m.target, type: m.edgeType } : null;
-  }).filter((x) => !!x);
+  const edgeSegs = edges
+    .map((e) => {
+      const m = e.getModel();
+      const s = centerOf(m.source);
+      const t = centerOf(m.target);
+      return s && t ? { s, t, source: m.source, target: m.target, type: m.edgeType } : null;
+    })
+    .filter((x) => !!x);
   let attrCrossings = 0;
   for (let i = 0; i < edgeSegs.length; i++) {
     for (let j = i + 1; j < edgeSegs.length; j++) {
       const a = edgeSegs[i];
       const b = edgeSegs[j];
       if (a.type !== "entity-attribute" && b.type !== "entity-attribute") continue;
-      if (a.source === b.source || a.source === b.target || a.target === b.source || a.target === b.target)
+      if (
+        a.source === b.source ||
+        a.source === b.target ||
+        a.target === b.source ||
+        a.target === b.target
+      )
         continue;
       if (segCross2(a.s, a.t, b.s, b.t)) attrCrossings++;
     }
   }
   const relLineSegs = edgeSegs.filter(
-    (s) => s.type === "entity-relationship" || s.type === "relationship-entity"
+    (s) => s.type === "entity-relationship" || s.type === "relationship-entity",
   );
   const attrBoxes = [];
-  attrsByEntity.forEach(
-    (list) => list.forEach((m) => {
+  attrsByEntity.forEach((list) =>
+    list.forEach((m) => {
       const b = bboxOf.get(m.id);
       if (b) attrBoxes.push({ x: num(m.x), y: num(m.y), w: b.width, h: b.height });
-    })
+    }),
   );
   const segHitsBox = (p1, p2, bx, by, bw, bh) => {
     const inset = 2;
@@ -5638,14 +6027,23 @@ function buildScene(graph) {
       }
       return true;
     };
-    return clip(-dx, p1.x - minx) && clip(dx, maxx - p1.x) && clip(-dy, p1.y - miny) && clip(dy, maxy - p1.y) && t1 > t0;
+    return (
+      clip(-dx, p1.x - minx) &&
+      clip(dx, maxx - p1.x) &&
+      clip(-dy, p1.y - miny) &&
+      clip(dy, maxy - p1.y) &&
+      t1 > t0
+    );
   };
   for (const seg of relLineSegs) {
     for (const ab of attrBoxes) {
       if (segHitsBox(seg.s, seg.t, ab.x, ab.y, ab.w, ab.h)) attrCrossings++;
     }
   }
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   coreInfos.forEach((c) => {
     minX = Math.min(minX, c.x - c.w / 2);
     minY = Math.min(minY, c.y - c.h / 2);
@@ -5669,7 +6067,7 @@ function buildScene(graph) {
     overlaps,
     attrOverlaps,
     attrCrossings,
-    bbox: { minX, minY, maxX, maxY }
+    bbox: { minX, minY, maxX, maxY },
   };
 }
 function asciiMap(scene) {
@@ -5682,8 +6080,8 @@ function asciiMap(scene) {
   const rows = Math.max(3, Math.min(14, Math.round(cols * (spanY / spanX)) || 3));
   const grid = Array.from({ length: rows }, () => Array(cols).fill(null));
   const cell = (c) => {
-    const cx = Math.min(cols - 1, Math.max(0, Math.round((c.x - minX) / spanX * (cols - 1))));
-    const cy = Math.min(rows - 1, Math.max(0, Math.round((c.y - minY) / spanY * (rows - 1))));
+    const cx = Math.min(cols - 1, Math.max(0, Math.round(((c.x - minX) / spanX) * (cols - 1))));
+    const cy = Math.min(rows - 1, Math.max(0, Math.round(((c.y - minY) / spanY) * (rows - 1))));
     return [cy, cx];
   };
   const place = (r, c, token) => {
@@ -5712,8 +6110,11 @@ function asciiMap(scene) {
     place(rr, cc, "\u25C7" + short(r.label, 5));
   });
   const cw = 10;
-  return grid.map(
-    (row) => row.map((t) => (t ?? "").padEnd(cw)).join("").replace(/\s+$/, "")
+  return grid.map((row) =>
+    row
+      .map((t) => (t ?? "").padEnd(cw))
+      .join("")
+      .replace(/\s+$/, ""),
   );
 }
 function describe(graph, opts = {}) {
@@ -5723,7 +6124,8 @@ function describe(graph, opts = {}) {
     return describeFocus(scene, opts.focus).join("\n");
   }
   L.push(
-    `COMPONENTS: ${scene.components.length}` + (scene.isolated.length ? `  (isolated: ${scene.isolated.length})` : "")
+    `COMPONENTS: ${scene.components.length}` +
+      (scene.isolated.length ? `  (isolated: ${scene.isolated.length})` : ""),
   );
   scene.components.forEach((comp, i) => {
     const labels = comp.map((id) => scene.entityById.get(id)?.label ?? id);
@@ -5737,36 +6139,43 @@ function describe(graph, opts = {}) {
     const deg = scene.relationships.filter((r) => r.fromId === e.id || r.toId === e.id).length;
     const tag = scene.placeholders.has(e.id) ? " [placeholder]" : "";
     L.push(
-      `  ${e.id}  ${e.label}${tag}  (${Math.round(e.x)},${Math.round(e.y)})  ${Math.round(e.w)}\xD7${Math.round(e.h)}  deg=${deg}  attrs=${attrs.length}${pk ? `(${pk}pk)` : ""}`
+      `  ${e.id}  ${e.label}${tag}  (${Math.round(e.x)},${Math.round(e.y)})  ${Math.round(e.w)}\xD7${Math.round(e.h)}  deg=${deg}  attrs=${attrs.length}${pk ? `(${pk}pk)` : ""}`,
     );
   });
   L.push("");
   if (scene.relationships.length) {
     L.push("RELATIONS  (id | label | from\u2192to | card | pos)");
     scene.relationships.forEach((r) => {
-      const from = r.fromId ? scene.entityById.get(r.fromId)?.label ?? r.fromId : "?";
-      const to = r.toId ? scene.entityById.get(r.toId)?.label ?? r.toId : "?";
+      const from = r.fromId ? (scene.entityById.get(r.fromId)?.label ?? r.fromId) : "?";
+      const to = r.toId ? (scene.entityById.get(r.toId)?.label ?? r.toId) : "?";
       const self = r.selfLoop ? " [self]" : "";
       L.push(
-        `  ${r.id}  ${r.label}  ${from}\u2192${to}${self}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`
+        `  ${r.id}  ${r.label}  ${from}\u2192${to}${self}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`,
       );
     });
     L.push("");
   }
   L.push("DIAGNOSTICS");
   if (scene.crossings.length) {
-    scene.crossings.slice(0, 12).forEach(([a, b]) => L.push(`  \u26A0 crossing: ${a.label} \xD7 ${b.label}`));
-    if (scene.crossings.length > 12) L.push(`  \u2026 +${scene.crossings.length - 12} more crossings`);
+    scene.crossings
+      .slice(0, 12)
+      .forEach(([a, b]) => L.push(`  \u26A0 crossing: ${a.label} \xD7 ${b.label}`));
+    if (scene.crossings.length > 12)
+      L.push(`  \u2026 +${scene.crossings.length - 12} more crossings`);
   } else {
     L.push("  \u2713 no edge crossings");
   }
   if (scene.overlaps.length) {
-    scene.overlaps.slice(0, 12).forEach(([a, b]) => L.push(`  \u26A0 overlap: ${a.label} \xD7 ${b.label}`));
+    scene.overlaps
+      .slice(0, 12)
+      .forEach(([a, b]) => L.push(`  \u26A0 overlap: ${a.label} \xD7 ${b.label}`));
     if (scene.overlaps.length > 12) L.push(`  \u2026 +${scene.overlaps.length - 12} more overlaps`);
   } else {
     L.push("  \u2713 no node overlaps");
   }
-  scene.isolated.forEach((id) => L.push(`  \u26A0 isolated: ${scene.entityById.get(id)?.label ?? id}`));
+  scene.isolated.forEach((id) =>
+    L.push(`  \u26A0 isolated: ${scene.entityById.get(id)?.label ?? id}`),
+  );
   if (scene.attrOverlaps > 0)
     L.push(`  \u26A0 attribute overlaps: ${scene.attrOverlaps}  (try \`attrs compact\`)`);
   if (scene.attrCrossings > 0)
@@ -5783,7 +6192,7 @@ function describe(graph, opts = {}) {
     }
   });
   L.push(
-    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} attrCrossings=${scene.attrCrossings} bbox=${w}\xD7${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`
+    `  metrics: crossings=${scene.crossings.length} overlaps=${scene.overlaps.length} attrOverlaps=${scene.attrOverlaps} attrCrossings=${scene.attrCrossings} bbox=${w}\xD7${h} aspect=${aspect} edgeLen=${Math.round(edgeLen)}`,
   );
   L.push("");
   L.push("MAP  (coarse 2D placement; authoritative coords above)");
@@ -5794,7 +6203,7 @@ function describe(graph, opts = {}) {
     scene.entities.forEach((e) => {
       (scene.attrsByEntity.get(e.id) ?? []).forEach((a) => {
         L.push(
-          `  ${a.id}  ${a.label}${a.keyType === "pk" ? " [pk]" : ""}  ${e.label}  (${Math.round(num(a.x))},${Math.round(num(a.y))})`
+          `  ${a.id}  ${a.label}${a.keyType === "pk" ? " [pk]" : ""}  ${e.label}  (${Math.round(num(a.x))},${Math.round(num(a.y))})`,
         );
       });
     });
@@ -5802,27 +6211,29 @@ function describe(graph, opts = {}) {
   return L.join("\n");
 }
 function describeFocus(scene, focusArg) {
-  const ent = scene.entityById.get(focusArg) ?? scene.entities.find((e) => e.label.toLowerCase() === focusArg.toLowerCase());
+  const ent =
+    scene.entityById.get(focusArg) ??
+    scene.entities.find((e) => e.label.toLowerCase() === focusArg.toLowerCase());
   if (!ent) return [`focus: no entity matching "${focusArg}"`];
   const L = [];
   L.push(
-    `FOCUS ${ent.id}  ${ent.label}  (${Math.round(ent.x)},${Math.round(ent.y)})  ${Math.round(ent.w)}\xD7${Math.round(ent.h)}`
+    `FOCUS ${ent.id}  ${ent.label}  (${Math.round(ent.x)},${Math.round(ent.y)})  ${Math.round(ent.w)}\xD7${Math.round(ent.h)}`,
   );
   const rels = scene.relationships.filter((r) => r.fromId === ent.id || r.toId === ent.id);
   L.push(`  relations: ${rels.length}`);
   rels.forEach((r) => {
-    const fromL = r.fromId ? scene.entityById.get(r.fromId)?.label ?? r.fromId : "?";
-    const toL = r.toId ? scene.entityById.get(r.toId)?.label ?? r.toId : "?";
+    const fromL = r.fromId ? (scene.entityById.get(r.fromId)?.label ?? r.fromId) : "?";
+    const toL = r.toId ? (scene.entityById.get(r.toId)?.label ?? r.toId) : "?";
     const self = r.selfLoop ? " [self]" : "";
     L.push(
-      `    ${r.id}  ${r.label}  ${fromL}\u2192${toL}${self}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`
+      `    ${r.id}  ${r.label}  ${fromL}\u2192${toL}${self}  ${r.cardFrom}:${r.cardTo}  (${Math.round(r.x)},${Math.round(r.y)})`,
     );
   });
   const attrs = scene.attrsByEntity.get(ent.id) ?? [];
   L.push(`  attributes: ${attrs.length}`);
   attrs.forEach((a) => {
     L.push(
-      `    ${a.id}  ${a.label}${a.keyType === "pk" ? " [pk]" : ""}  (${Math.round(num(a.x))},${Math.round(num(a.y))})`
+      `    ${a.id}  ${a.label}${a.keyType === "pk" ? " [pk]" : ""}  (${Math.round(num(a.x))},${Math.round(num(a.y))})`,
     );
   });
   return L;
@@ -5837,7 +6248,7 @@ function describeJson(graph) {
       y: Math.round(e.y),
       w: Math.round(e.w),
       h: Math.round(e.h),
-      placeholder: s.placeholders.has(e.id)
+      placeholder: s.placeholders.has(e.id),
     })),
     relationships: s.relationships.map((r) => ({
       id: r.id,
@@ -5846,7 +6257,7 @@ function describeJson(graph) {
       to: r.toId,
       card: `${r.cardFrom}:${r.cardTo}`,
       x: Math.round(r.x),
-      y: Math.round(r.y)
+      y: Math.round(r.y),
     })),
     diagnostics: {
       crossings: s.crossings.length,
@@ -5854,8 +6265,8 @@ function describeJson(graph) {
       attrOverlaps: s.attrOverlaps,
       attrCrossings: s.attrCrossings,
       isolated: s.isolated.map((id) => s.entityById.get(id)?.label ?? id),
-      bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) }
-    }
+      bbox: { w: Math.round(s.bbox.maxX - s.bbox.minX), h: Math.round(s.bbox.maxY - s.bbox.minY) },
+    },
   };
 }
 
@@ -5864,7 +6275,12 @@ import { spawnSync } from "node:child_process";
 
 // src/exporter.ts
 function escapeXml(s) {
-  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 function buildVertexStyle(model) {
   const s = model.style || {};
@@ -5872,10 +6288,15 @@ function buildVertexStyle(model) {
   const stroke = s.stroke || "#000000";
   const strokeWidth = s.lineWidth || 1;
   const dashed = Array.isArray(s.lineDash) && s.lineDash.length ? "dashed=1;" : "";
-  const labelFontColor = model.labelCfg && model.labelCfg.style && model.labelCfg.style.fill || "#1e293b";
-  const lblStyle = model.labelCfg && model.labelCfg.style || {};
+  const labelFontColor =
+    (model.labelCfg && model.labelCfg.style && model.labelCfg.style.fill) || "#1e293b";
+  const lblStyle = (model.labelCfg && model.labelCfg.style) || {};
   let fontStyle = 0;
-  if (lblStyle.fontWeight === "bold" || lblStyle.fontWeight === "700" || lblStyle.fontWeight === 700)
+  if (
+    lblStyle.fontWeight === "bold" ||
+    lblStyle.fontWeight === "700" ||
+    lblStyle.fontWeight === 700
+  )
     fontStyle |= 1;
   if (lblStyle.fontStyle === "italic") fontStyle |= 2;
   if (model.nodeType === "entity") {
@@ -5921,7 +6342,7 @@ function buildDrawioXML(graph) {
     const w = Math.round(bbox.width);
     const h = Math.round(bbox.height);
     cells.push(
-      `<mxCell id="${id}" value="${label}" style="${style}" vertex="1" parent="1"><mxGeometry x="${x}" y="${y}" width="${w}" height="${h}" as="geometry" /></mxCell>`
+      `<mxCell id="${id}" value="${label}" style="${style}" vertex="1" parent="1"><mxGeometry x="${x}" y="${y}" width="${w}" height="${h}" as="geometry" /></mxCell>`,
     );
   });
   let ei = 0;
@@ -5934,7 +6355,7 @@ function buildDrawioXML(graph) {
     const style = buildEdgeStyle(model);
     const label = escapeXml(model.label || "");
     cells.push(
-      `<mxCell id="${id}" value="${label}" style="${style}" edge="1" parent="1" source="${source}" target="${target}"><mxGeometry relative="1" as="geometry" /></mxCell>`
+      `<mxCell id="${id}" value="${label}" style="${style}" edge="1" parent="1" source="${source}" target="${target}"><mxGeometry relative="1" as="geometry" /></mxCell>`,
     );
   });
   const diagramId = makeDiagramId();
@@ -5944,7 +6365,12 @@ function buildDrawioXML(graph) {
 }
 
 // skills/sql2er/scripts/engine/exporters.ts
-var esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+var esc = (s) =>
+  String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 function exportDrawio(state) {
   const graph = createHeadlessGraph(state.nodes, state.edges);
   return buildDrawioXML(graph);
@@ -5962,17 +6388,17 @@ function exportJson(state) {
         y: Math.round(typeof n.y === "number" ? n.y : 0),
         w: Math.round(s.width),
         h: Math.round(s.height),
-        ...n.keyType === "pk" ? { pk: true } : {},
-        ...n.parentEntity ? { parent: n.parentEntity } : {},
-        ...n.isPlaceholder ? { placeholder: true } : {}
+        ...(n.keyType === "pk" ? { pk: true } : {}),
+        ...(n.parentEntity ? { parent: n.parentEntity } : {}),
+        ...(n.isPlaceholder ? { placeholder: true } : {}),
       };
     }),
     edges: state.edges.map((e) => ({
       source: e.source,
       target: e.target,
       label: e.label ?? "",
-      type: e.edgeType ?? ""
-    }))
+      type: e.edgeType ?? "",
+    })),
   };
   return JSON.stringify(out, null, 2);
 }
@@ -5980,13 +6406,13 @@ var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 function exportPng(state) {
   const svg = exportSvg(state);
   const candidates = [process.env.SQL2ER_RSVG_CONVERT, "rsvg-convert", "rsvg-convert.exe"].filter(
-    (cmd) => !!cmd
+    (cmd) => !!cmd,
   );
   const missing = [];
   for (const cmd of candidates) {
     const result = spawnSync(cmd, ["--format", "png", "-"], {
       input: svg,
-      maxBuffer: 200 * 1024 * 1024
+      maxBuffer: 200 * 1024 * 1024,
     });
     if (result.error) {
       if (result.error.code === "ENOENT") {
@@ -6006,12 +6432,15 @@ function exportPng(state) {
     return png;
   }
   throw new Error(
-    `PNG export requires rsvg-convert on PATH or SQL2ER_RSVG_CONVERT. Tried: ${missing.join(", ") || "none"}.`
+    `PNG export requires rsvg-convert on PATH or SQL2ER_RSVG_CONVERT. Tried: ${missing.join(", ") || "none"}.`,
   );
 }
 function exportSvg(state) {
   const sized = /* @__PURE__ */ new Map();
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   state.nodes.forEach((n) => {
     const { width, height } = measureNodeSize(n);
     const cx = typeof n.x === "number" ? n.x : 0;
@@ -6033,18 +6462,19 @@ function exportSvg(state) {
   const vbH = maxY - minY + pad * 2;
   const parts = [];
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(vbW)}" height="${Math.round(vbH)}" viewBox="${Math.round(vbX)} ${Math.round(vbY)} ${Math.round(vbW)} ${Math.round(vbH)}" font-family="sans-serif">`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(vbW)}" height="${Math.round(vbH)}" viewBox="${Math.round(vbX)} ${Math.round(vbY)} ${Math.round(vbW)} ${Math.round(vbH)}" font-family="sans-serif">`,
   );
   parts.push(
-    `<rect x="${Math.round(vbX)}" y="${Math.round(vbY)}" width="${Math.round(vbW)}" height="${Math.round(vbH)}" fill="#ffffff"/>`
+    `<rect x="${Math.round(vbX)}" y="${Math.round(vbY)}" width="${Math.round(vbW)}" height="${Math.round(vbH)}" fill="#ffffff"/>`,
   );
   const selfLoopControl = (s, t, off) => {
     const dx = t.cx - s.cx;
     const dy = t.cy - s.cy;
     const dist = Math.hypot(dx, dy) || 1;
-    return { x: (s.cx + t.cx) / 2 + -dy / dist * off, y: (s.cy + t.cy) / 2 + dx / dist * off };
+    return { x: (s.cx + t.cx) / 2 + (-dy / dist) * off, y: (s.cy + t.cy) / 2 + (dx / dist) * off };
   };
-  const isArc = (e) => e.type === "self-loop-arc" && typeof e.curveOffset === "number" && e.curveOffset !== 0;
+  const isArc = (e) =>
+    e.type === "self-loop-arc" && typeof e.curveOffset === "number" && e.curveOffset !== 0;
   state.edges.forEach((e) => {
     const s = sized.get(e.source);
     const t = sized.get(e.target);
@@ -6052,11 +6482,11 @@ function exportSvg(state) {
     if (isArc(e)) {
       const c = selfLoopControl(s, t, e.curveOffset);
       parts.push(
-        `<path d="M ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} Q ${c.x.toFixed(1)} ${c.y.toFixed(1)} ${t.cx.toFixed(1)} ${t.cy.toFixed(1)}" fill="none" stroke="#000" stroke-width="1.5"/>`
+        `<path d="M ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} Q ${c.x.toFixed(1)} ${c.y.toFixed(1)} ${t.cx.toFixed(1)} ${t.cy.toFixed(1)}" fill="none" stroke="#000" stroke-width="1.5"/>`,
       );
     } else {
       parts.push(
-        `<line x1="${s.cx.toFixed(1)}" y1="${s.cy.toFixed(1)}" x2="${t.cx.toFixed(1)}" y2="${t.cy.toFixed(1)}" stroke="#000" stroke-width="1.5"/>`
+        `<line x1="${s.cx.toFixed(1)}" y1="${s.cy.toFixed(1)}" x2="${t.cx.toFixed(1)}" y2="${t.cy.toFixed(1)}" stroke="#000" stroke-width="1.5"/>`,
       );
     }
   });
@@ -6065,35 +6495,41 @@ function exportSvg(state) {
     const fill = n.style?.fill ?? "#fff";
     const stroke = n.style?.stroke ?? "#000";
     const lw = n.style?.lineWidth ?? 1.5;
-    const dash = Array.isArray(n.style?.lineDash) && n.style?.lineDash.length ? ` stroke-dasharray="4 4"` : "";
+    const dash =
+      Array.isArray(n.style?.lineDash) && n.style?.lineDash.length ? ` stroke-dasharray="4 4"` : "";
     const fontFill = n.labelCfg?.style?.fill ?? "#000";
-    const fontSize = n.labelCfg?.style?.fontSize ?? (n.nodeType === "entity" ? 18 : n.nodeType === "relationship" ? 16 : 15);
-    const bold = n.labelCfg?.style?.fontWeight === "bold" || n.labelCfg?.style?.fontWeight === "700" || n.labelCfg?.style?.fontWeight === 700;
+    const fontSize =
+      n.labelCfg?.style?.fontSize ??
+      (n.nodeType === "entity" ? 18 : n.nodeType === "relationship" ? 16 : 15);
+    const bold =
+      n.labelCfg?.style?.fontWeight === "bold" ||
+      n.labelCfg?.style?.fontWeight === "700" ||
+      n.labelCfg?.style?.fontWeight === 700;
     const fw = bold ? ` font-weight="bold"` : "";
     const { cx, cy, w, h } = s;
     if (n.nodeType === "entity") {
       parts.push(
-        `<rect x="${(cx - w / 2).toFixed(1)}" y="${(cy - h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${lw}"${dash}/>`
+        `<rect x="${(cx - w / 2).toFixed(1)}" y="${(cy - h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${lw}"${dash}/>`,
       );
     } else if (n.nodeType === "relationship") {
       const pts = `${cx},${(cy - h / 2).toFixed(1)} ${(cx + w / 2).toFixed(1)},${cy} ${cx},${(cy + h / 2).toFixed(1)} ${(cx - w / 2).toFixed(1)},${cy}`;
       parts.push(
-        `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${lw}"${dash}/>`
+        `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${lw}"${dash}/>`,
       );
     } else {
       parts.push(
-        `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${(w / 2).toFixed(1)}" ry="${(h / 2).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${lw}"${dash}/>`
+        `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${(w / 2).toFixed(1)}" ry="${(h / 2).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${lw}"${dash}/>`,
       );
     }
     const label = esc(n.label ?? "");
     parts.push(
-      `<text x="${cx.toFixed(1)}" y="${(cy + Number(fontSize) * 0.34).toFixed(1)}" font-size="${fontSize}" fill="${fontFill}"${fw} text-anchor="middle">${label}</text>`
+      `<text x="${cx.toFixed(1)}" y="${(cy + Number(fontSize) * 0.34).toFixed(1)}" font-size="${fontSize}" fill="${fontFill}"${fw} text-anchor="middle">${label}</text>`,
     );
     if (n.nodeType === "attribute" && n.keyType === "pk") {
       const tw = getTextWidth(String(n.label ?? ""), Number(fontSize));
       const uy = cy + Number(fontSize) * 0.62;
       parts.push(
-        `<line x1="${(cx - tw / 2).toFixed(1)}" y1="${uy.toFixed(1)}" x2="${(cx + tw / 2).toFixed(1)}" y2="${uy.toFixed(1)}" stroke="${fontFill}" stroke-width="1"/>`
+        `<line x1="${(cx - tw / 2).toFixed(1)}" y1="${uy.toFixed(1)}" x2="${(cx + tw / 2).toFixed(1)}" y2="${uy.toFixed(1)}" stroke="${fontFill}" stroke-width="1"/>`,
       );
     }
   });
@@ -6110,10 +6546,10 @@ function exportSvg(state) {
       my = (my + c.y) / 2;
     }
     parts.push(
-      `<rect x="${(mx - 7).toFixed(1)}" y="${(my - 8).toFixed(1)}" width="14" height="14" fill="#fff"/>`
+      `<rect x="${(mx - 7).toFixed(1)}" y="${(my - 8).toFixed(1)}" width="14" height="14" fill="#fff"/>`,
     );
     parts.push(
-      `<text x="${mx.toFixed(1)}" y="${(my + 4).toFixed(1)}" font-size="12" fill="#000" text-anchor="middle">${esc(e.label)}</text>`
+      `<text x="${mx.toFixed(1)}" y="${(my + 4).toFixed(1)}" font-size="12" fill="#000" text-anchor="middle">${esc(e.label)}</text>`,
     );
   });
   parts.push("</svg>");
@@ -6171,8 +6607,7 @@ function readInput(flags) {
   if (flags.stdin || !process.stdin.isTTY) {
     try {
       return rf(0, "utf8");
-    } catch {
-    }
+    } catch {}
   }
   throw new Error("Provide input via --input <file>, --text <inline>, or piped stdin.");
 }
@@ -6198,8 +6633,8 @@ function printState(state, flags) {
   process.stdout.write(
     describe(graph, {
       full: boolFlag(flags.full),
-      focus: typeof flags.focus === "string" ? flags.focus : void 0
-    }) + "\n"
+      focus: typeof flags.focus === "string" ? flags.focus : void 0,
+    }) + "\n",
   );
 }
 var HELP = `sql2er-agent \u2014 headless SQL/DBML \u2192 Chen-model ER layout for agents
@@ -6263,8 +6698,8 @@ function main() {
           comment: boolFlag(flags.comment),
           hideAttrs: boolFlag(flags["hide-attrs"]),
           attrMode: ATTR_MODES.includes(flags.attrs) ? flags.attrs : "auto",
-          autoAvoid: boolFlag(flags["auto-avoid"], true)
-        }
+          autoAvoid: boolFlag(flags["auto-avoid"], true),
+        },
       });
       saveState(flags, state);
       printState(state, flags);
@@ -6320,7 +6755,7 @@ function main() {
         break;
       }
       throw new Error(
-        "labels set <id> <label> | labels batch --file <json> | labels batch --text <json> | labels reset <id|all> | labels mode <name|comment>"
+        "labels set <id> <label> | labels batch --file <json> | labels batch --text <json> | labels reset <id|all> | labels mode <name|comment>",
       );
     }
     case "describe": {
@@ -6409,7 +6844,7 @@ function main() {
     case "export": {
       if (hasFlag(flags, "hide-attrs")) {
         throw new Error(
-          "--hide-attrs is only valid on generate; export writes whatever the saved state contains."
+          "--hide-attrs is only valid on generate; export writes whatever the saved state contains.",
         );
       }
       const fmt = _[1];
@@ -6425,7 +6860,7 @@ function main() {
         writeFileSync(
           resolve(process.cwd(), file),
           out2,
-          typeof out2 === "string" ? "utf8" : void 0
+          typeof out2 === "string" ? "utf8" : void 0,
         );
         const bytes = typeof out2 === "string" ? Buffer.byteLength(out2) : out2.length;
         process.stdout.write(`wrote ${file} (${ext2}, ${bytes} bytes)
