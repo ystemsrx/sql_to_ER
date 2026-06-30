@@ -10,6 +10,13 @@ export interface ForceLoopController {
   destroy(): void;
 }
 
+interface NodeMetrics {
+  width: number;
+  height: number;
+  baseRadius: number;
+  componentRadius: number;
+}
+
 // 持续力导向控制器
 // 不依赖 G6 自带 layout tick（首次收敛后就不再跑），而是自写一个轻量
 // 物理步骤。开关一旦打开，RAF 循环立刻起跑（不必先拖一下）；拖动期间
@@ -26,13 +33,44 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
   let warmupRemaining = 0;
   const velocities = new Map<string, { vx: number; vy: number }>();
 
-  const radius = (m: any): number => {
+  const baseRadius = (m: any): number => {
     const sizes: Record<string, number> = {
       entity: 80,
       relationship: 50,
       attribute: 50,
     };
     return sizes[m?.nodeType] || 50;
+  };
+
+  const metrics = (node: ReturnType<ForceableGraph["getNodes"]>[number]): NodeMetrics => {
+    const model = node.getModel() as any;
+    const fallbackRadius = baseRadius(model);
+    let width = fallbackRadius * 2;
+    let height = fallbackRadius * 2;
+    const bbox = node.getBBox?.();
+    if (bbox) {
+      if (Number.isFinite(bbox.width) && bbox.width > 0) width = bbox.width;
+      if (Number.isFinite(bbox.height) && bbox.height > 0) height = bbox.height;
+    }
+    return {
+      width,
+      height,
+      baseRadius: fallbackRadius,
+      componentRadius: Math.max(fallbackRadius, Math.hypot(width, height) / 2),
+    };
+  };
+
+  const directionalRadius = (metric: NodeMetrics, ux: number, uy: number): number => {
+    const ax = Math.abs(ux);
+    const ay = Math.abs(uy);
+    const halfWidth = metric.width / 2;
+    const halfHeight = metric.height / 2;
+    const measured = Math.min(
+      ax > 1e-6 ? halfWidth / ax : Infinity,
+      ay > 1e-6 ? halfHeight / ay : Infinity,
+    );
+    const safeMeasured = Number.isFinite(measured) ? measured : Math.max(halfWidth, halfHeight);
+    return Math.max(metric.baseRadius, safeMeasured);
   };
 
   const componentIds = (
@@ -71,7 +109,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     ids: string[],
     adj: Map<string, Set<string>>,
     pos: Record<string, { x: number; y: number }>,
-    radii: Record<string, number>,
+    nodeMetrics: Record<string, NodeMetrics>,
   ): Map<string, Set<string>> => {
     const { byId, groups } = componentIds(ids, adj);
     const centers = groups.map((group) => {
@@ -81,7 +119,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       let maxY = -Infinity;
       group.forEach((id) => {
         const p = pos[id];
-        const r = radii[id] ?? 50;
+        const r = nodeMetrics[id]?.componentRadius ?? 50;
         minX = Math.min(minX, p.x - r);
         maxX = Math.max(maxX, p.x + r);
         minY = Math.min(minY, p.y - r);
@@ -94,7 +132,10 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       let radius = 0;
       group.forEach((id) => {
         const p = pos[id];
-        radius = Math.max(radius, Math.hypot(p.x - center.x, p.y - center.y) + (radii[id] ?? 50));
+        radius = Math.max(
+          radius,
+          Math.hypot(p.x - center.x, p.y - center.y) + (nodeMetrics[id]?.componentRadius ?? 50),
+        );
       });
       return { ...center, radius };
     });
@@ -144,15 +185,15 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     const adj = buildAdj();
     const nodes = graph.getNodes();
     const pos: Record<string, { x: number; y: number }> = {};
-    const radii: Record<string, number> = {};
+    const nodeMetrics: Record<string, NodeMetrics> = {};
     nodes.forEach((n) => {
       const m = n.getModel() as any;
       pos[m.id] = { x: m.x || 0, y: m.y || 0 };
-      radii[m.id] = radius(m);
+      nodeMetrics[m.id] = metrics(n);
     });
 
     const ids = Object.keys(pos);
-    const skippedCrossComponentRepulsion = buildComponentRepelMask(ids, adj, pos, radii);
+    const skippedCrossComponentRepulsion = buildComponentRepelMask(ids, adj, pos, nodeMetrics);
     const IDEAL = 130;
     const K_ATTRACT = 0.04;
     const K_REPEL = 9000;
@@ -169,7 +210,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       const id = m.id as string;
       if (id === pinnedId) return;
       const p = pos[id];
-      const r = radii[id];
+      const metric = nodeMetrics[id];
       let fx = 0;
       let fy = 0;
 
@@ -179,16 +220,18 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
         if (oid === id) continue;
         if (skippedCrossComponentRepulsion.get(id)?.has(oid)) continue;
         const op = pos[oid];
-        const orr = radii[oid];
         const dx = p.x - op.x;
         const dy = p.y - op.y;
         let d2 = dx * dx + dy * dy;
         if (d2 < 1) d2 = 1;
         const d = Math.sqrt(d2);
-        const minD = r + orr + 8;
+        const ux = dx / d;
+        const uy = dy / d;
+        const minD =
+          directionalRadius(metric, ux, uy) + directionalRadius(nodeMetrics[oid], -ux, -uy) + 8;
         const mag = K_REPEL / d2 + (d < minD ? (minD - d) * 0.8 : 0);
-        fx += (dx / d) * mag;
-        fy += (dy / d) * mag;
+        fx += ux * mag;
+        fy += uy * mag;
       }
 
       // 引力：连边邻居
