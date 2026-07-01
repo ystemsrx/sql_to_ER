@@ -23,7 +23,7 @@ import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
 import { computeAutoAvoidTargets } from "../graph/autoAvoid";
 import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
-import type { ERNodeModel, GraphLike, ParsedTable, SnapshotRecord } from "../types";
+import type { ERNodeModel, GraphLike, ParsedTable, ParserWarning, SnapshotRecord } from "../types";
 import type { HistoryManager } from "../history";
 
 type Translation = (typeof I18N)[keyof typeof I18N];
@@ -59,6 +59,8 @@ export interface UseGraphResult {
   autoAvoid: boolean;
   hasGraph: boolean;
   error: string | null;
+  parserWarnings: ParserWarning[];
+  parserWarningsVisible: boolean;
   loading: boolean;
   // mutators (combine setState + side effect when applicable)
   setInputText: (next: string) => void;
@@ -69,6 +71,7 @@ export interface UseGraphResult {
   setForceOn: (next: boolean) => void;
   setAutoAvoid: (next: boolean) => void;
   setError: (next: string | null) => void;
+  dismissParserWarnings: () => void;
   // commands
   handleGenerate: (opts?: GenerateOptions) => void;
   handleForceAlign: () => void;
@@ -107,6 +110,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [forceOn, setForceOnState] = useState(false);
   const [autoAvoid, setAutoAvoidState] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [parserWarnings, setParserWarnings] = useState<ParserWarning[]>([]);
+  const [parserWarningsVisible, setParserWarningsVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [hasGraph, setHasGraph] = useState(false);
 
@@ -119,6 +124,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
   const fontScaleAutoAvoidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const parserWarningsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
@@ -226,6 +232,27 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     fontScaleAutoAvoidTimerRef.current = null;
   };
 
+  const clearParserWarningHideTimer = () => {
+    if (parserWarningsHideTimerRef.current === null) return;
+    clearTimeout(parserWarningsHideTimerRef.current);
+    parserWarningsHideTimerRef.current = null;
+  };
+
+  const showParserWarnings = (warnings: ParserWarning[]) => {
+    clearParserWarningHideTimer();
+    setParserWarnings(warnings);
+    setParserWarningsVisible(warnings.length > 0);
+  };
+
+  const dismissParserWarnings = () => {
+    setParserWarningsVisible(false);
+    clearParserWarningHideTimer();
+    parserWarningsHideTimerRef.current = setTimeout(() => {
+      parserWarningsHideTimerRef.current = null;
+      setParserWarnings([]);
+    }, 180);
+  };
+
   const scheduleFontScaleAutoAvoid = (delayMs = 180) => {
     cancelScheduledFontScaleAutoAvoid();
     if (!autoAvoidRef.current) {
@@ -259,6 +286,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
     try {
       setError(null);
+      showParserWarnings([]);
       setLoading(true);
       // 重新生成 / 历史恢复都会重建图，先把持续力导向开关复位关闭，避免
       // 旧 controller 的状态意外延续到新图。
@@ -295,10 +323,12 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         tablesDataRef.current = null;
         lastInputRef.current = "";
         setHasGraph(false);
+        showParserWarnings([]);
         setError(cur.t.errNoTable);
         setLoading(false);
         return;
       }
+      showParserWarnings(parsedData.warnings ?? []);
 
       // === 解析成功后，再把当前图作为旧 input 的快照存起来 ===
       // 这样用户在"上一份输入"上拖动后的位置不会因为重新生成而丢失。
@@ -605,6 +635,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     handleGenerate();
     return () => {
       cancelScheduledFontScaleAutoAvoid();
+      clearParserWarningHideTimer();
       cancelPendingPersist();
       forceCtrlRef.current?.destroy();
       forceCtrlRef.current = null;
@@ -669,6 +700,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     autoAvoid,
     hasGraph,
     error,
+    parserWarnings,
+    parserWarningsVisible,
     loading,
     setInputText,
     setIsColored,
@@ -678,6 +711,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setForceOn,
     setAutoAvoid,
     setError,
+    dismissParserWarnings,
     handleGenerate,
     handleForceAlign,
     handleArrangeLayout,

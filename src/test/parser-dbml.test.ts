@@ -283,6 +283,106 @@ Ref: 文章.作者 > 用户.编号
     ]);
   });
 
+  it("reports malformed DBML fields and refs while still returning parsed tables", () => {
+    const sample = `-- 示例 DBML，请在此处粘贴您的 DBML 或 SQL 语句
+Table 用户 {
+  编号 INT [pk, increment]
+  用户名 VARCHAR(255) [not null]
+  邮箱 VARCHAR(255) [unique]
+  创建时间 TIMESTAMP
+}
+
+Table 国家 {
+  编号 INT [pk]
+  名称 VARCHAR(255 [not null]
+}
+
+Table 文章 {
+  文章编号 INT [pk]
+  内容 TEXT
+}
+
+Ref: 用户.属于 > 国家.编号
+Ref: 文章.作者 >
+`;
+
+    const result = parseDBML(sample);
+
+    expect(result.tables.map((t) => t.name)).toEqual([
+      "用户",
+      "国家",
+      "文章",
+    ]);
+    expect(result.relationships).toEqual([
+      {
+        from: "用户",
+        to: "国家",
+        label: "属于",
+        fromCardinality: "N",
+        toCardinality: "1",
+      },
+    ]);
+    expect(result.warnings?.map((w) => w.message)).toEqual(
+      expect.arrayContaining([
+        'line 11: column "名称" in table "国家" has malformed type "VARCHAR(255"',
+        "line 20: ref statement was not recognized",
+      ]),
+    );
+  });
+
+  it("reports skipped DBML lines, constraints, inline refs, and missing references", () => {
+    const result = parseDBML(`Table users {
+  id int [pk]
+  missing_type
+  bad_ref int [ref: >]
+  external_id int [ref: > missing.id]
+  checks {
+    \`id > 0\` [name: 'ck_users_id']
+  }
+  ~timestamps
+  indexes {
+    \`lower(email)\` [unique]
+  }
+}
+Ref: users.id > missing_parent.id
+Ref: users.id >
+Table {
+  id int
+}
+`);
+
+    expect(result.tables.map((t) => t.name)).toEqual(["users"]);
+    expect(result.relationships.map((r) => [r.from, r.to, r.label])).toEqual([
+      ["users", "missing", "external_id"],
+      ["users", "missing_parent", "id"],
+    ]);
+    expect(result.warnings?.map((w) => w.message)).toEqual(
+      expect.arrayContaining([
+        'line 3: column "missing_type" in table "users" has no type',
+        'line 4: inline ref in column "bad_ref" of table "users" was not recognized',
+        'line 5: Ref references missing table "missing"',
+        'line 6: checks block in table "users" was skipped',
+        'line 9: table partial "~timestamps" in table "users" was skipped',
+        'line 11: index expression in table "users" was skipped',
+        'line 14: Ref references missing table "missing_parent"',
+        "line 15: ref statement was not recognized",
+        "line 16: table definition was skipped because the table name was not recognized",
+      ]),
+    );
+  });
+
+  it("reports an unclosed DBML table block when no graph can be generated", () => {
+    const result = parseDBML(`Table dangling {
+  id int [pk]
+`);
+
+    expect(result.tables).toEqual([]);
+    expect(result.relationships).toEqual([]);
+    expect(result.warnings?.map((w) => w.message)).toEqual([
+      'line 1: Table "dangling" was skipped because its block is not closed',
+    ]);
+  });
+
   it("recovers when unknown lines appear between statements", () => {
     const result = parseDBML(`
       random non-DBML noise here

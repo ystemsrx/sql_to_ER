@@ -34,7 +34,7 @@ Parse, build, lay out, and save state.
 | `--input <file>`                  | -         | read schema from a file                                     |
 | `--text "<sql>"`                  | -         | inline schema                                               |
 | piped stdin                       | -         | used if no `--input`/`--text`                               |
-| `--format auto\|sql\|dbml`        | `auto`    | `auto` tries SQL, falls back to DBML                        |
+| `--format sql\|dbml`              | omitted   | omit `--format` to try SQL first, then DBML                 |
 | `--colored true\|false`           | `true`    | colored fills vs black/white                                |
 | `--comment`                       | off       | label nodes with comments (falls back to names when absent) |
 | `--hide-attrs`                    | off       | generation-only skeleton mode; no attribute ellipses        |

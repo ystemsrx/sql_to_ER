@@ -26,6 +26,7 @@ import type {
   ParsedForeignKey,
   ParsedRelationship,
   ParsedTable,
+  ParserWarning,
 } from "../types";
 
 // 标识符字符（含 `$`：PostgreSQL / Oracle 允许标识符里出现 `$`，如 order$line）。
@@ -395,6 +396,26 @@ const isNameTok = (t: Token | undefined): t is Token =>
 const kw = (t: Token | undefined): string | null =>
   t && t.type === "word" ? t.value.toUpperCase() : null;
 
+const linePrefix = (line: number | undefined): string => (line ? `line ${line}: ` : "");
+
+const pushWarning = (
+  warnings: ParserWarning[],
+  code: ParserWarning["code"],
+  line: number | undefined,
+  text: string,
+): void => {
+  warnings.push({
+    code,
+    message: `${linePrefix(line)}${text}`,
+    ...(line ? { line } : {}),
+  });
+};
+
+const shortTableName = (name: string): string => {
+  const parts = name.split(".");
+  return parts[parts.length - 1] || name;
+};
+
 // 读取 COMMENT 的值：单引号 / dollar-quote 字符串自然命中；MySQL 默认模式下
 // `COMMENT "..."` 的 "..." 被词法器当作双引号 ident，这里把它还原成字符串值。
 const readCommentValue = (t: Token | undefined): string | null => {
@@ -637,6 +658,8 @@ interface TableAccum {
   tableName: string;
   // 已消隐注释的源码，用于按偏移切出类型字符串（保留原始书写）。
   cleaned: string;
+  warnings: ParserWarning[];
+  fkLines: WeakMap<ParsedForeignKey, number>;
 }
 
 // 解析一条列定义。
@@ -669,6 +692,14 @@ const parseColumn = (el: Token[], acc: TableAccum): void => {
     }
     const sliceEnd = stopStart === -1 ? el[el.length - 1].end : stopStart;
     typeStr = acc.cleaned.slice(el[1].start, sliceEnd).trim();
+  }
+  if (!typeStr) {
+    pushWarning(
+      acc.warnings,
+      "column_type_missing",
+      nameTok.line,
+      `column "${name}" in table "${acc.tableName}" has no type`,
+    );
   }
 
   // 内联约束 / 注释 / 外键：仅扫描顶层 token。
@@ -707,11 +738,20 @@ const parseColumn = (el: Token[], acc: TableAccum): void => {
         if (op === q.next) {
           referencedColumn = parseColumnNameList(el, op).join(", ");
         }
-        acc.foreignKeys.push({
+        const fk: ParsedForeignKey = {
           column: name,
           referencedTable: q.name,
           referencedColumn,
-        });
+        };
+        acc.fkLines.set(fk, t.line);
+        acc.foreignKeys.push(fk);
+      } else {
+        pushWarning(
+          acc.warnings,
+          "foreign_key_unrecognized",
+          t.line,
+          `foreign key in table "${acc.tableName}" was not recognized`,
+        );
       }
     }
   }
@@ -730,16 +770,37 @@ const parseColumn = (el: Token[], acc: TableAccum): void => {
 const parsePrimaryKeyConstraint = (el: Token[], acc: TableAccum): void => {
   // el 形如 [PRIMARY, KEY, ...(可有 CLUSTERED 等修饰), (cols)]
   const op = findOpenParen(el, 2);
-  if (op === -1) return;
+  if (op === -1) {
+    pushWarning(
+      acc.warnings,
+      "constraint_skipped",
+      el[0]?.line,
+      `primary key constraint in table "${acc.tableName}" was skipped`,
+    );
+    return;
+  }
   acc.primaryKeys.push(...parseColumnNameList(el, op));
 };
 
 const parseForeignKeyConstraint = (el: Token[], acc: TableAccum): void => {
   // el 形如 [FOREIGN, KEY, (cols), REFERENCES, qualname, (cols)]
+  const warnBadFk = () =>
+    pushWarning(
+      acc.warnings,
+      "foreign_key_unrecognized",
+      el[0]?.line,
+      `foreign key in table "${acc.tableName}" was not recognized`,
+    );
   const fkOpen = findOpenParen(el, 2);
-  if (fkOpen === -1) return;
+  if (fkOpen === -1) {
+    warnBadFk();
+    return;
+  }
   const fkCols = parseColumnNameList(el, fkOpen);
-  if (!fkCols.length) return;
+  if (!fkCols.length) {
+    warnBadFk();
+    return;
+  }
   const fkClose = matchParen(el, fkOpen);
 
   let refIdx = -1;
@@ -749,24 +810,40 @@ const parseForeignKeyConstraint = (el: Token[], acc: TableAccum): void => {
       break;
     }
   }
-  if (refIdx === -1) return;
+  if (refIdx === -1) {
+    warnBadFk();
+    return;
+  }
   const q = readQualifiedName(el, refIdx + 1);
-  if (!q) return;
+  if (!q) {
+    warnBadFk();
+    return;
+  }
   let refCols: string[] = [];
   const refOpen = findOpenParen(el, q.next);
   if (refOpen === q.next) refCols = parseColumnNameList(el, refOpen);
 
-  acc.foreignKeys.push({
+  const fk: ParsedForeignKey = {
     column: fkCols.join(", "),
     referencedTable: q.name,
     referencedColumn: refCols.join(", "),
-  });
+  };
+  acc.fkLines.set(fk, el[0]?.line ?? refIdx);
+  acc.foreignKeys.push(fk);
 };
 
 const parseUniqueConstraint = (el: Token[], acc: TableAccum): void => {
   // 取第一个括号里的列；单列时记为 unique，参与 1:1 推断。
   const op = findOpenParen(el, 1);
-  if (op === -1) return;
+  if (op === -1) {
+    pushWarning(
+      acc.warnings,
+      "constraint_skipped",
+      el[0]?.line,
+      `unique constraint in table "${acc.tableName}" was skipped`,
+    );
+    return;
+  }
   const cols = parseColumnNameList(el, op);
   if (cols.length === 1) acc.uniqueSingleCols.add(cols[0]);
 };
@@ -791,6 +868,15 @@ const parseElement = (el: Token[], acc: TableAccum): void => {
         isNameTok(el[1]) &&
         ["PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "KEY", "INDEX"].includes(kw(el[2]) ?? "")
       ) {
+        if (kw(el[2]) === "CHECK") {
+          pushWarning(
+            acc.warnings,
+            "constraint_skipped",
+            first.line,
+            `constraint "${el[1].value}" in table "${acc.tableName}" was skipped`,
+          );
+          return;
+        }
         parseElement(el.slice(2), acc);
       } else {
         parseColumn(el, acc);
@@ -819,7 +905,15 @@ const parseElement = (el: Token[], acc: TableAccum): void => {
     }
     case "CHECK": {
       // CHECK ( ... ) 是约束；`check INT` 是列名。
-      if (el[1] && el[1].type === "punct" && el[1].value === "(") return;
+      if (el[1] && el[1].type === "punct" && el[1].value === "(") {
+        pushWarning(
+          acc.warnings,
+          "constraint_skipped",
+          first.line,
+          `check constraint in table "${acc.tableName}" was skipped`,
+        );
+        return;
+      }
       parseColumn(el, acc);
       return;
     }
@@ -837,13 +931,29 @@ const parseElement = (el: Token[], acc: TableAccum): void => {
     }
     case "PERIOD": {
       // PERIOD FOR SYSTEM_TIME (...) 是时态约束；否则列名。
-      if (kw(el[1]) === "FOR") return;
+      if (kw(el[1]) === "FOR") {
+        pushWarning(
+          acc.warnings,
+          "constraint_skipped",
+          first.line,
+          `period constraint in table "${acc.tableName}" was skipped`,
+        );
+        return;
+      }
       parseColumn(el, acc);
       return;
     }
     case "EXCLUDE": {
       // PG 排他约束 EXCLUDE USING ... / EXCLUDE (...)；否则列名。
-      if (kw(el[1]) === "USING" || (el[1] && el[1].type === "punct" && el[1].value === "(")) return;
+      if (kw(el[1]) === "USING" || (el[1] && el[1].type === "punct" && el[1].value === "(")) {
+        pushWarning(
+          acc.warnings,
+          "constraint_skipped",
+          first.line,
+          `exclude constraint in table "${acc.tableName}" was skipped`,
+        );
+        return;
+      }
       parseColumn(el, acc);
       return;
     }
@@ -861,10 +971,11 @@ const parseElement = (el: Token[], acc: TableAccum): void => {
 // ---------------------------------------------------------------------------
 type StmtResult =
   | { kind: "table"; table: ParsedTable; uniqueSingleCols: Set<string> }
-  | { kind: "like"; name: string; source: string }
+  | { kind: "like"; name: string; source: string; line: number }
   | {
       kind: "alter";
       table: string;
+      line: number;
       columns: ParsedColumn[];
       foreignKeys: ParsedForeignKey[];
       primaryKeys: string[];
@@ -877,6 +988,7 @@ type StmtResult =
       tableShort: string;
       column?: string;
       value: string;
+      line: number;
     }
   | null;
 
@@ -885,7 +997,12 @@ const CREATE_MODIFIERS = new Set(["TEMP", "TEMPORARY", "GLOBAL", "LOCAL", "UNLOG
 // ALTER TABLE [IF EXISTS] [ONLY] <name> <action>[, <action>]... —— 把每个 ADD 动作
 // 当成一条表体元素复用 parseElement，因此 ADD COLUMN（含内联 REFERENCES）、
 // ADD [CONSTRAINT ...] PRIMARY KEY / FOREIGN KEY / UNIQUE / CHECK 全部覆盖。
-const parseAlter = (toks: Token[], cleaned: string): StmtResult => {
+const parseAlter = (
+  toks: Token[],
+  cleaned: string,
+  warnings: ParserWarning[],
+  fkLines: WeakMap<ParsedForeignKey, number>,
+): StmtResult => {
   let p = 1; // 跳过 ALTER
   if (kw(toks[p]) !== "TABLE") return null;
   p++;
@@ -901,6 +1018,8 @@ const parseAlter = (toks: Token[], cleaned: string): StmtResult => {
     uniqueSingleCols: new Set(),
     tableName: nameRead.name,
     cleaned,
+    warnings,
+    fkLines,
   };
 
   for (const action of splitByComma(toks.slice(nameRead.next))) {
@@ -924,6 +1043,7 @@ const parseAlter = (toks: Token[], cleaned: string): StmtResult => {
   return {
     kind: "alter",
     table: nameRead.name,
+    line: toks[0]?.line ?? 1,
     columns: acc.columns,
     foreignKeys: acc.foreignKeys,
     primaryKeys: acc.primaryKeys,
@@ -951,6 +1071,7 @@ const parseCommentOn = (toks: Token[]): StmtResult => {
       tableShort: segs[segs.length - 2],
       column: segs[segs.length - 1],
       value,
+      line: toks[0]?.line ?? 1,
     };
   }
   return {
@@ -959,6 +1080,7 @@ const parseCommentOn = (toks: Token[]): StmtResult => {
     tableFull: nameRead.name,
     tableShort: segs[segs.length - 1],
     value,
+    line: toks[0]?.line ?? 1,
   };
 };
 
@@ -974,8 +1096,13 @@ const extractTableComment = (suffix: Token[]): string | undefined => {
   return undefined;
 };
 
-const parseStatement = (toks: Token[], cleaned: string): StmtResult => {
-  if (kw(toks[0]) === "ALTER") return parseAlter(toks, cleaned);
+const parseStatement = (
+  toks: Token[],
+  cleaned: string,
+  warnings: ParserWarning[],
+  fkLines: WeakMap<ParsedForeignKey, number>,
+): StmtResult => {
+  if (kw(toks[0]) === "ALTER") return parseAlter(toks, cleaned, warnings, fkLines);
   if (kw(toks[0]) === "COMMENT" && kw(toks[1]) === "ON") return parseCommentOn(toks);
 
   let p = 0;
@@ -997,29 +1124,61 @@ const parseStatement = (toks: Token[], cleaned: string): StmtResult => {
   const headKw = kw(toks[p]);
 
   // CREATE TABLE child PARTITION OF parent ... —— 分区子表，无独立列定义，跳过。
-  if (headKw === "PARTITION" && kw(toks[p + 1]) === "OF") return null;
+  if (headKw === "PARTITION" && kw(toks[p + 1]) === "OF") {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      toks[p]?.line,
+      `CREATE TABLE "${tableName}" PARTITION OF was skipped because it has no standalone column definition`,
+    );
+    return null;
+  }
 
   // CREATE TABLE t AS SELECT ... —— 无法从 SELECT 推导列结构，跳过。
-  if (headKw === "AS" || headKw === "SELECT") return null;
+  if (headKw === "AS" || headKw === "SELECT") {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      toks[p]?.line,
+      `CREATE TABLE "${tableName}" AS SELECT was skipped because columns cannot be inferred`,
+    );
+    return null;
+  }
 
   // CREATE TABLE copy LIKE original —— 复制源表结构。
   if (headKw === "LIKE") {
     const src = readQualifiedName(toks, p + 1);
-    return src ? { kind: "like", name: tableName, source: src.name } : null;
+    return src ? { kind: "like", name: tableName, source: src.name, line: toks[p]?.line ?? 1 } : null;
   }
 
   // 主体括号
   const open = findOpenParen(toks, p);
-  if (open === -1) return null;
+  if (open === -1) {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      toks[p]?.line ?? toks[0]?.line,
+      `CREATE TABLE "${tableName}" was skipped because its column list was not found`,
+    );
+    return null;
+  }
   const close = matchParen(toks, open);
-  if (close === -1) return null;
+  if (close === -1) {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      toks[open]?.line,
+      `CREATE TABLE "${tableName}" was skipped because its column list is not closed`,
+    );
+    return null;
+  }
 
   // 顶层若整体是 `( LIKE other )`，按结构复制处理。
   const bodyToks = toks.slice(open + 1, close);
   if (kw(bodyToks[0]) === "LIKE") {
     const src = readQualifiedName(bodyToks, 1);
     if (src && splitByComma(bodyToks).length === 1) {
-      return { kind: "like", name: tableName, source: src.name };
+      return { kind: "like", name: tableName, source: src.name, line: bodyToks[0]?.line ?? 1 };
     }
   }
 
@@ -1033,6 +1192,8 @@ const parseStatement = (toks: Token[], cleaned: string): StmtResult => {
     uniqueSingleCols: new Set(),
     tableName,
     cleaned,
+    warnings,
+    fkLines,
   };
 
   for (const el of splitByComma(bodyToks)) parseElement(el, acc);
@@ -1060,9 +1221,11 @@ const parseStatement = (toks: Token[], cleaned: string): StmtResult => {
 export const parseSQLTables = (sql: string): ParseResult => {
   const cleaned = blankComments(sql);
   const allToks = tokenize(cleaned);
+  const warnings: ParserWarning[] = [];
+  const fkLines = new WeakMap<ParsedForeignKey, number>();
 
   const results: StmtResult[] = splitStatements(allToks).map((stmt) =>
-    parseStatement(stmt, cleaned),
+    parseStatement(stmt, cleaned, warnings, fkLines),
   );
 
   // 先收集真实表，供 LIKE 结构复制查找。
@@ -1079,6 +1242,14 @@ export const parseSQLTables = (sql: string): ParseResult => {
     } else if (r.kind === "like") {
       // LIKE：复制源表的列与主键（不复制外键 / 关系，符合 LIKE 的默认语义）。
       const src = tableByName.get(r.source);
+      if (!src) {
+        pushWarning(
+          warnings,
+          "table_reference_missing",
+          r.line,
+          `CREATE TABLE "${r.name}" LIKE source "${r.source}" was not found`,
+        );
+      }
       tables.push({
         name: r.name,
         columns: src ? src.columns.map((c) => ({ ...c })) : [],
@@ -1098,7 +1269,15 @@ export const parseSQLTables = (sql: string): ParseResult => {
   for (const r of results) {
     if (!r || r.kind !== "alter") continue;
     const t = findTable(r.table);
-    if (!t) continue;
+    if (!t) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        r.line,
+        `ALTER TABLE "${r.table}" skipped because the table was not found`,
+      );
+      continue;
+    }
     for (const c of r.columns) {
       if (!t.columns.some((x) => x.name === c.name)) t.columns.push(c);
     }
@@ -1117,7 +1296,15 @@ export const parseSQLTables = (sql: string): ParseResult => {
   for (const r of results) {
     if (!r || r.kind !== "comment") continue;
     const t = findTable(r.tableFull, r.tableShort);
-    if (!t) continue;
+    if (!t) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        r.line,
+        `COMMENT ON ${r.target.toUpperCase()} "${r.tableFull}" skipped because the table was not found`,
+      );
+      continue;
+    }
     if (r.target === "table") {
       t.comment = r.value;
     } else {
@@ -1130,6 +1317,14 @@ export const parseSQLTables = (sql: string): ParseResult => {
   const relationships: ParsedRelationship[] = [];
   for (const t of tables) {
     for (const fk of t.foreignKeys) {
+      if (!findTable(fk.referencedTable, shortTableName(fk.referencedTable))) {
+        pushWarning(
+          warnings,
+          "table_reference_missing",
+          fkLines.get(fk),
+          `table "${t.name}" references missing table "${fk.referencedTable}"`,
+        );
+      }
       const composite = fk.column.includes(",");
       const fkCol = t.columns.find((c) => c.name === fk.column);
       const isOnlySinglePk = t.primaryKeys.length === 1 && t.primaryKeys[0] === fk.column;
@@ -1146,5 +1341,9 @@ export const parseSQLTables = (sql: string): ParseResult => {
     }
   }
 
-  return { tables, relationships };
+  return {
+    tables,
+    relationships,
+    ...(warnings.length ? { warnings } : {}),
+  };
 };

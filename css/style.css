@@ -1075,9 +1075,93 @@ body.history-open .skill-install-pill {
   background: color-mix(in srgb, var(--color-error) 90%, transparent);
   color: #fff;
   border: none;
-  border-radius: 999px;
-  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+}
+
+.parser-warning-toast {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 120;
+  width: min(420px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 14px 44px 14px 16px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: #facc15;
+  color: #332609;
+  box-shadow: 0 14px 34px rgba(120, 88, 0, 0.18);
+  font-family: var(--app-font);
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition:
+    opacity 180ms var(--ease-default),
+    transform 220ms var(--ease-default);
+}
+
+.parser-warning-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.parser-warning-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.parser-warning-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.parser-warning-more {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+}
+
+.parser-warning-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(51, 38, 9, 0.08);
+  color: #332609;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
+}
+
+.parser-warning-close:hover {
+  background: rgba(51, 38, 9, 0.16);
+  transform: scale(1.04);
+}
+
+.parser-warning-close:active {
+  transform: scale(0.96);
+}
+
+.parser-warning-close svg {
+  width: 15px;
+  height: 15px;
 }
 
 /* ═══════════════════════════════════════
@@ -2206,6 +2290,7 @@ body.is-lang-fading .lang-fade-target {
 .force-toggle:focus-visible,
 .avoid-toggle:focus-visible,
 .font-size-slider:focus-visible,
+.parser-warning-close:focus-visible,
 .skill-install-copy:focus-visible,
 .github-corner:focus-visible {
   outline: 2px solid var(--app-accent);

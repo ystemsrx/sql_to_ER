@@ -20,7 +20,7 @@ import {
   computeMovedEntityRelationshipTargets,
 } from "@app/graph/entityMoveSync";
 import { computeAutoAvoidTargets } from "@app/graph/autoAvoid";
-import type { EREdgeModel, ERNodeModel, ParseResult } from "@app/types";
+import type { EREdgeModel, ERNodeModel, ParseResult, ParserWarning } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import { stressLayout, ringRadiusFor } from "./skeleton";
 
@@ -53,6 +53,10 @@ export interface State {
   edges: EREdgeModel[];
 }
 
+export interface GenerateResult extends State {
+  parserWarnings?: ParserWarning[];
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   colored: true,
   comment: false,
@@ -83,14 +87,17 @@ export function deltaToScale(delta: number): number {
 
 export function parseInput(
   text: string,
-  format: "sql" | "dbml" | "auto",
+  format?: "sql" | "dbml",
 ): { result: ParseResult; format: "sql" | "dbml" } {
   const trimmed = String(text || "").trim();
   if (format === "sql") return { result: parseSQLTables(trimmed), format: "sql" };
   if (format === "dbml") return { result: parseDBML(trimmed), format: "dbml" };
   const sql = parseSQLTables(trimmed);
   if (sql.tables.length > 0) return { result: sql, format: "sql" };
-  return { result: parseDBML(trimmed), format: "dbml" };
+  const dbml = parseDBML(trimmed);
+  if (dbml.tables.length > 0) return { result: dbml, format: "dbml" };
+  const warnings = [...(sql.warnings ?? []), ...(dbml.warnings ?? [])];
+  return { result: warnings.length ? { ...dbml, warnings } : dbml, format: "dbml" };
 }
 
 function styleAndSize(nodes: ERNodeModel[], edges: EREdgeModel[], settings: Settings) {
@@ -101,9 +108,13 @@ function styleAndSize(nodes: ERNodeModel[], edges: EREdgeModel[], settings: Sett
 
 export interface GenerateOptions {
   input: string;
-  format?: "sql" | "dbml" | "auto";
+  format?: "sql" | "dbml";
   settings?: Partial<Settings>;
   layout?: LayoutKind;
+}
+
+export interface GenerateError extends Error {
+  parserWarnings?: ParserWarning[];
 }
 
 // Run a layout on a styled graph. `optimal` force-aligns as a deterministic seed,
@@ -124,11 +135,14 @@ function runLayoutOnGraph(
   }
 }
 
-export function generate(opts: GenerateOptions): State {
+export function generate(opts: GenerateOptions): GenerateResult {
   const settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...(opts.settings ?? {}) });
-  const { result, format } = parseInput(opts.input, opts.format ?? "auto");
+  const { result, format } = parseInput(opts.input, opts.format);
   if (!result.tables.length) {
-    throw new Error("No tables parsed from input (tried " + (opts.format ?? "auto") + ").");
+    const tried = opts.format ?? "auto-detect";
+    const err = new Error(`No tables parsed from input (tried ${tried}).`) as GenerateError;
+    if (result.warnings?.length) err.parserWarnings = result.warnings;
+    throw err;
   }
   const { nodes, edges } = generateChenModelData(
     result.tables,
@@ -142,7 +156,15 @@ export function generate(opts: GenerateOptions): State {
   runLayoutOnGraph(layout, graph, nodes, edges);
   // `optimal` reserves ring room; fill it with uniform rings unless compact is chosen
   if (layout === "optimal" && settings.attrMode === "auto") settings.attrMode = "moderate";
-  const state: State = { version: 1, input: opts.input, format, settings, nodes, edges };
+  const state: GenerateResult = {
+    version: 1,
+    input: opts.input,
+    format,
+    settings,
+    nodes,
+    edges,
+    ...(result.warnings?.length ? { parserWarnings: result.warnings } : {}),
+  };
   applyAttrMode(state);
   if (layout === "optimal") tightenCompact(state);
   applyAutoAvoid(state);

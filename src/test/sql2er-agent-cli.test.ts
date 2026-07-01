@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -594,6 +594,136 @@ function makeK33State(): AgentState {
 }
 
 describe("sql2er agent CLI attribute visibility", () => {
+  it("prints parser warnings while generate succeeds with partially parsed SQL", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const badSchema = `
+        CREATE TABLE broken (
+          id INT PRIMARY KEY,
+          account_id,
+          CONSTRAINT fk_bad FOREIGN KEY (account_id) REFERENCES
+        );
+      `;
+
+      const generated = runAgent(["generate", "--format", "sql", "--text", badSchema, "--state", state]);
+
+      expect(generated.status).toBe(0);
+      expect(generated.stderr).toContain("parser warning:");
+      expect(generated.stderr).toContain('line 3: column "account_id" in table "broken" has no type');
+      expect(generated.stderr).toContain(
+        'line 4: foreign key in table "broken" was not recognized',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prints parser warnings while generate succeeds with partially parsed DBML", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const input = resolve(dir, "input.dbml");
+      const badDbml = `-- 示例 DBML，请在此处粘贴您的 DBML 或 SQL 语句
+Table 用户 {
+  编号 INT [pk, increment]
+  用户名 VARCHAR(255) [not null]
+  邮箱 VARCHAR(255) [unique]
+  创建时间 TIMESTAMP
+}
+
+Table 国家 {
+  编号 INT [pk]
+  名称 VARCHAR(255 [not null]
+}
+
+Table 文章 {
+  文章编号 INT [pk]
+  内容 TEXT
+}
+
+Ref: 用户.属于 > 国家.编号
+Ref: 文章.作者 >
+`;
+      writeFileSync(input, badDbml);
+
+      const generated = runAgent(["generate", "--input", input, "--state", state]);
+
+      expect(generated.status).toBe(0);
+      expect(generated.stderr).toContain("parser warning:");
+      expect(generated.stderr).toContain(
+        'line 11: column "名称" in table "国家" has malformed type "VARCHAR(255"',
+      );
+      expect(generated.stderr).toContain("line 20: ref statement was not recognized");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects explicit --format auto", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+
+      const generated = runAgent(["generate", "--format", "auto", "--text", schema, "--state", state]);
+
+      expect(generated.status).not.toBe(0);
+      expect(generated.stderr).toContain("generate --format accepts only sql or dbml");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prints parser warnings when auto-detect cannot generate a graph", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const generated = runAgent([
+        "generate",
+        "--text",
+        "CREATE TABLE audit AS SELECT 1;",
+        "--state",
+        state,
+      ]);
+
+      expect(generated.status).not.toBe(0);
+      expect(generated.stderr).toContain("error: No tables parsed from input (tried auto-detect).");
+      expect(generated.stderr).toContain("parser warning:");
+      expect(generated.stderr).toContain(
+        'line 1: CREATE TABLE "audit" AS SELECT was skipped because columns cannot be inferred',
+      );
+      expect(existsSync(state)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prints parser warnings when malformed DBML cannot generate a graph", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const input = resolve(dir, "input.dbml");
+      writeFileSync(
+        input,
+        `Table dangling {
+  id int [pk]
+`,
+      );
+
+      const generated = runAgent(["generate", "--input", input, "--state", state]);
+
+      expect(generated.status).not.toBe(0);
+      expect(generated.stderr).toContain("error: No tables parsed from input (tried auto-detect).");
+      expect(generated.stderr).toContain("parser warning:");
+      expect(generated.stderr).toContain(
+        'line 1: Table "dangling" was skipped because its block is not closed',
+      );
+      expect(existsSync(state)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("decides hidden attributes at generate time and exports the stored skeleton only", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
     try {

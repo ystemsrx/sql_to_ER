@@ -20,6 +20,7 @@ import type {
   ParsedForeignKey,
   ParsedRelationship,
   ParsedTable,
+  ParserWarning,
 } from "../types";
 
 const IDENT = String.raw`(?:\`[^\`]+\`|"[^"]+"|\[[^\]]+\]|[\w一-龥]+)`;
@@ -28,6 +29,25 @@ const QUALIFIED_IDENT = String.raw`${IDENT}(?:\.${IDENT})*`;
 
 // 去掉一段标识符外层的引号 / 反引号 / 方括号。
 const stripOuterQuotes = (seg: string): string => seg.trim().replace(/^[`"\[]|[`"\]]$/g, "");
+
+const linePrefix = (line: number | undefined): string => (line ? `line ${line}: ` : "");
+
+const pushWarning = (
+  warnings: ParserWarning[],
+  code: ParserWarning["code"],
+  line: number | undefined,
+  detail: string,
+): void => {
+  warnings.push({
+    code,
+    message: `${linePrefix(line)}${detail}`,
+    ...(line ? { line } : {}),
+  });
+};
+
+const countNewlines = (s: string): number => (s.match(/\n/g) ?? []).length;
+
+const lineAt = (src: string, index: number): number => countNewlines(src.slice(0, index)) + 1;
 
 // 按 `.` 切分限定标识符，但 `.` 出现在引号 / 反引号 / 方括号 / 圆括号内部时不切。
 // => `"my.table"` 是一段而非两段；复合列 `(a, b)` 也保持完整。
@@ -266,10 +286,17 @@ const splitTopLevelCommas = (s: string): string[] => {
   return out;
 };
 
+interface LogicalLine {
+  text: string;
+  line: number;
+}
+
 // 把表体拆成"逻辑行"：换行只在没有 [...] 或 { ... } 包裹时才是行边界。
-const splitLogicalLines = (body: string): string[] => {
-  const lines: string[] = [];
+const splitLogicalLineEntries = (body: string, startLine = 1): LogicalLine[] => {
+  const lines: LogicalLine[] = [];
   let cur = "";
+  let curLine = startLine;
+  let line = startLine;
   let bracketDepth = 0;
   let braceDepth = 0;
   let i = 0;
@@ -277,7 +304,9 @@ const splitLogicalLines = (body: string): string[] => {
     const ch = body[i];
     if (ch === "'" || ch === '"' || ch === "`") {
       const end = skipString(body, i);
-      cur += body.slice(i, end);
+      const chunk = body.slice(i, end);
+      cur += chunk;
+      line += countNewlines(chunk);
       i = end;
       continue;
     }
@@ -306,17 +335,23 @@ const splitLogicalLines = (body: string): string[] => {
       continue;
     }
     if (ch === "\n" && bracketDepth <= 0 && braceDepth <= 0) {
-      if (cur.trim()) lines.push(cur);
+      if (cur.trim()) lines.push({ text: cur, line: curLine });
       cur = "";
+      line++;
+      curLine = line;
       i++;
       continue;
     }
+    if (ch === "\n") line++;
     cur += ch;
     i++;
   }
-  if (cur.trim()) lines.push(cur);
+  if (cur.trim()) lines.push({ text: cur, line: curLine });
   return lines;
 };
+
+const splitLogicalLines = (body: string): string[] =>
+  splitLogicalLineEntries(body).map((entry) => entry.text);
 
 interface RefTarget {
   table: string;
@@ -387,10 +422,42 @@ const parseColumnAttrs = (attrsRaw: string): ColumnAttr[] =>
     };
   });
 
+const hasBalancedTypeDelimiters = (type: string): boolean => {
+  const pairs: Record<string, string> = {
+    "(": ")",
+    "[": "]",
+    "{": "}",
+  };
+  const closing = new Set(Object.values(pairs));
+  const stack: string[] = [];
+  let i = 0;
+  while (i < type.length) {
+    const ch = type[i];
+    if (ch === "'" || ch === '"' || ch === "`") {
+      i = skipString(type, i);
+      continue;
+    }
+    if (pairs[ch]) {
+      stack.push(pairs[ch]);
+    } else if (closing.has(ch)) {
+      if (stack.pop() !== ch) return false;
+    }
+    i++;
+  }
+  return stack.length === 0;
+};
+
 interface ColumnLineResult {
   column: ParsedColumn | null;
   inlineRef: { target: RefTarget; op: string } | null;
+  malformedType?: boolean;
+  badInlineRef?: boolean;
 }
+
+const readLeadingIdentifier = (line: string): string | null => {
+  const m = line.trim().match(new RegExp(String.raw`^(${IDENT})(?:\s+|$)`));
+  return m ? cleanIdentifier(m[1]) : null;
+};
 
 // 找列定义末尾的设置块 `[...]`。难点是要把它和两类“看起来像方括号”的东西区分开：
 //   1. 数组类型后缀 `int[]` / `int[3]`（内容为空或纯数字）—— 属于类型，不是设置块。
@@ -437,10 +504,12 @@ const parseColumnLine = (line: string): ColumnLineResult => {
   if (!m) return { column: null, inlineRef: null };
   const name = cleanIdentifier(m[1]);
   const type = m[2].trim().replace(/\s+/g, " ");
+  const malformedType = !hasBalancedTypeDelimiters(type);
 
   let isPrimaryKey = false;
   let isUnique = false;
   let inlineRef: ColumnLineResult["inlineRef"] = null;
+  let badInlineRef = false;
   let comment: string | undefined;
 
   if (attrsRaw) {
@@ -449,9 +518,10 @@ const parseColumnLine = (line: string): ColumnLineResult => {
         isPrimaryKey = true;
       } else if (attr.key === "unique") {
         isUnique = true;
-      } else if (attr.key === "ref" && attr.value) {
-        const r = parseInlineRef(attr.value);
+      } else if (attr.key === "ref") {
+        const r = attr.value ? parseInlineRef(attr.value) : null;
         if (r) inlineRef = r;
+        else badInlineRef = true;
       } else if (attr.key === "note" && attr.value) {
         comment = stripQuotes(attr.value);
       }
@@ -461,7 +531,12 @@ const parseColumnLine = (line: string): ColumnLineResult => {
   const column: ParsedColumn = { name, type, isPrimaryKey };
   if (isUnique) column.isUnique = true;
   if (comment !== undefined) column.comment = comment;
-  return { column, inlineRef };
+  return {
+    column,
+    inlineRef,
+    ...(malformedType ? { malformedType } : {}),
+    ...(badInlineRef ? { badInlineRef } : {}),
+  };
 };
 
 interface ParsedRefStatement {
@@ -528,6 +603,8 @@ interface TopStatement {
   kind: "table" | "ref" | "refblock" | "enum" | "project" | "tablegroup" | "unknown";
   header: string;
   body: string | null;
+  line: number;
+  bodyLine?: number;
 }
 
 const classifyHeader = (header: string): TopStatement["kind"] => {
@@ -575,7 +652,14 @@ const findNextKeyword = (src: string, from: number): number => {
   return -1;
 };
 
-const tokenizeTopLevel = (src: string): TopStatement[] => {
+const tableNameFromHeader = (header: string): string | null => {
+  const head = parseTableHeader(header);
+  if (head) return head.name;
+  const m = header.match(new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})`, "i"));
+  return m ? cleanIdentifier(m[1]) : null;
+};
+
+const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[] => {
   const out: TopStatement[] = [];
   const n = src.length;
   let i = 0;
@@ -629,23 +713,55 @@ const tokenizeTopLevel = (src: string): TopStatement[] => {
     if (braceIdx !== -1) {
       const header = src.slice(startIdx, braceIdx).trim();
       const closeIdx = findMatchingBrace(src, braceIdx);
-      if (closeIdx === -1) break;
+      if (closeIdx === -1) {
+        const kind = classifyHeader(header);
+        if (kind === "table") {
+          const tableName = tableNameFromHeader(header);
+          pushWarning(
+            warnings,
+            "statement_skipped",
+            lineAt(src, startIdx),
+            tableName
+              ? `Table "${tableName}" was skipped because its block is not closed`
+              : "Table block was skipped because its block is not closed",
+          );
+        }
+        break;
+      }
       const body = src.slice(braceIdx + 1, closeIdx);
-      out.push({ kind: classifyHeader(header), header, body });
+      out.push({
+        kind: classifyHeader(header),
+        header,
+        body,
+        line: lineAt(src, startIdx),
+        bodyLine: lineAt(src, braceIdx + 1),
+      });
       i = closeIdx + 1;
       continue;
     }
 
     if (lineEndIdx !== -1) {
       const header = src.slice(startIdx, lineEndIdx).trim();
-      if (header) out.push({ kind: classifyHeader(header), header, body: null });
+      if (header)
+        out.push({
+          kind: classifyHeader(header),
+          header,
+          body: null,
+          line: lineAt(src, startIdx),
+        });
       i = lineEndIdx + 1;
       continue;
     }
 
     // 文件尾部，无 '{'、无换行
     const header = src.slice(startIdx).trim();
-    if (header) out.push({ kind: classifyHeader(header), header, body: null });
+    if (header)
+      out.push({
+        kind: classifyHeader(header),
+        header,
+        body: null,
+        line: lineAt(src, startIdx),
+      });
     break;
   }
   return out;
@@ -694,16 +810,20 @@ const addRelationship = (
   ref: ParsedRefStatement,
   relationships: ParsedRelationship[],
   tableByName: Map<string, ParsedTable>,
+  relationshipLines: WeakMap<ParsedRelationship, number>,
+  line: number | undefined,
 ): void => {
   const card = opToCardinality(ref.op);
-  relationships.push({
+  const relationship: ParsedRelationship = {
     from: ref.from.table,
     to: ref.to.table,
     label: ref.from.column,
     fromCardinality: card.from,
     toCardinality: card.to,
     ...(ref.comment ? { comment: ref.comment } : {}),
-  });
+  };
+  relationships.push(relationship);
+  if (line) relationshipLines.set(relationship, line);
   const t = tableByName.get(ref.from.table);
   if (t) {
     t.foreignKeys = t.foreignKeys || [];
@@ -758,11 +878,14 @@ const parseIndexColumns = (head: string): string[] | null => {
 //   }
 const extractIndexesConstraints = (
   blockBody: string,
+  tableName?: string,
+  warnings?: ParserWarning[],
+  startLine = 1,
 ): { pkCols: string[]; uniqueCols: string[] } => {
   const pkCols: string[] = [];
   const uniqueCols: string[] = [];
-  for (const raw of splitLogicalLines(blockBody)) {
-    const line = raw.trim();
+  for (const entry of splitLogicalLineEntries(blockBody, startLine)) {
+    const line = entry.text.trim();
     if (!line) continue;
     const sb = findSettingsBracket(line);
     if (!sb) continue; // 没有 [settings] -> 没有 pk/unique 可抽取
@@ -775,7 +898,17 @@ const extractIndexesConstraints = (
     }
     if (!isPk && !isUnique) continue;
     const cols = parseIndexColumns(head);
-    if (!cols || !cols.length) continue;
+    if (!cols || !cols.length) {
+      if (warnings && tableName) {
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          entry.line,
+          `index expression in table "${tableName}" was skipped`,
+        );
+      }
+      continue;
+    }
     if (isPk) pkCols.push(...cols);
     // 仅单列唯一索引才让列本身唯一（复合唯一不代表任一列单独唯一）。
     if (isUnique && cols.length === 1) uniqueCols.push(cols[0]);
@@ -786,23 +919,39 @@ const extractIndexesConstraints = (
 export const parseDBML = (dbml: string): ParseResult => {
   const tables: ParsedTable[] = [];
   const relationships: ParsedRelationship[] = [];
+  const warnings: ParserWarning[] = [];
   const tableByName = new Map<string, ParsedTable>();
+  const relationshipLines = new WeakMap<ParsedRelationship, number>();
 
   const cleanSrc = stripDbmlComments(dbml);
 
-  for (const stmt of tokenizeTopLevel(cleanSrc)) {
+  for (const stmt of tokenizeTopLevel(cleanSrc, warnings)) {
     if (stmt.kind === "table" && stmt.body !== null) {
       const head = parseTableHeader(stmt.header);
-      if (!head) continue;
+      if (!head) {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          stmt.line,
+          "table definition was skipped because the table name was not recognized",
+        );
+        continue;
+      }
       const columns: ParsedColumn[] = [];
       const primaryKeys: string[] = [];
       const foreignKeys: ParsedForeignKey[] = [];
+      const inlineRefs: Array<{
+        column: string;
+        target: RefTarget;
+        op: string;
+        line: number;
+      }> = [];
       // indexes 块抽取到的复合主键 / 单列唯一约束，循环结束后统一应用。
       const indexPkCols: string[] = [];
       const indexUniqueCols: string[] = [];
 
-      for (const line of splitLogicalLines(stmt.body)) {
-        const trimmed = line.trim();
+      for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
+        const trimmed = entry.text.trim();
         if (!trimmed) continue;
         // 跳过嵌套块 / 非列声明：
         //   Note { ... } / Note: '...'
@@ -817,32 +966,73 @@ export const parseDBML = (dbml: string): ParseResult => {
           const open = trimmed.indexOf("{");
           const close = findMatchingBrace(trimmed, open);
           if (open !== -1 && close !== -1) {
-            const got = extractIndexesConstraints(trimmed.slice(open + 1, close));
+            const got = extractIndexesConstraints(
+              trimmed.slice(open + 1, close),
+              head.name,
+              warnings,
+              entry.line + countNewlines(trimmed.slice(0, open + 1)),
+            );
             indexPkCols.push(...got.pkCols);
             indexUniqueCols.push(...got.uniqueCols);
           }
           continue;
         }
-        if (/^checks\s*\{/i.test(trimmed)) continue;
+        if (/^checks\s*\{/i.test(trimmed)) {
+          pushWarning(
+            warnings,
+            "constraint_skipped",
+            entry.line,
+            `checks block in table "${head.name}" was skipped`,
+          );
+          continue;
+        }
         if (/^records\b/i.test(trimmed)) continue;
-        if (trimmed.startsWith("~")) continue;
+        if (trimmed.startsWith("~")) {
+          pushWarning(
+            warnings,
+            "statement_skipped",
+            entry.line,
+            `table partial "${trimmed}" in table "${head.name}" was skipped`,
+          );
+          continue;
+        }
 
-        const { column, inlineRef } = parseColumnLine(trimmed);
-        if (!column) continue;
+        const { column, inlineRef, malformedType, badInlineRef } = parseColumnLine(trimmed);
+        if (!column) {
+          const missingTypeName = readLeadingIdentifier(trimmed);
+          pushWarning(
+            warnings,
+            missingTypeName ? "column_type_missing" : "statement_skipped",
+            entry.line,
+            missingTypeName
+              ? `column "${missingTypeName}" in table "${head.name}" has no type`
+              : `line in table "${head.name}" was not recognized`,
+          );
+          continue;
+        }
+        if (malformedType) {
+          pushWarning(
+            warnings,
+            "column_type_invalid",
+            entry.line,
+            `column "${column.name}" in table "${head.name}" has malformed type "${column.type}"`,
+          );
+        }
+        if (badInlineRef) {
+          pushWarning(
+            warnings,
+            "foreign_key_unrecognized",
+            entry.line,
+            `inline ref in column "${column.name}" of table "${head.name}" was not recognized`,
+          );
+        }
         if (column.isPrimaryKey) primaryKeys.push(column.name);
         if (inlineRef) {
-          foreignKeys.push({
+          inlineRefs.push({
             column: column.name,
-            referencedTable: inlineRef.target.table,
-            referencedColumn: inlineRef.target.column,
-          });
-          const card = opToCardinality(inlineRef.op);
-          relationships.push({
-            from: head.name,
-            to: inlineRef.target.table,
-            label: column.name,
-            fromCardinality: card.from,
-            toCardinality: card.to,
+            target: inlineRef.target,
+            op: inlineRef.op,
+            line: entry.line,
           });
         }
         columns.push(column);
@@ -868,6 +1058,19 @@ export const parseDBML = (dbml: string): ParseResult => {
       };
       tables.push(table);
       tableByName.set(head.name, table);
+      inlineRefs.forEach((ref) => {
+        addRelationship(
+          {
+            from: { table: head.name, column: ref.column },
+            to: ref.target,
+            op: ref.op,
+          },
+          relationships,
+          tableByName,
+          relationshipLines,
+          ref.line,
+        );
+      });
       continue;
     }
 
@@ -875,18 +1078,51 @@ export const parseDBML = (dbml: string): ParseResult => {
       const colon = indexOfUnquoted(stmt.header, ":");
       if (colon === -1) continue;
       const ref = parseRefBody(stmt.header.slice(colon + 1));
-      if (ref) addRelationship(ref, relationships, tableByName);
+      if (ref) {
+        addRelationship(ref, relationships, tableByName, relationshipLines, stmt.line);
+      } else {
+        pushWarning(warnings, "foreign_key_unrecognized", stmt.line, "ref statement was not recognized");
+      }
       continue;
     }
 
     if (stmt.kind === "refblock" && stmt.body !== null) {
-      for (const line of splitLogicalLines(stmt.body)) {
-        const ref = parseRefBody(line);
-        if (ref) addRelationship(ref, relationships, tableByName);
+      for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
+        const ref = parseRefBody(entry.text);
+        if (ref) {
+          addRelationship(ref, relationships, tableByName, relationshipLines, entry.line);
+        } else {
+          pushWarning(
+            warnings,
+            "foreign_key_unrecognized",
+            entry.line,
+            "ref statement was not recognized",
+          );
+        }
       }
       continue;
     }
     // enum / project / tablegroup / unknown：忽略
+  }
+
+  for (const rel of relationships) {
+    const line = relationshipLines.get(rel);
+    if (!tableByName.has(rel.from)) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references missing table "${rel.from}"`,
+      );
+    }
+    if (!tableByName.has(rel.to)) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references missing table "${rel.to}"`,
+      );
+    }
   }
 
   // 基数推断：当关系是默认的 N:1（来自 `>` 或缺省），但 FK 列在 from 表上
@@ -911,5 +1147,5 @@ export const parseDBML = (dbml: string): ParseResult => {
     }
   }
 
-  return { tables, relationships };
+  return { tables, relationships, ...(warnings.length ? { warnings } : {}) };
 };

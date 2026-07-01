@@ -40,9 +40,22 @@ export interface ParsedRelationship {
   comment?: string;
 }
 
+export interface ParserWarning {
+  code:
+    | "statement_skipped"
+    | "column_type_missing"
+    | "column_type_invalid"
+    | "foreign_key_unrecognized"
+    | "constraint_skipped"
+    | "table_reference_missing";
+  message: string;
+  line?: number;
+}
+
 export interface ParseResult {
   tables: ParsedTable[];
   relationships: ParsedRelationship[];
+  warnings?: ParserWarning[];
 }
 
 export interface ShapeStyle {

@@ -237,3 +237,52 @@ describe("parseSQLTables — COMMENT ON 与 ALTER 结构变更", () => {
     expect(r.tables[0].columns.map((c) => c.name)).toEqual(["id", "age"]);
   });
 });
+
+describe("parseSQLTables — parser warnings", () => {
+  it("reports skipped constraints, malformed columns/FKs, and missing table references", () => {
+    const r = parseSQLTables(`
+      CREATE TABLE orders (
+        id INT PRIMARY KEY,
+        customer_id,
+        CONSTRAINT fk_bad FOREIGN KEY (customer_id) REFERENCES,
+        CONSTRAINT ck_orders CHECK (id > 0)
+      );
+      CREATE TABLE child (
+        id INT PRIMARY KEY,
+        parent_id INT REFERENCES missing_parent(id)
+      );
+      CREATE TABLE copy LIKE missing_template;
+      ALTER TABLE ghost ADD CONSTRAINT fk FOREIGN KEY (x) REFERENCES orders(id);
+    `);
+
+    expect(r.tables.map((t) => t.name)).toEqual(["orders", "child", "copy"]);
+    expect(r.warnings?.map((w) => w.message)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('line 4: column "customer_id" in table "orders" has no type'),
+        expect.stringContaining('line 5: foreign key in table "orders" was not recognized'),
+        expect.stringContaining(
+          'line 6: constraint "ck_orders" in table "orders" was skipped',
+        ),
+        expect.stringContaining(
+          'line 10: table "child" references missing table "missing_parent"',
+        ),
+        expect.stringContaining(
+          'line 12: CREATE TABLE "copy" LIKE source "missing_template" was not found',
+        ),
+        expect.stringContaining('line 13: ALTER TABLE "ghost" skipped because the table was not found'),
+      ]),
+    );
+  });
+
+  it("reports an unclosed CREATE TABLE column list when no graph can be generated", () => {
+    const r = parseSQLTables(`CREATE TABLE broken (
+      id INT PRIMARY KEY
+    `);
+
+    expect(r.tables).toEqual([]);
+    expect(r.relationships).toEqual([]);
+    expect(r.warnings?.map((w) => w.message)).toEqual([
+      'line 1: CREATE TABLE "broken" was skipped because its column list is not closed',
+    ]);
+  });
+});

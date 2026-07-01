@@ -65,6 +65,8 @@ const App = () => {
     autoAvoid,
     hasGraph,
     error,
+    parserWarnings,
+    parserWarningsVisible,
     loading,
     setError,
     setInputText,
@@ -75,6 +77,7 @@ const App = () => {
     setForceOn,
     setAutoAvoid,
     handleGenerate,
+    dismissParserWarnings,
     handleForceAlign,
     handleArrangeLayout,
     restoreFromSnapshot,
@@ -816,6 +819,50 @@ const App = () => {
                 {error && (
                   <div className="diagram-error-overlay">
                     <div className="error-message">⚠️ {error}</div>
+                  </div>
+                )}
+                {parserWarnings.length > 0 && (
+                  <div
+                    className={`parser-warning-toast${parserWarningsVisible ? " is-visible" : ""}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <button
+                      type="button"
+                      className="parser-warning-close"
+                      aria-label={lang === "zh" ? "关闭解析警告" : "Dismiss parser warnings"}
+                      onClick={dismissParserWarnings}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <line x1="18" x2="6" y1="6" y2="18" />
+                        <line x1="6" x2="18" y1="6" y2="18" />
+                      </svg>
+                    </button>
+                    <div className="parser-warning-title">
+                      {lang === "zh" ? "解析警告" : "Parser warnings"}
+                    </div>
+                    <ul className="parser-warning-list">
+                      {parserWarnings.slice(0, 4).map((warning, index) => (
+                        <li key={`${warning.code}-${warning.line ?? "x"}-${index}`}>
+                          {warning.message}
+                        </li>
+                      ))}
+                    </ul>
+                    {parserWarnings.length > 4 && (
+                      <div className="parser-warning-more">
+                        {lang === "zh"
+                          ? `还有 ${parserWarnings.length - 4} 条`
+                          : `${parserWarnings.length - 4} more`}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div

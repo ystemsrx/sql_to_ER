@@ -19,9 +19,12 @@ import {
   splitComponents,
   DEFAULT_SETTINGS,
   type AttrMode,
+  type GenerateError,
+  type GenerateResult,
   type LabelMode,
   type State,
 } from "./ops";
+import type { ParserWarning } from "@app/types";
 import { parse as parsePath } from "node:path";
 
 const ATTR_MODES = ["auto", "compact", "moderate"] as const;
@@ -75,6 +78,19 @@ const boolFlag = (v: string | boolean | undefined, def = false): boolean => {
 
 const hasFlag = (flags: Record<string, string | boolean>, name: string): boolean =>
   Object.prototype.hasOwnProperty.call(flags, name);
+
+function generateFormat(flags: Record<string, string | boolean>): "sql" | "dbml" | undefined {
+  if (flags.format === undefined) return undefined;
+  if (flags.format === "sql" || flags.format === "dbml") return flags.format;
+  throw new Error("generate --format accepts only sql or dbml; omit it to auto-detect.");
+}
+
+function printParserWarnings(warnings: ParserWarning[] | undefined): void {
+  if (!warnings?.length) return;
+  warnings.forEach((warning) => {
+    process.stderr.write(`parser warning: ${warning.message}\n`);
+  });
+}
 
 function htmlLang(flags: Record<string, string | boolean>): EmbeddedHtmlLanguage {
   if (flags.lang !== "zh" && flags.lang !== "en") {
@@ -148,7 +164,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
 
   generate                 Parse input, build the ER graph, lay it out.
       --input <file> | --text "<sql>" | (piped stdin)
-      --format auto|sql|dbml         (default auto)
+      --format sql|dbml              (omit to auto-detect)
       --colored true|false           (default true)
       --comment                      show column/table comments instead of names
       --hide-attrs                   skeleton only — generate NO attributes (tighter,
@@ -198,10 +214,9 @@ function main(): void {
   switch (cmd) {
     case "generate": {
       const input = readInput(flags);
-      const state = generate({
+      const generated: GenerateResult = generate({
         input,
-        format: (typeof flags.format === "string" ? flags.format : "auto") as
-          "auto" | "sql" | "dbml",
+        format: generateFormat(flags),
         layout: (typeof flags.layout === "string" ? flags.layout : "optimal") as
           "optimal" | "arrange" | "none",
         settings: {
@@ -215,8 +230,10 @@ function main(): void {
           autoAvoid: boolFlag(flags["auto-avoid"], true),
         },
       });
+      const { parserWarnings, ...state } = generated;
       saveState(flags, state);
       printState(state, flags);
+      printParserWarnings(parserWarnings);
       break;
     }
     case "attrs": {
@@ -421,5 +438,6 @@ try {
   main();
 } catch (err) {
   process.stderr.write("error: " + (err instanceof Error ? err.message : String(err)) + "\n");
+  printParserWarnings((err as GenerateError | undefined)?.parserWarnings);
   process.exit(1);
 }
