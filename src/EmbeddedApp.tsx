@@ -1,4 +1,6 @@
 import {
+  useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -28,6 +30,7 @@ import {
 } from "./hooks/useExportButton";
 import { useUndoRedoShortcuts } from "./hooks/useUndoRedoShortcuts";
 import { useWheelZoomRotate } from "./hooks/useWheelZoomRotate";
+import type { ParserWarning } from "./types";
 
 registerCustomNodes(G6);
 
@@ -62,6 +65,10 @@ function downloadJson(state: EmbeddedGraphState): void {
 export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
   const t = I18N[lang];
   const [showBackground, setShowBackground] = useState(true);
+  const [parserWarnings, setParserWarnings] = useState<ParserWarning[]>(state.parserWarnings ?? []);
+  const [parserWarningsVisible, setParserWarningsVisible] = useState(false);
+  const parserWarningsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const parserWarningsShowFrameRef = useRef<number | null>(null);
   const {
     containerRef,
     graphRef,
@@ -74,6 +81,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     autoAvoid,
     hasGraph,
     error,
+    errorVisible,
     setError,
     setIsColored,
     setHideFields,
@@ -83,6 +91,59 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     fitView,
     currentState,
   } = useEmbeddedGraph(state);
+
+  const clearParserWarningHideTimer = () => {
+    if (parserWarningsHideTimerRef.current !== null) {
+      clearTimeout(parserWarningsHideTimerRef.current);
+      parserWarningsHideTimerRef.current = null;
+    }
+  };
+
+  const cancelParserWarningShowFrame = () => {
+    if (parserWarningsShowFrameRef.current === null) return;
+    cancelAnimationFrame(parserWarningsShowFrameRef.current);
+    parserWarningsShowFrameRef.current = null;
+  };
+
+  const scheduleParserWarningFadeIn = () => {
+    cancelParserWarningShowFrame();
+    parserWarningsShowFrameRef.current = requestAnimationFrame(() => {
+      parserWarningsShowFrameRef.current = requestAnimationFrame(() => {
+        parserWarningsShowFrameRef.current = null;
+        setParserWarningsVisible(true);
+      });
+    });
+  };
+
+  const showParserWarnings = (warnings: ParserWarning[]) => {
+    clearParserWarningHideTimer();
+    cancelParserWarningShowFrame();
+    setParserWarningsVisible(false);
+    if (warnings.length === 0) {
+      setParserWarnings([]);
+      return;
+    }
+    setParserWarnings(warnings);
+    scheduleParserWarningFadeIn();
+  };
+
+  useEffect(() => {
+    showParserWarnings(state.parserWarnings ?? []);
+    return () => {
+      clearParserWarningHideTimer();
+      cancelParserWarningShowFrame();
+    };
+  }, [state]);
+
+  const dismissParserWarnings = () => {
+    cancelParserWarningShowFrame();
+    setParserWarningsVisible(false);
+    clearParserWarningHideTimer();
+    parserWarningsHideTimerRef.current = setTimeout(() => {
+      parserWarningsHideTimerRef.current = null;
+      setParserWarnings([]);
+    }, 180);
+  };
 
   const handleExportSVG = (onDone: ExportDoneCallback) => {
     if (!hasGraph || !graphRef.current) {
@@ -522,8 +583,52 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
                   <span className="font-size-slider-mark font-size-slider-mark-small">A</span>
                 </div>
                 {error && (
-                  <div className="diagram-error-overlay">
+                  <div className={`diagram-error-overlay${errorVisible ? " is-visible" : ""}`}>
                     <div className="error-message">⚠️ {error}</div>
+                  </div>
+                )}
+                {parserWarnings.length > 0 && (
+                  <div
+                    className={`parser-warning-toast${parserWarningsVisible ? " is-visible" : ""}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <button
+                      type="button"
+                      className="parser-warning-close"
+                      aria-label={lang === "zh" ? "关闭解析警告" : "Dismiss parser warnings"}
+                      onClick={dismissParserWarnings}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <line x1="18" x2="6" y1="6" y2="18" />
+                        <line x1="6" x2="18" y1="6" y2="18" />
+                      </svg>
+                    </button>
+                    <div className="parser-warning-title">
+                      {lang === "zh" ? "解析警告" : "Parser warnings"}
+                    </div>
+                    <ul className="parser-warning-list">
+                      {parserWarnings.slice(0, 4).map((warning, index) => (
+                        <li key={`${warning.code}-${warning.line ?? "x"}-${index}`}>
+                          {warning.message}
+                        </li>
+                      ))}
+                    </ul>
+                    {parserWarnings.length > 4 && (
+                      <div className="parser-warning-more">
+                        {lang === "zh"
+                          ? `还有 ${parserWarnings.length - 4} 条`
+                          : `${parserWarnings.length - 4} more`}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div

@@ -30,6 +30,7 @@ const normalizeState = (state: EmbeddedGraphState): EmbeddedGraphState => ({
     attrMode: state.settings?.attrMode ?? "auto",
     autoAvoid: false,
   },
+  parserWarnings: state.parserWarnings?.length ? clone(state.parserWarnings) : undefined,
   nodes: clone(state.nodes ?? []),
   edges: clone(state.edges ?? []),
 });
@@ -81,6 +82,7 @@ export interface UseEmbeddedGraphResult {
   autoAvoid: boolean;
   hasGraph: boolean;
   error: string | null;
+  errorVisible: boolean;
   setError: (next: string | null) => void;
   setIsColored: (next: boolean) => void;
   setHideFields: (next: boolean) => void;
@@ -104,7 +106,8 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
   const [forceOn, setForceOnState] = useState(false);
   const [autoAvoid, setAutoAvoidState] = useState(false);
   const [hasGraph, setHasGraph] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  const [errorVisible, setErrorVisible] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<GraphLike | null>(null);
@@ -113,6 +116,7 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
   const fontScaleAutoAvoidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorShowFrameRef = useRef<number | null>(null);
   const attributeSnapshotRef = useRef<AttributeSnapshot>(
     snapshotAttributes(normalizedRef.current.nodes, normalizedRef.current.edges),
   );
@@ -186,6 +190,36 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
       }, delayMs);
     },
     [applyGraphAutoAvoid, cancelScheduledFontScaleAutoAvoid],
+  );
+
+  const cancelErrorShowFrame = useCallback(() => {
+    if (errorShowFrameRef.current === null) return;
+    cancelAnimationFrame(errorShowFrameRef.current);
+    errorShowFrameRef.current = null;
+  }, []);
+
+  const scheduleErrorFadeIn = useCallback(() => {
+    cancelErrorShowFrame();
+    errorShowFrameRef.current = requestAnimationFrame(() => {
+      errorShowFrameRef.current = requestAnimationFrame(() => {
+        errorShowFrameRef.current = null;
+        setErrorVisible(true);
+      });
+    });
+  }, [cancelErrorShowFrame]);
+
+  const setError = useCallback(
+    (next: string | null) => {
+      cancelErrorShowFrame();
+      setErrorVisible(false);
+      if (!next) {
+        setErrorState(null);
+        return;
+      }
+      setErrorState(next);
+      scheduleErrorFadeIn();
+    },
+    [cancelErrorShowFrame, scheduleErrorFadeIn],
   );
 
   const handleAfterGraphChange = useCallback(
@@ -271,13 +305,21 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
 
     return () => {
       cancelScheduledFontScaleAutoAvoid();
+      cancelErrorShowFrame();
       forceCtrlRef.current?.destroy();
       forceCtrlRef.current = null;
       graph.destroy?.();
       graphRef.current = null;
       setHasGraph(false);
     };
-  }, [initialState, graphNodeSize, handleAfterGraphChange, syncGraphSize]);
+  }, [
+    cancelErrorShowFrame,
+    initialState,
+    graphNodeSize,
+    handleAfterGraphChange,
+    setError,
+    syncGraphSize,
+  ]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -449,6 +491,7 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
     autoAvoid,
     hasGraph,
     error,
+    errorVisible,
     setError,
     setIsColored,
     setHideFields,

@@ -65,6 +65,14 @@ function readState(path: string): AgentState {
   return JSON.parse(readFileSync(path, "utf8")) as AgentState;
 }
 
+function readEmbeddedStateFromHtml(html: string): unknown {
+  const match = html.match(
+    /<script type="application\/json" id="sql2er-embedded-state">([\s\S]*?)<\/script>/,
+  );
+  if (!match) throw new Error("missing embedded state script");
+  return JSON.parse(match[1]) as unknown;
+}
+
 function attrPosition(state: AgentState, id: string): { x: number; y: number } {
   const node = state.nodes.find((n) => n.id === id);
   if (!node) throw new Error(`missing node ${id}`);
@@ -812,6 +820,39 @@ describe("sql2er agent CLI export formats", () => {
       const html = readFileSync(out, "utf8");
       expect(html).toContain('<html lang="zh-CN">');
       expect(html).toContain('"lang":"zh"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves parser warnings in exported embedded HTML state", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const input = resolve(dir, "input.dbml");
+      const out = resolve(dir, "er.html");
+      writeFileSync(
+        input,
+        `Table users {
+  id int [pk]
+  missing_type
+}
+`,
+      );
+
+      const generated = runAgent(["generate", "--input", input, "--state", state]);
+      expect(generated.status).toBe(0);
+      expect(generated.stderr).toContain("parser warning:");
+
+      const exported = runAgent(["export", "html", "--state", state, "--out", out, "--lang", "zh"]);
+      expect(exported.status).toBe(0);
+      const embeddedState = readEmbeddedStateFromHtml(readFileSync(out, "utf8")) as {
+        parserWarnings?: Array<{ message: string }>;
+      };
+
+      expect(embeddedState.parserWarnings?.map((warning) => warning.message)).toEqual([
+        'line 3: column "missing_type" in table "users" has no type',
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

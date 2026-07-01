@@ -230,10 +230,9 @@ function main(): void {
           autoAvoid: boolFlag(flags["auto-avoid"], true),
         },
       });
-      const { parserWarnings, ...state } = generated;
-      saveState(flags, state);
-      printState(state, flags);
-      printParserWarnings(parserWarnings);
+      saveState(flags, generated);
+      printState(generated, flags);
+      printParserWarnings(generated.parserWarnings);
       break;
     }
     case "attrs": {

@@ -59,6 +59,7 @@ export interface UseGraphResult {
   autoAvoid: boolean;
   hasGraph: boolean;
   error: string | null;
+  errorVisible: boolean;
   parserWarnings: ParserWarning[];
   parserWarningsVisible: boolean;
   loading: boolean;
@@ -109,7 +110,8 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [fontScale, setFontScaleState] = useState(1);
   const [forceOn, setForceOnState] = useState(false);
   const [autoAvoid, setAutoAvoidState] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  const [errorVisible, setErrorVisible] = useState(false);
   const [parserWarnings, setParserWarnings] = useState<ParserWarning[]>([]);
   const [parserWarningsVisible, setParserWarningsVisible] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -124,7 +126,9 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
   const fontScaleAutoAvoidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorShowFrameRef = useRef<number | null>(null);
   const parserWarningsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const parserWarningsShowFrameRef = useRef<number | null>(null);
 
   // 持有最新的 t/state 供 handleGenerate 在 stale closure 之外读到。
   // mutator 同步走 next 显式参数；这个 ref 主要给"用户直接点 Generate 按钮"
@@ -238,19 +242,69 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     parserWarningsHideTimerRef.current = null;
   };
 
+  const cancelParserWarningShowFrame = () => {
+    if (parserWarningsShowFrameRef.current === null) return;
+    cancelAnimationFrame(parserWarningsShowFrameRef.current);
+    parserWarningsShowFrameRef.current = null;
+  };
+
+  const scheduleParserWarningFadeIn = () => {
+    cancelParserWarningShowFrame();
+    parserWarningsShowFrameRef.current = requestAnimationFrame(() => {
+      parserWarningsShowFrameRef.current = requestAnimationFrame(() => {
+        parserWarningsShowFrameRef.current = null;
+        setParserWarningsVisible(true);
+      });
+    });
+  };
+
   const showParserWarnings = (warnings: ParserWarning[]) => {
     clearParserWarningHideTimer();
+    cancelParserWarningShowFrame();
+    setParserWarningsVisible(false);
+    if (warnings.length === 0) {
+      setParserWarnings([]);
+      return;
+    }
     setParserWarnings(warnings);
-    setParserWarningsVisible(warnings.length > 0);
+    scheduleParserWarningFadeIn();
   };
 
   const dismissParserWarnings = () => {
+    cancelParserWarningShowFrame();
     setParserWarningsVisible(false);
     clearParserWarningHideTimer();
     parserWarningsHideTimerRef.current = setTimeout(() => {
       parserWarningsHideTimerRef.current = null;
       setParserWarnings([]);
     }, 180);
+  };
+
+  const cancelErrorShowFrame = () => {
+    if (errorShowFrameRef.current === null) return;
+    cancelAnimationFrame(errorShowFrameRef.current);
+    errorShowFrameRef.current = null;
+  };
+
+  const scheduleErrorFadeIn = () => {
+    cancelErrorShowFrame();
+    errorShowFrameRef.current = requestAnimationFrame(() => {
+      errorShowFrameRef.current = requestAnimationFrame(() => {
+        errorShowFrameRef.current = null;
+        setErrorVisible(true);
+      });
+    });
+  };
+
+  const setError = (next: string | null) => {
+    cancelErrorShowFrame();
+    setErrorVisible(false);
+    if (!next) {
+      setErrorState(null);
+      return;
+    }
+    setErrorState(next);
+    scheduleErrorFadeIn();
   };
 
   const scheduleFontScaleAutoAvoid = (delayMs = 180) => {
@@ -635,7 +689,9 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     handleGenerate();
     return () => {
       cancelScheduledFontScaleAutoAvoid();
+      cancelErrorShowFrame();
       clearParserWarningHideTimer();
+      cancelParserWarningShowFrame();
       cancelPendingPersist();
       forceCtrlRef.current?.destroy();
       forceCtrlRef.current = null;
@@ -700,6 +756,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     autoAvoid,
     hasGraph,
     error,
+    errorVisible,
     parserWarnings,
     parserWarningsVisible,
     loading,

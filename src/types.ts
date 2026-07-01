@@ -132,6 +132,7 @@ export interface EmbeddedGraphState {
   input?: string;
   format?: "sql" | "dbml" | string;
   settings?: EmbeddedGraphSettings;
+  parserWarnings?: ParserWarning[];
   nodes: ERNodeModel[];
   edges: EREdgeModel[];
 }

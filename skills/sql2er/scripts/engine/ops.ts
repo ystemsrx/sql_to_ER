@@ -49,13 +49,12 @@ export interface State {
   input: string;
   format: "sql" | "dbml";
   settings: Settings;
+  parserWarnings?: ParserWarning[];
   nodes: ERNodeModel[];
   edges: EREdgeModel[];
 }
 
-export interface GenerateResult extends State {
-  parserWarnings?: ParserWarning[];
-}
+export type GenerateResult = State;
 
 export const DEFAULT_SETTINGS: Settings = {
   colored: true,

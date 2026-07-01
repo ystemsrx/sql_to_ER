@@ -1066,7 +1066,17 @@ body.history-open .skill-install-pill {
   place-items: center;
   padding: 24px;
   z-index: 8;
+  opacity: 0;
+  transform: translateY(-8px);
   pointer-events: none;
+  transition:
+    opacity 180ms var(--ease-default),
+    transform 220ms var(--ease-default);
+}
+
+.diagram-error-overlay.is-visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .diagram-error-overlay .error-message {
@@ -1106,6 +1116,14 @@ body.history-open .skill-install-pill {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+}
+
+@starting-style {
+  .diagram-error-overlay.is-visible,
+  .parser-warning-toast.is-visible {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 
 .parser-warning-title {

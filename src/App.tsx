@@ -65,6 +65,7 @@ const App = () => {
     autoAvoid,
     hasGraph,
     error,
+    errorVisible,
     parserWarnings,
     parserWarningsVisible,
     loading,
@@ -817,7 +818,7 @@ const App = () => {
                   </div>
                 )}
                 {error && (
-                  <div className="diagram-error-overlay">
+                  <div className={`diagram-error-overlay${errorVisible ? " is-visible" : ""}`}>
                     <div className="error-message">⚠️ {error}</div>
                   </div>
                 )}
