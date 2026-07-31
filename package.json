@@ -37,7 +37,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "esbuild": "^0.28.1",
     "prettier": "^3.9.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vite": "^8.1.0",
     "vitest": "^4.1.7"
   },
