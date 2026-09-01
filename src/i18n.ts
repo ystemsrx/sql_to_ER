@@ -73,6 +73,7 @@ Table 用户 {
   用户名 VARCHAR(255) [not null]
   邮箱 VARCHAR(255) [unique]
   创建时间 TIMESTAMP
+  国家编号 INT [not null]
 }
 
 Table 国家 {
@@ -83,10 +84,11 @@ Table 国家 {
 Table 文章 {
   文章编号 INT [pk]
   内容 TEXT
+  作者编号 INT [not null]
 }
 
-Ref: 用户.属于 > 国家.编号
-Ref: 文章.作者 > 用户.编号
+Ref 属于: 用户.国家编号 > 国家.编号
+Ref 作者: 文章.作者编号 > 用户.编号
 `,
   },
   en: {
@@ -164,6 +166,7 @@ Table User {
   Username VARCHAR(255) [not null]
   Email VARCHAR(255) [unique]
   CreatedAt TIMESTAMP
+  CountryID INT [not null]
 }
 
 Table Country {
@@ -174,10 +177,11 @@ Table Country {
 Table Article {
   ArticleID INT [pk]
   Content TEXT
+  AuthorID INT [not null]
 }
 
-Ref: User.BelongsTo > Country.ID
-Ref: Article.Author > User.ID
+Ref BelongsTo: User.CountryID > Country.ID
+Ref Author: Article.AuthorID > User.ID
 `,
   },
 } as const;

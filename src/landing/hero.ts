@@ -15,6 +15,7 @@ const HERO_SOURCES: Record<string, string> = {
   用户名 VARCHAR(255) [not null]
   邮箱 VARCHAR(255) [unique]
   创建时间 TIMESTAMP
+  国家编号 INT [not null]
 }
 
 Table 国家 {
@@ -25,15 +26,17 @@ Table 国家 {
 Table 文章 {
   文章编号 INT [pk]
   内容 TEXT
+  作者编号 INT [not null]
 }
 
-Ref: 用户.属于 > 国家.编号
-Ref: 文章.作者 > 用户.编号`,
+Ref 属于: 用户.国家编号 > 国家.编号
+Ref 作者: 文章.作者编号 > 用户.编号`,
   en: `Table users {
   id INT [pk, increment]
   username VARCHAR(255) [not null]
   email VARCHAR(255) [unique]
   created_at TIMESTAMP
+  country_id INT [not null]
 }
 
 Table countries {
@@ -44,10 +47,11 @@ Table countries {
 Table posts {
   post_id INT [pk]
   content TEXT
+  author_id INT [not null]
 }
 
-Ref: users.belongs_to > countries.id
-Ref: posts.author > users.id`,
+Ref belongs_to: users.country_id > countries.id
+Ref author: posts.author_id > users.id`,
 };
 
 let heroGraph: any = null;

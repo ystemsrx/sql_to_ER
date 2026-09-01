@@ -58,6 +58,20 @@ describe("generateChenModelData", () => {
     expect(labels).toEqual(["1", "N"]);
   });
 
+  it("prefers an explicit DBML relationship name over its FK column label", () => {
+    const rels: ParsedRelationship[] = [
+      { from: "orders", to: "users", label: "user_id", name: "placed by" },
+    ];
+    const data = generateChenModelData([usersTable, ordersTable], rels);
+    const diamond = data.nodes.find((node) => node.nodeType === "relationship");
+
+    expect(diamond).toMatchObject({
+      label: "placed by",
+      nameLabel: "placed by",
+      commentLabel: "placed by",
+    });
+  });
+
   it("creates a dashed placeholder entity for refs to unknown tables", () => {
     const rels: ParsedRelationship[] = [{ from: "orders", to: "missing", label: "x_id" }];
     const data = generateChenModelData([ordersTable], rels);

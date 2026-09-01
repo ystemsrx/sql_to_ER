@@ -206,13 +206,17 @@ const generateChenModelData = (
     const isSelfLoop = rel.from === rel.to;
 
     const relComment = lookupRelComment(rel);
-    const relLabel = pickLabel(rel.label, relComment, labelMode);
+    // DBML `Ref name:` carries the semantic relationship name, while `label`
+    // remains the FK-holder column name. SQL relationships do not set `name`,
+    // so they keep their existing label behavior through this fallback.
+    const relationshipName = rel.name || rel.label;
+    const relLabel = pickLabel(relationshipName, relComment, labelMode);
     nodes.push({
       id: relationshipId,
       type: "relationship",
       label: relLabel,
-      nameLabel: rel.label,
-      commentLabel: relComment || rel.label,
+      nameLabel: relationshipName,
+      commentLabel: relComment || relationshipName,
       style: {
         fill: isColored ? "#f9f0ff" : "#ffffff",
         stroke: isColored ? "#722ed1" : "#000000",

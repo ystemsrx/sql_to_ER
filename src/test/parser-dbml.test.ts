@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { I18N } from "../i18n";
 import { parseDBML } from "../parser/dbml";
 
 describe("parseDBML", () => {
@@ -227,53 +228,35 @@ describe("parseDBML", () => {
   });
 
   it("parses the in-app DBML sample (with leading -- SQL-style comment)", () => {
-    // 这段就是 i18n.ts 里 zh.sample 的副本，回归保护：示例必须能完整解析。
-    const sample = `-- 示例 DBML，请在此处粘贴您的 DBML 或 SQL 语句
-Table 用户 {
-  编号 INT [pk, increment]
-  用户名 VARCHAR(255) [not null]
-  邮箱 VARCHAR(255) [unique]
-  创建时间 TIMESTAMP
-}
-
-Table 国家 {
-  编号 INT [pk]
-  名称 VARCHAR(255) [not null]
-}
-
-Table 文章 {
-  文章编号 INT [pk]
-  内容 TEXT
-}
-
-Ref: 用户.属于 > 国家.编号
-Ref: 文章.作者 > 用户.编号
-`;
-    const result = parseDBML(sample);
+    const result = parseDBML(I18N.zh.sample);
     expect(result.tables.map((t) => t.name)).toEqual(["用户", "国家", "文章"]);
     expect(result.tables[0].columns.map((c) => c.name)).toEqual([
       "编号",
       "用户名",
       "邮箱",
       "创建时间",
+      "国家编号",
     ]);
     expect(result.tables[0].primaryKeys).toEqual(["编号"]);
     expect(result.relationships).toEqual([
       {
         from: "用户",
         to: "国家",
-        label: "属于",
+        label: "国家编号",
+        name: "属于",
         fromCardinality: "N",
         toCardinality: "1",
       },
       {
         from: "文章",
         to: "用户",
-        label: "作者",
+        label: "作者编号",
+        name: "作者",
         fromCardinality: "N",
         toCardinality: "1",
       },
     ]);
+    expect(result.warnings).toBeUndefined();
   });
 
   it("reports malformed DBML fields and refs while still returning parsed tables", () => {

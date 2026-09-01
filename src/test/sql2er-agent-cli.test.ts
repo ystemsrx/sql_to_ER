@@ -763,6 +763,41 @@ Ref: 文章.作者 >
     }
   });
 
+  it("uses a named DBML Ref for the relationship diamond without parser warnings", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const generated = runAgent([
+        "generate",
+        "--format",
+        "dbml",
+        "--layout",
+        "none",
+        "--text",
+        `Table User {
+  ID INT [pk]
+  CountryID INT [not null]
+}
+Table Country {
+  ID INT [pk]
+}
+Ref BelongsTo: User.CountryID > Country.ID`,
+        "--state",
+        state,
+      ]);
+
+      expect(generated.status).toBe(0);
+      expect(generated.stderr).toBe("");
+      const relationship = readState(state).nodes.find((node) => node.nodeType === "relationship");
+      expect(relationship).toMatchObject({
+        label: "BelongsTo",
+        nameLabel: "BelongsTo",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects explicit --format auto", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
     try {
