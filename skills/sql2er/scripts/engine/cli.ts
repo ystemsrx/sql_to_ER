@@ -92,6 +92,14 @@ function printParserWarnings(warnings: ParserWarning[] | undefined): void {
   });
 }
 
+function formatParserWarnings(warnings: ParserWarning[] | undefined): string | null {
+  if (!warnings?.length) return null;
+  return [
+    "PARSER WARNINGS  (code | message)",
+    ...warnings.map((warning) => `  ${warning.code}  ${warning.message}`),
+  ].join("\n");
+}
+
 function htmlLang(flags: Record<string, string | boolean>): EmbeddedHtmlLanguage {
   if (flags.lang !== "zh" && flags.lang !== "en") {
     throw new Error("export html requires --lang zh|en");
@@ -147,15 +155,19 @@ function readLabels(flags: Record<string, string | boolean>): Record<string, str
   return labels;
 }
 
-function printState(state: State, flags: Record<string, string | boolean>): void {
+function printState(
+  state: State,
+  flags: Record<string, string | boolean>,
+  includeParserWarnings = false,
+): void {
   const graph = createHeadlessGraph(state.nodes, state.edges);
-  process.stdout.write(
-    describe(graph, {
-      full: boolFlag(flags.full),
-      details: boolFlag(flags.details),
-      focus: typeof flags.focus === "string" ? flags.focus : undefined,
-    }) + "\n",
-  );
+  const report = describe(graph, {
+    full: boolFlag(flags.full),
+    details: boolFlag(flags.details),
+    focus: typeof flags.focus === "string" ? flags.focus : undefined,
+  });
+  const warningReport = includeParserWarnings ? formatParserWarnings(state.parserWarnings) : null;
+  process.stdout.write(report + (warningReport ? `\n\n${warningReport}` : "") + "\n");
 }
 
 const HELP = `sql2er-agent — headless SQL/DBML → Chen-model ER layout for agents
@@ -288,11 +300,18 @@ function main(): void {
       const state = loadState(flags);
       const graph = createHeadlessGraph(state.nodes, state.edges);
       if (boolFlag(flags.json)) {
+        const scene = describeJson(graph, { details: boolFlag(flags.details) });
         process.stdout.write(
-          JSON.stringify(describeJson(graph, { details: boolFlag(flags.details) }), null, 2) + "\n",
+          JSON.stringify(
+            state.parserWarnings?.length
+              ? { ...scene, parserWarnings: state.parserWarnings }
+              : scene,
+            null,
+            2,
+          ) + "\n",
         );
       } else {
-        printState(state, flags);
+        printState(state, flags, true);
       }
       break;
     }

@@ -36,6 +36,11 @@ type AgentState = {
   version: 1;
   input: string;
   format: "sql";
+  parserWarnings?: Array<{
+    code: string;
+    message: string;
+    line?: number;
+  }>;
   settings: {
     colored: boolean;
     comment: boolean;
@@ -1402,6 +1407,71 @@ describe("sql2er agent CLI auto avoidance", () => {
 });
 
 describe("sql2er agent CLI describe", () => {
+  it("returns saved parser warnings in text and JSON only when warnings exist", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const warningState = resolve(dir, "warning.json");
+      const generated = runAgent([
+        "generate",
+        "--format",
+        "sql",
+        "--text",
+        "CREATE TABLE broken (id INT PRIMARY KEY, account_id);",
+        "--layout",
+        "none",
+        "--state",
+        warningState,
+      ]);
+      expect(generated.status).toBe(0);
+      expect(generated.stderr).toContain("parser warning:");
+      expect(generated.stdout).not.toContain("PARSER WARNINGS");
+
+      const warningText = runAgent(["describe", "--state", warningState]);
+      expect(warningText.status).toBe(0);
+      expect(warningText.stdout).toContain("PARSER WARNINGS  (code | message)");
+      expect(warningText.stdout).toContain(
+        'column_type_missing  line 1: column "account_id" in table "broken" has no type',
+      );
+
+      const warningJson = runAgent(["describe", "--state", warningState, "--json"]);
+      expect(warningJson.status).toBe(0);
+      expect(JSON.parse(warningJson.stdout)).toMatchObject({
+        parserWarnings: [
+          {
+            code: "column_type_missing",
+            message: 'line 1: column "account_id" in table "broken" has no type',
+            line: 1,
+          },
+        ],
+      });
+
+      const cleanState = resolve(dir, "clean.json");
+      const cleanGenerated = runAgent([
+        "generate",
+        "--format",
+        "sql",
+        "--text",
+        schema,
+        "--layout",
+        "none",
+        "--state",
+        cleanState,
+      ]);
+      expect(cleanGenerated.status).toBe(0);
+      expect(cleanGenerated.stderr).toBe("");
+
+      const cleanText = runAgent(["describe", "--state", cleanState]);
+      expect(cleanText.status).toBe(0);
+      expect(cleanText.stdout).not.toContain("PARSER WARNINGS");
+
+      const cleanJson = runAgent(["describe", "--state", cleanState, "--json"]);
+      expect(cleanJson.status).toBe(0);
+      expect(JSON.parse(cleanJson.stdout)).not.toHaveProperty("parserWarnings");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("reports abstract planarity separately from current edge crossings", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
     try {

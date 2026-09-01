@@ -48,12 +48,12 @@ Parse, build, lay out, and save state.
 
 Print the current scene. Does not mutate state.
 
-| flag           | meaning                                                          |
-| -------------- | ---------------------------------------------------------------- |
-| `--full`       | include attributes with positions                                |
-| `--details`    | expand attribute overlap / line-crossing pairs                   |
-| `--focus <id>` | zoom into one entity (its relationships + attributes)            |
-| `--json`       | machine-readable: `{ entities[], relationships[], diagnostics }` |
+| flag           | meaning                                                                           |
+| -------------- | --------------------------------------------------------------------------------- |
+| `--full`       | include attributes with positions                                                 |
+| `--details`    | expand attribute overlap / line-crossing pairs                                    |
+| `--focus <id>` | zoom into one entity (its relationships + attributes)                             |
+| `--json`       | machine-readable: `{ entities[], relationships[], diagnostics, parserWarnings? }` |
 
 ### Output schema
 
@@ -80,6 +80,9 @@ DIAGNOSTICS
 
 MAP
   ... entities by label, diamonds as relationship labels, coarsely placed in a grid ...
+
+PARSER WARNINGS  (code | message)                       (only when warnings exist)
+  <warning-code>  line <n>: <message>
 ```
 
 `planarity` is graph-theoretic: it checks the abstract entity-relationship skeleton after ignoring attributes, self-loops, and duplicate relationships. A planar skeleton may still have current `crossings` caused by layout; a non-planar skeleton means some relationship crossings are unavoidable. `overlaps` and `crossings` cover only the skeleton (entities + relationship diamonds). `attrOverlaps` covers any overlap involving an attribute ellipse. `attrCrossings` covers attribute connector crossings, an attribute connector crossing a relationship line, a relationship line passing through an attribute ellipse, or an attribute connector passing through another attribute ellipse. Use `--details` only when non-zero attribute diagnostics persist after `attrs compact` / `attrs moderate`; with `--json`, details are returned under `diagnostics.details`.

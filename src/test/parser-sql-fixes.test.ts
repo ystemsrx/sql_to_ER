@@ -49,7 +49,7 @@ describe("parseSQLTables — SQL Server WITH CHECK 前缀", () => {
       ALTER TABLE t OWNER TO admin;
     `);
     expect(r.warnings?.map((w) => w.message)).toEqual([
-      'line 3: ALTER TABLE "t" was skipped because no supported action was recognized',
+      'line 3: ALTER TABLE "t" OWNER action was skipped',
     ]);
   });
 });
@@ -180,7 +180,7 @@ describe("parseSQLTables — ALTER 的 DROP / RENAME / 其它动作", () => {
     expect(r.warnings).toBeUndefined();
   });
 
-  it("MODIFY / CHANGE / ALTER COLUMN / RENAME COLUMN / DROP CONSTRAINT 发警告", () => {
+  it("RENAME COLUMN 生效，其余不支持的 ALTER 动作发警告", () => {
     const r = parseSQLTables(`
       CREATE TABLE t (id INT PRIMARY KEY, age INT);
       ALTER TABLE t MODIFY age BIGINT;
@@ -193,10 +193,10 @@ describe("parseSQLTables — ALTER 的 DROP / RENAME / 其它动作", () => {
       'line 3: ALTER TABLE "t" MODIFY action was skipped',
       'line 4: ALTER TABLE "t" CHANGE action was skipped',
       'line 5: ALTER TABLE "t" ALTER COLUMN action was skipped',
-      'line 6: ALTER TABLE "t" RENAME COLUMN action was skipped',
       'line 7: ALTER TABLE "t" DROP CONSTRAINT action was skipped',
     ]);
     expect(r.warnings?.every((w) => w.code === "statement_skipped")).toBe(true);
+    expect(r.tables[0].columns.map((column) => column.name)).toEqual(["id", "years"]);
   });
 });
 

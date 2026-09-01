@@ -382,7 +382,7 @@ Table {
     expect(result.tables.map((t) => t.name)).toEqual(["a", "b"]);
   });
 
-  it("supports schema-qualified table names (Table auth.users)", () => {
+  it("preserves schema-qualified table names (Table auth.users)", () => {
     const result = parseDBML(`
       Table auth.users {
         user_id bigint [pk]
@@ -392,11 +392,11 @@ Table {
       }
       Ref: catalog.products.user_id > auth.users.user_id
     `);
-    expect(result.tables.map((t) => t.name)).toEqual(["users", "products"]);
+    expect(result.tables.map((t) => t.name)).toEqual(["auth.users", "catalog.products"]);
     expect(result.relationships).toEqual([
       {
-        from: "products",
-        to: "users",
+        from: "catalog.products",
+        to: "auth.users",
         label: "user_id",
         fromCardinality: "N",
         toCardinality: "1",
@@ -421,6 +421,8 @@ Table {
         from: "posts",
         to: "users",
         label: "author_id",
+        onDelete: "cascade",
+        onUpdate: "cascade",
         fromCardinality: "N",
         toCardinality: "1",
       },
@@ -429,6 +431,7 @@ Table {
         from: "posts",
         to: "users",
         label: "id",
+        onDelete: "set null",
         fromCardinality: "1",
         toCardinality: "1",
       },
@@ -482,6 +485,9 @@ Table {
         from: "orders",
         to: "users",
         label: "user_id",
+        name: "fk_orders_user",
+        onDelete: "restrict",
+        onUpdate: "cascade",
         fromCardinality: "N",
         toCardinality: "1",
       },
@@ -490,6 +496,7 @@ Table {
         from: "users",
         to: "orders",
         label: "id",
+        name: "users_orders_mtm",
         fromCardinality: "N",
         toCardinality: "N",
       },
@@ -513,6 +520,7 @@ Table {
         from: "order_items",
         to: "products",
         label: "product_id, product_code",
+        onDelete: "set null",
         // 复合 FK label 含逗号 → 跳过单列推断，保持默认 N:1
         fromCardinality: "N",
         toCardinality: "1",

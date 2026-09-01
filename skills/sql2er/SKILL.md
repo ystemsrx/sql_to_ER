@@ -40,6 +40,7 @@ node $AGENT describe --state er.json
 ```
 
 Use `DIAGNOSTICS` for structural decisions: crossings, overlaps, disconnected components, attribute overlaps, and attribute-line crossings. Use the ASCII map only as a rough orientation aid.
+If `PARSER WARNINGS` is present, fix every reported issue. If an issue cannot be fixed, report it to the user.
 Copy exact entity ids from the `ENTITIES` block for manual position edits.
 
 3. Improve layout as needed:

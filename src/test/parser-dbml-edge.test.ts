@@ -78,7 +78,7 @@ describe("parseDBML — 边界 / 加固", () => {
     expect(r.tables[0].columns.map((c) => c.name)).toEqual(["id", "my col"]);
   });
 
-  it("内联 schema 限定的 ref（取最后两段）", () => {
+  it("内联 schema 限定的 ref 保留完整表名", () => {
     const r = parseDBML(`
       Table users {
         id int [pk]
@@ -88,7 +88,7 @@ describe("parseDBML — 边界 / 加固", () => {
     expect(r.relationships).toEqual([
       {
         from: "users",
-        to: "countries",
+        to: "geo.countries",
         label: "country_id",
         fromCardinality: "N",
         toCardinality: "1",

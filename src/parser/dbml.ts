@@ -7,11 +7,12 @@
  *   - 多行属性 [ ... ]、嵌套 Note { ... }、indexes { ... } 块
  *   - Ref 短语句、Ref 块（多条）、内联 ref 属性
  *   - 反引号 / 双引号 / 方括号 / 中文标识符
- *   - schema.table.column 的多段限定符（取最后两段；引号 / 括号感知，
+ *   - schema.table.column 的多段限定符（完整保留 table 的 schema；引号 / 括号感知，
  *     "my.table" 这种带点引用名整体保留，不被误拆）
  *   - 复合类型 decimal(10,2) / varchar(255)
  *   - 数组类型后缀 int[] / int[][] / decimal(10,2)[]（与列尾设置块 [...] 区分）
- *   - indexes { (a,b) [pk] / col [unique] } 块里的复合主键与单列唯一约束
+ *   - indexes { (a,b) [pk/unique] / col [unique] } 的复合候选键
+ *   - TablePartial 递归注入、可选关系运算符与 Ref name/settings
  */
 
 import type {
@@ -53,6 +54,94 @@ const pushWarning = (
 };
 
 const countNewlines = (s: string): number => (s.match(/\n/g) ?? []).length;
+
+interface RelationshipTypeSignature {
+  value: string;
+  known: boolean;
+}
+
+const relationshipTypeSignature = (raw: string): RelationshipTypeSignature => {
+  let normalized = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  const arrayMatch = normalized.match(/(?:\[\s*\])+\s*$/);
+  const arrays = (arrayMatch?.[0] ?? "").replace(/\s+/g, "");
+  if (arrayMatch) normalized = normalized.slice(0, -arrayMatch[0].length).trim();
+  normalized = normalized
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const unsigned = /\bunsigned\b/.test(normalized);
+  normalized = normalized
+    .replace(/\b(?:unsigned|zerofill)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const aliases: Record<string, string> = {
+    int: "integer",
+    int4: "integer",
+    serial: "integer",
+    int2: "smallint",
+    smallserial: "smallint",
+    int8: "bigint",
+    bigserial: "bigint",
+    dec: "decimal",
+    "double precision": "double",
+    float8: "double",
+    float4: "real",
+    "character varying": "varchar",
+    nvarchar2: "nvarchar",
+    varchar2: "varchar",
+    "national character varying": "nvarchar",
+    character: "char",
+    "national character": "nchar",
+    uniqueidentifier: "uuid",
+    "timestamp with time zone": "timestamptz",
+    "time with time zone": "timetz",
+  };
+  const base = aliases[normalized] ?? normalized;
+  const value = `${base}${unsigned ? " unsigned" : ""}${arrays}`;
+  const known = new Set([
+    "tinyint",
+    "smallint",
+    "mediumint",
+    "integer",
+    "bigint",
+    "decimal",
+    "numeric",
+    "real",
+    "float",
+    "double",
+    "boolean",
+    "bit",
+    "char",
+    "nchar",
+    "varchar",
+    "nvarchar",
+    "text",
+    "blob",
+    "binary",
+    "varbinary",
+    "date",
+    "time",
+    "timetz",
+    "datetime",
+    "timestamp",
+    "timestamptz",
+    "uuid",
+    "json",
+    "jsonb",
+    "xml",
+  ]).has(base);
+  return { value, known };
+};
+
+const relationshipTypesCompatible = (
+  left: string,
+  right: string,
+): { compatible: boolean; uncertain: boolean } => {
+  const a = relationshipTypeSignature(left);
+  const b = relationshipTypeSignature(right);
+  if (a.value === b.value) return { compatible: true, uncertain: false };
+  return { compatible: false, uncertain: !a.known || !b.known };
+};
 
 // 按 `.` 切分限定标识符，但 `.` 出现在引号 / 反引号 / 方括号 / 圆括号内部时不切。
 // => `"my.table"` 是一段而非两段；复合列 `(a, b)` 也保持完整。
@@ -131,6 +220,10 @@ const cleanIdentifier = (raw: string): string => {
   return stripOuterQuotes(last) || raw.trim();
 };
 
+// 表名需要保留全部 schema 段；列名 / alias 仍由 cleanIdentifier 读取单段。
+const cleanQualifiedIdentifier = (raw: string): string =>
+  splitQualified(raw).map(stripOuterQuotes).filter(Boolean).join(".");
+
 const stripQuotes = (s: string): string => {
   const t = s.trim();
   if (t.startsWith("'''") && t.endsWith("'''") && t.length >= 6) {
@@ -168,7 +261,7 @@ const skipString = (src: string, i: number): number => {
   return j;
 };
 
-const stripDbmlComments = (src: string): string => {
+const stripDbmlComments = (src: string, warnings: ParserWarning[]): string => {
   let out = "";
   let i = 0;
   while (i < src.length) {
@@ -190,9 +283,20 @@ const stripDbmlComments = (src: string): string => {
       continue;
     }
     if (ch === "/" && src[i + 1] === "*") {
+      const commentStart = i;
+      out += "  ";
       i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
-      i = Math.min(src.length, i + 2);
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
+        out += src[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < src.length) {
+        out += "  ";
+        i += 2;
+      } else {
+        const line = 1 + (src.slice(0, commentStart).match(/\n/g) ?? []).length;
+        pushWarning(warnings, "statement_skipped", line, "block comment was not closed");
+      }
       continue;
     }
     out += ch;
@@ -339,10 +443,10 @@ const splitLogicalLineEntries = (body: string, startLine = 1): LogicalLine[] => 
       i++;
       continue;
     }
-    if (ch === "\n" && bracketDepth <= 0 && braceDepth <= 0) {
+    if ((ch === "\n" || ch === ";") && bracketDepth <= 0 && braceDepth <= 0) {
       if (cur.trim()) lines.push({ text: cur, line: curLine });
       cur = "";
-      line++;
+      if (ch === "\n") line++;
       curLine = line;
       i++;
       continue;
@@ -361,6 +465,7 @@ const splitLogicalLines = (body: string): string[] =>
 interface RefTarget {
   table: string;
   column: string;
+  columns: string[];
 }
 
 const parseRefTarget = (raw: string): RefTarget | null => {
@@ -371,37 +476,27 @@ const parseRefTarget = (raw: string): RefTarget | null => {
     .trim()
     .replace(/^,+|,+$/g, "")
     .trim();
-  // 去掉尾部 `[delete: cascade, update: cascade]` 这类设置块。
-  // Ref: a.b > c.d [...] 时，右目标会粘上 `[...]`，必须先剥掉再分段。
-  const lb = indexOfUnquoted(cleaned, "[");
-  if (lb !== -1) {
-    const rb = findMatchingBracket(cleaned, lb);
-    if (rb !== -1) {
-      cleaned = (cleaned.slice(0, lb) + " " + cleaned.slice(rb + 1)).trim();
-    }
-  }
   if (!cleaned) return null;
   // 用引号 / 括号感知的切分：`"my.tbl".col` 取 my.tbl + col；
   // 复合列 `(a, b)` 保持完整不被 `.` 或逗号拆散。
-  const segs = splitQualified(cleaned).map(stripOuterQuotes).filter(Boolean);
+  const rawSegments = splitQualified(cleaned);
+  const segs = rawSegments.map(stripOuterQuotes).filter(Boolean);
   if (segs.length < 2) return null;
   // 复合列 `(col_a, col_b)` —— 去掉外层括号当作 label，避免出现 `(col_a, col_b)`
   // 这种带括号的边标签。table 与 column 仍按原始 segs 取，column 拿掉括号后
   // 用于显示。
   let column = segs[segs.length - 1];
-  const composite = column.match(/^\(\s*([\s\S]+?)\s*\)$/);
+  let columns = [column];
+  const composite = rawSegments[rawSegments.length - 1].match(/^\(\s*([\s\S]+?)\s*\)$/);
   if (composite) {
-    column = composite[1]
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(", ");
+    columns = splitTopLevelCommas(composite[1]).map(cleanIdentifier).filter(Boolean);
+    column = columns.join(", ");
   }
-  return { table: segs[segs.length - 2], column };
+  return { table: segs.slice(0, -1).join("."), column, columns };
 };
 
 const parseInlineRef = (refValue: string): { op: string; target: RefTarget } | null => {
-  const m = refValue.match(/^\s*(<>|[<>\-])\s*(.+)$/);
+  const m = refValue.match(/^\s*(\?>\?|\?<\?|\?>|>\?|\?<|<\?|<>|[<>\-])\s*(.+)$/);
   if (!m) return null;
   const target = parseRefTarget(m[2]);
   return target ? { op: m[1], target } : null;
@@ -457,6 +552,8 @@ interface ColumnLineResult {
   inlineRef: { target: RefTarget; op: string } | null;
   malformedType?: boolean;
   badInlineRef?: boolean;
+  unsupportedAttrs?: string[];
+  trailingText?: string;
 }
 
 const readLeadingIdentifier = (line: string): string | null => {
@@ -516,6 +613,7 @@ const parseColumnLine = (line: string): ColumnLineResult => {
   let inlineRef: ColumnLineResult["inlineRef"] = null;
   let badInlineRef = false;
   let comment: string | undefined;
+  const unsupportedAttrs: string[] = [];
 
   if (attrsRaw) {
     for (const attr of parseColumnAttrs(attrsRaw)) {
@@ -529,9 +627,20 @@ const parseColumnLine = (line: string): ColumnLineResult => {
         else badInlineRef = true;
       } else if (attr.key === "note" && attr.value) {
         comment = stripQuotes(attr.value);
+      } else if (
+        attr.key === "not null" ||
+        attr.key === "null" ||
+        attr.key === "increment" ||
+        (attr.key === "default" && attr.value)
+      ) {
+        // 已识别、但不影响当前 ER 图结构的设置。
+      } else {
+        unsupportedAttrs.push(attr.key || "(empty)");
       }
     }
   }
+
+  const trailingText = sb ? trimmed.slice(sb.rb + 1).trim() : "";
 
   const column: ParsedColumn = { name, type, isPrimaryKey };
   if (isUnique) column.isUnique = true;
@@ -541,6 +650,8 @@ const parseColumnLine = (line: string): ColumnLineResult => {
     inlineRef,
     ...(malformedType ? { malformedType } : {}),
     ...(badInlineRef ? { badInlineRef } : {}),
+    ...(unsupportedAttrs.length ? { unsupportedAttrs } : {}),
+    ...(trailingText ? { trailingText } : {}),
   };
 };
 
@@ -548,36 +659,85 @@ interface ParsedRefStatement {
   from: RefTarget;
   to: RefTarget;
   op: string;
+  name?: string;
+  inline?: boolean;
   comment?: string;
+  onDelete?: string;
+  onUpdate?: string;
+  unsupportedSettings?: string[];
 }
 
 // Ref 顶层 settings 块 `[delete: cascade, note: 'xxx']` 中的 note 是关系注释。
 // 拆出来：返回 (剥掉外层 [...] 后的 body, 提取到的 note 字符串)。
-const stripRefSettings = (body: string): { body: string; comment?: string } => {
+const stripRefSettings = (
+  body: string,
+): {
+  body: string;
+  comment?: string;
+  onDelete?: string;
+  onUpdate?: string;
+  unsupportedSettings?: string[];
+} => {
   let cleaned = body;
   let comment: string | undefined;
-  const lb = indexOfUnquoted(cleaned, "[");
+  let onDelete: string | undefined;
+  let onUpdate: string | undefined;
+  const unsupportedSettings: string[] = [];
+  // 只把末尾、且含关系设置键的 `[...]` 当 settings；`table.[column]`
+  // 是合法的方括号引用标识符，不能在这里剥掉。
+  const lb = cleaned.lastIndexOf("[");
   if (lb !== -1) {
     const rb = findMatchingBracket(cleaned, lb);
-    if (rb !== -1) {
+    if (rb !== -1 && !cleaned.slice(rb + 1).trim()) {
       const inner = cleaned.slice(lb + 1, rb);
       // 注意 parseRefTarget 也会剥掉粘在右目标后面的 [...]；这里 stripRefSettings
       // 只是把"留在 body 里的 settings 文字"再抽一层 note 出来供关系节点显示。
-      for (const attr of splitTopLevelCommas(inner)) {
-        const colon = indexOfUnquoted(attr, ":");
-        if (colon === -1) continue;
-        const key = attr.slice(0, colon).trim().toLowerCase();
-        const value = attr.slice(colon + 1).trim();
-        if (key === "note") comment = stripQuotes(value);
+      const attrs = parseColumnAttrs(inner);
+      const recognized = attrs.some((attr) =>
+        ["note", "delete", "update", "color"].includes(attr.key),
+      );
+      const isSettingsBlock = /\s/.test(cleaned[lb - 1] ?? "") || recognized;
+      if (isSettingsBlock) {
+        const referentialActions = new Set([
+          "cascade",
+          "restrict",
+          "set null",
+          "set default",
+          "no action",
+        ]);
+        for (const attr of attrs) {
+          if (attr.key === "note" && attr.value) {
+            comment = stripQuotes(attr.value);
+          } else if (attr.key === "delete" && attr.value) {
+            const action = stripQuotes(attr.value).toLowerCase();
+            if (referentialActions.has(action)) onDelete = action;
+            else unsupportedSettings.push(`delete: ${action}`);
+          } else if (attr.key === "update" && attr.value) {
+            const action = stripQuotes(attr.value).toLowerCase();
+            if (referentialActions.has(action)) onUpdate = action;
+            else unsupportedSettings.push(`update: ${action}`);
+          } else if (attr.key === "color" && attr.value) {
+            // 已识别、但不影响当前 ER 图结构。
+          } else {
+            unsupportedSettings.push(attr.key || "(empty)");
+          }
+        }
+        cleaned = cleaned.slice(0, lb).trim();
       }
-      cleaned = (cleaned.slice(0, lb) + " " + cleaned.slice(rb + 1)).trim();
     }
   }
-  return { body: cleaned, comment };
+  return {
+    body: cleaned,
+    ...(comment ? { comment } : {}),
+    ...(onDelete ? { onDelete } : {}),
+    ...(onUpdate ? { onUpdate } : {}),
+    ...(unsupportedSettings.length ? { unsupportedSettings } : {}),
+  };
 };
 
 const parseRefBody = (rawBody: string): ParsedRefStatement | null => {
-  const { body, comment } = stripRefSettings(rawBody);
+  const { body, comment, onDelete, onUpdate, unsupportedSettings } = stripRefSettings(rawBody);
+  const operators = ["?>?", "?<?", "?>", ">?", "?<", "<?", "<>", "-", ">", "<"];
   let i = 0;
   while (i < body.length) {
     const ch = body[i];
@@ -585,19 +745,23 @@ const parseRefBody = (rawBody: string): ParsedRefStatement | null => {
       i = skipString(body, i);
       continue;
     }
-    if (body.startsWith("<>", i)) {
+    const operator = operators.find((candidate) => body.startsWith(candidate, i));
+    if (operator) {
       const left = body.slice(0, i).trim();
-      const right = body.slice(i + 2).trim();
+      const right = body.slice(i + operator.length).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      return from && to ? { from, to, op: "<>", ...(comment ? { comment } : {}) } : null;
-    }
-    if (ch === "<" || ch === ">" || ch === "-") {
-      const left = body.slice(0, i).trim();
-      const right = body.slice(i + 1).trim();
-      const from = parseRefTarget(left);
-      const to = parseRefTarget(right);
-      if (from && to) return { from, to, op: ch, ...(comment ? { comment } : {}) };
+      if (from && to) {
+        return {
+          from,
+          to,
+          op: operator,
+          ...(comment ? { comment } : {}),
+          ...(onDelete ? { onDelete } : {}),
+          ...(onUpdate ? { onUpdate } : {}),
+          ...(unsupportedSettings?.length ? { unsupportedSettings } : {}),
+        };
+      }
     }
     i++;
   }
@@ -605,7 +769,8 @@ const parseRefBody = (rawBody: string): ParsedRefStatement | null => {
 };
 
 interface TopStatement {
-  kind: "table" | "ref" | "refblock" | "enum" | "project" | "tablegroup" | "unknown";
+  kind:
+    "table" | "tablepartial" | "ref" | "refblock" | "enum" | "project" | "tablegroup" | "unknown";
   header: string;
   body: string | null;
   line: number;
@@ -614,7 +779,7 @@ interface TopStatement {
 
 const classifyHeader = (header: string): TopStatement["kind"] => {
   // 注意：先于 `Table\b` 判 TablePartial / TableGroup，否则前者会被吞。
-  if (/^TablePartial\b/i.test(header)) return "unknown";
+  if (/^TablePartial\b/i.test(header)) return "tablepartial";
   if (/^TableGroup\b/i.test(header)) return "tablegroup";
   if (/^Table\b/i.test(header)) return "table";
   // Ref 短句：`Ref:` 或 `Ref name:`，可能换行后才进入正文
@@ -661,7 +826,7 @@ const tableNameFromHeader = (header: string): string | null => {
   const head = parseTableHeader(header);
   if (head) return head.name;
   const m = header.match(new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})`, "iu"));
-  return m ? cleanIdentifier(m[1]) : null;
+  return m ? cleanQualifiedIdentifier(m[1]) : null;
 };
 
 const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[] => {
@@ -697,9 +862,44 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
 
   let i = 0;
   while (i < n) {
-    // 跳过未识别内容（注释残留、随手写的说明文字、占位符等）直到下一个关键字。
+    // 只跳过空白和可选分号。其它任何内容必须被切成一段并发出诊断，
+    // 不能像旧实现一样直接跳到下一个已知关键字。
+    while (i < n && (/\s/.test(src[i]) || src[i] === ";")) i++;
+    if (i >= n) break;
     const startIdx = findNextKeyword(src, i);
-    if (startIdx === -1) break;
+    if (startIdx !== i) {
+      const lineEndFound = src.indexOf("\n", i);
+      const lineEnd = lineEndFound === -1 ? n : lineEndFound;
+      const keywordBoundary = startIdx === -1 ? n : startIdx;
+      const scanEnd = Math.min(lineEnd, keywordBoundary);
+      let cursor = i;
+      let unknownBrace = -1;
+      while (cursor < scanEnd) {
+        const ch = src[cursor];
+        if (ch === "'" || ch === '"' || ch === "`") {
+          cursor = skipString(src, cursor);
+          continue;
+        }
+        if (ch === "{") {
+          unknownBrace = cursor;
+          break;
+        }
+        cursor++;
+      }
+      let end: number;
+      if (unknownBrace !== -1) {
+        const close = findMatchingBrace(src, unknownBrace);
+        end = close === -1 ? n : close + 1;
+      } else if (keywordBoundary < lineEnd) {
+        end = keywordBoundary;
+      } else {
+        end = lineEnd;
+      }
+      const unknown = src.slice(i, end).trim();
+      if (unknown) warnStrayLine(unknown.replace(/\s+/g, " "), i);
+      i = end === lineEnd && end < n ? end + 1 : end;
+      continue;
+    }
     i = startIdx;
 
     let braceIdx = -1;
@@ -778,6 +978,13 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
               ? `Table "${tableName}" was skipped because its block is not closed`
               : "Table block was skipped because its block is not closed",
           );
+        } else {
+          pushWarning(
+            warnings,
+            "statement_skipped",
+            lineAt(startIdx),
+            `${header || "top-level"} block was skipped because it is not closed`,
+          );
         }
         break;
       }
@@ -825,22 +1032,51 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
   return out;
 };
 
-const parseTableHeader = (header: string): { name: string; alias?: string } | null => {
+const parseTableHeader = (
+  header: string,
+  warnings?: ParserWarning[],
+  line?: number,
+): { name: string; alias?: string; comment?: string } | null => {
   // 去掉头部 [headercolor: #abc] 之类的 settings
   let h = header;
+  let comment: string | undefined;
   const lb = indexOfUnquoted(h, "[");
   if (lb !== -1) {
     const rb = findMatchingBracket(h, lb);
-    if (rb !== -1) h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
+    if (rb !== -1) {
+      for (const attr of parseColumnAttrs(h.slice(lb + 1, rb))) {
+        if (attr.key === "note" && attr.value) {
+          comment = stripQuotes(attr.value);
+        } else if (attr.key === "headercolor" && attr.value) {
+          // 已识别、但只影响 dbdiagram 的展示样式。
+        } else if (warnings) {
+          pushWarning(
+            warnings,
+            "statement_skipped",
+            line,
+            `table setting "${attr.key || "(empty)"}" was skipped`,
+          );
+        }
+      }
+      h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
+    }
   }
   const m = h.match(
     new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "iu"),
   );
   if (!m) return null;
   return {
-    name: cleanIdentifier(m[1]),
+    name: cleanQualifiedIdentifier(m[1]),
     alias: m[2] ? cleanIdentifier(m[2]) : undefined,
+    ...(comment ? { comment } : {}),
   };
+};
+
+const parsePartialHeader = (header: string): string | null => {
+  const m = header.match(
+    new RegExp(String.raw`^TablePartial\s+(${QUALIFIED_IDENT})(?:\s+as\s+${IDENT})?\s*$`, "iu"),
+  );
+  return m ? cleanQualifiedIdentifier(m[1]) : null;
 };
 
 // DBML 关系运算符 → 两端基数。
@@ -851,7 +1087,7 @@ const parseTableHeader = (header: string): { name: string; alias?: string } | nu
 const opToCardinality = (
   op: string,
 ): { from: import("../types").Cardinality; to: import("../types").Cardinality } => {
-  switch (op) {
+  switch (op.replace(/\?/g, "")) {
     case "<":
       return { from: "1", to: "N" };
     case "-":
@@ -893,8 +1129,16 @@ const parseIndexColumns = (head: string): string[] | null => {
   if (h.startsWith("`")) return null; // 表达式索引，无对应列
   if (h.startsWith("(")) {
     const inner = h.replace(/^\(|\)$/g, "");
-    return splitTopLevelCommas(inner).map(cleanIdentifier).filter(Boolean);
+    const segments = splitTopLevelCommas(inner);
+    const identifier = new RegExp(String.raw`^${IDENT}$`, "u");
+    if (
+      segments.some((segment) => segment.trim().startsWith("`") || !identifier.test(segment.trim()))
+    ) {
+      return null;
+    }
+    return segments.map(cleanIdentifier).filter(Boolean);
   }
+  if (!new RegExp(String.raw`^${IDENT}$`, "u").test(h)) return null;
   const c = cleanIdentifier(h);
   return c ? [c] : null;
 };
@@ -910,20 +1154,41 @@ const extractIndexesConstraints = (
   tableName?: string,
   warnings?: ParserWarning[],
   startLine = 1,
-): { pkCols: string[]; uniqueCols: string[] } => {
+): { pkCols: string[]; uniqueCols: string[]; uniqueKeys: string[][] } => {
   const pkCols: string[] = [];
   const uniqueCols: string[] = [];
+  const uniqueKeys: string[][] = [];
   for (const entry of splitLogicalLineEntries(blockBody, startLine)) {
     const line = entry.text.trim();
     if (!line) continue;
     const sb = findSettingsBracket(line);
-    if (!sb) continue; // 没有 [settings] -> 没有 pk/unique 可抽取
+    if (!sb) {
+      if (line.includes("[") && warnings && tableName) {
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          entry.line,
+          `index definition in table "${tableName}" has malformed settings`,
+        );
+      }
+      continue; // 没有 [settings] -> 普通索引，不影响 ER 结构。
+    }
     const head = line.slice(0, sb.lb).trim();
     let isPk = false;
     let isUnique = false;
     for (const attr of parseColumnAttrs(line.slice(sb.lb + 1, sb.rb))) {
       if (attr.key === "pk" || attr.key === "primary key") isPk = true;
       else if (attr.key === "unique") isUnique = true;
+      else if ((attr.key === "name" || attr.key === "type") && attr.value) {
+        // 已识别、但不影响当前 ER 图结构。
+      } else if (warnings && tableName) {
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          entry.line,
+          `index setting "${attr.key || "(empty)"}" in table "${tableName}" was skipped`,
+        );
+      }
     }
     if (!isPk && !isUnique) continue;
     const cols = parseIndexColumns(head);
@@ -939,47 +1204,377 @@ const extractIndexesConstraints = (
       continue;
     }
     if (isPk) pkCols.push(...cols);
+    if (isUnique) uniqueKeys.push(cols);
     // 仅单列唯一索引才让列本身唯一（复合唯一不代表任一列单独唯一）。
     if (isUnique && cols.length === 1) uniqueCols.push(cols[0]);
   }
-  return { pkCols, uniqueCols };
+  return { pkCols, uniqueCols, uniqueKeys };
+};
+
+interface DbmlInlineRef {
+  column: string;
+  target: RefTarget;
+  op: string;
+  line: number;
+}
+
+interface DbmlInjection {
+  name: string;
+  line: number;
+}
+
+interface DbmlBodyDefinition {
+  columns: ParsedColumn[];
+  primaryKeys: string[];
+  uniqueKeys: string[][];
+  inlineRefs: DbmlInlineRef[];
+  injections: DbmlInjection[];
+  comment?: string;
+}
+
+const parseDbmlBody = (
+  body: string,
+  ownerName: string,
+  startLine: number,
+  warnings: ParserWarning[],
+): DbmlBodyDefinition => {
+  const columns: ParsedColumn[] = [];
+  const primaryKeys: string[] = [];
+  const uniqueKeys: string[][] = [];
+  const inlineRefs: DbmlInlineRef[] = [];
+  const injections: DbmlInjection[] = [];
+
+  for (const entry of splitLogicalLineEntries(body, startLine)) {
+    const trimmed = entry.text.trim();
+    if (!trimmed || /^Note\s*[:{]/i.test(trimmed)) continue;
+    if (/^indexes\s*\{/i.test(trimmed)) {
+      const open = trimmed.indexOf("{");
+      const close = findMatchingBrace(trimmed, open);
+      if (open !== -1 && close !== -1) {
+        const got = extractIndexesConstraints(
+          trimmed.slice(open + 1, close),
+          ownerName,
+          warnings,
+          entry.line + countNewlines(trimmed.slice(0, open + 1)),
+        );
+        for (const column of got.pkCols) {
+          if (!primaryKeys.includes(column)) primaryKeys.push(column);
+        }
+        for (const key of got.uniqueKeys) uniqueKeys.push([...key]);
+        for (const uniqueColumn of got.uniqueCols) {
+          const column = columns.find((item) => item.name === uniqueColumn);
+          if (column && !column.isPrimaryKey) column.isUnique = true;
+        }
+      }
+      continue;
+    }
+    if (/^checks\s*\{/i.test(trimmed)) {
+      pushWarning(
+        warnings,
+        "constraint_skipped",
+        entry.line,
+        `checks block in table "${ownerName}" was skipped`,
+      );
+      continue;
+    }
+    if (/^records\b/i.test(trimmed)) continue;
+    if (trimmed.startsWith("~")) {
+      const name = cleanQualifiedIdentifier(trimmed.slice(1).trim());
+      if (name) injections.push({ name, line: entry.line });
+      else {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          entry.line,
+          `table partial "${trimmed}" in table "${ownerName}" was skipped`,
+        );
+      }
+      continue;
+    }
+
+    const { column, inlineRef, malformedType, badInlineRef, unsupportedAttrs, trailingText } =
+      parseColumnLine(trimmed);
+    if (!column) {
+      const missingTypeName = readLeadingIdentifier(trimmed);
+      pushWarning(
+        warnings,
+        missingTypeName ? "column_type_missing" : "statement_skipped",
+        entry.line,
+        missingTypeName
+          ? `column "${missingTypeName}" in table "${ownerName}" has no type`
+          : `line in table "${ownerName}" was not recognized`,
+      );
+      continue;
+    }
+    if (malformedType) {
+      pushWarning(
+        warnings,
+        "column_type_invalid",
+        entry.line,
+        `column "${column.name}" in table "${ownerName}" has malformed type "${column.type}"`,
+      );
+    }
+    if (badInlineRef) {
+      pushWarning(
+        warnings,
+        "foreign_key_unrecognized",
+        entry.line,
+        `inline ref in column "${column.name}" of table "${ownerName}" was not recognized`,
+      );
+    }
+    for (const attr of unsupportedAttrs ?? []) {
+      pushWarning(
+        warnings,
+        "statement_skipped",
+        entry.line,
+        `column setting "${attr}" on "${column.name}" in table "${ownerName}" was skipped`,
+      );
+    }
+    if (trailingText) {
+      pushWarning(
+        warnings,
+        "statement_skipped",
+        entry.line,
+        `trailing content "${trailingText}" on column "${column.name}" in table "${ownerName}" was skipped`,
+      );
+    }
+    if (column.isPrimaryKey && !primaryKeys.includes(column.name)) primaryKeys.push(column.name);
+    if (column.isUnique) uniqueKeys.push([column.name]);
+    if (inlineRef) {
+      inlineRefs.push({
+        column: column.name,
+        target: inlineRef.target,
+        op: inlineRef.op,
+        line: entry.line,
+      });
+    }
+    columns.push(column);
+  }
+
+  for (const primaryKey of primaryKeys) {
+    const column = columns.find((item) => item.name === primaryKey);
+    if (column) column.isPrimaryKey = true;
+  }
+  for (const key of uniqueKeys) {
+    if (key.length !== 1) continue;
+    const column = columns.find((item) => item.name === key[0]);
+    if (column && !column.isPrimaryKey) column.isUnique = true;
+  }
+
+  const comment = extractTableNote(body);
+  return {
+    columns,
+    primaryKeys,
+    uniqueKeys,
+    inlineRefs,
+    injections,
+    ...(comment ? { comment } : {}),
+  };
 };
 
 export const parseDBML = (dbml: string): ParseResult => {
   const tables: ParsedTable[] = [];
   const relationships: ParsedRelationship[] = [];
   const warnings: ParserWarning[] = [];
-  const tableByName = new Map<string, ParsedTable>();
-  const definedTableNames = new Set<string>();
-  const relationshipLines = new WeakMap<ParsedRelationship, number>();
+  const cleanSrc = stripDbmlComments(dbml, warnings);
+  const statements = tokenizeTopLevel(cleanSrc, warnings);
+  const candidateKeys = new WeakMap<ParsedTable, string[][]>();
 
-  // 关系与其来源 ref 的配对，供解析末尾统一做别名归一化与 FK 挂接
-  //（Ref / 别名都可以出现在被引用表定义之前，不能在落库当下就定死）。
-  const refRecords: Array<{ ref: ParsedRefStatement; relationship: ParsedRelationship }> = [];
+  interface PartialDefinition extends DbmlBodyDefinition {
+    name: string;
+    line: number;
+  }
+  interface RefRecord {
+    ref: ParsedRefStatement;
+    line: number;
+  }
 
-  const addRelationship = (ref: ParsedRefStatement, line: number | undefined): void => {
-    const card = opToCardinality(ref.op);
-    // `<` 时 FK 真正落在右侧表上，菱形标签也应取右侧（真实 FK）列；
-    // `<>` 多对多没有单侧 FK，标签沿用左侧列名。
-    const labelColumn = ref.op === "<" ? ref.to.column : ref.from.column;
-    const relationship: ParsedRelationship = {
-      from: ref.from.table,
-      to: ref.to.table,
-      label: labelColumn,
-      fromCardinality: card.from,
-      toCardinality: card.to,
-      ...(ref.comment ? { comment: ref.comment } : {}),
+  const partials: PartialDefinition[] = [];
+  const refRecords: RefRecord[] = [];
+
+  // TablePartial 先建立符号表，允许表和 partial 引用后置定义。
+  for (const stmt of statements) {
+    if (stmt.kind !== "tablepartial" || stmt.body === null) continue;
+    const name = parsePartialHeader(stmt.header);
+    if (!name) {
+      pushWarning(
+        warnings,
+        "statement_skipped",
+        stmt.line,
+        "table partial definition was skipped because its name was not recognized",
+      );
+      continue;
+    }
+    partials.push({
+      name,
+      line: stmt.line,
+      ...parseDbmlBody(stmt.body, name, stmt.bodyLine ?? stmt.line, warnings),
+    });
+  }
+
+  const sameName = (left: string, right: string): boolean =>
+    left === right || left.toLowerCase() === right.toLowerCase();
+  const shortName = (name: string): string => {
+    const parts = name.split(".");
+    return parts[parts.length - 1] || name;
+  };
+  const cloneBody = (body: DbmlBodyDefinition): DbmlBodyDefinition => ({
+    columns: body.columns.map((column) => ({ ...column })),
+    primaryKeys: [...body.primaryKeys],
+    uniqueKeys: body.uniqueKeys.map((key) => [...key]),
+    inlineRefs: body.inlineRefs.map((ref) => ({
+      ...ref,
+      target: { ...ref.target, columns: [...ref.target.columns] },
+    })),
+    injections: body.injections.map((injection) => ({ ...injection })),
+    ...(body.comment ? { comment: body.comment } : {}),
+  });
+
+  const mergeBodies = (
+    injected: DbmlBodyDefinition[],
+    local: DbmlBodyDefinition,
+  ): DbmlBodyDefinition => {
+    const merged: DbmlBodyDefinition = {
+      columns: [],
+      primaryKeys: [],
+      uniqueKeys: [],
+      inlineRefs: [],
+      injections: [],
     };
-    relationships.push(relationship);
-    if (line) relationshipLines.set(relationship, line);
-    refRecords.push({ ref, relationship });
+    const addConstraintMembers = (body: DbmlBodyDefinition): void => {
+      for (const primaryKey of body.primaryKeys) {
+        if (!merged.primaryKeys.some((name) => sameName(name, primaryKey))) {
+          merged.primaryKeys.push(primaryKey);
+        }
+      }
+      for (const key of body.uniqueKeys) {
+        const signature = [...key]
+          .map((name) => name.toLowerCase())
+          .sort()
+          .join("\u0000");
+        if (
+          !merged.uniqueKeys.some(
+            (candidate) =>
+              [...candidate]
+                .map((name) => name.toLowerCase())
+                .sort()
+                .join("\u0000") === signature,
+          )
+        ) {
+          merged.uniqueKeys.push([...key]);
+        }
+      }
+      merged.inlineRefs.push(...cloneBody(body).inlineRefs);
+      if (!merged.comment && body.comment) merged.comment = body.comment;
+    };
+
+    for (const body of injected) {
+      for (const column of body.columns) {
+        if (!merged.columns.some((item) => sameName(item.name, column.name))) {
+          merged.columns.push({ ...column });
+        }
+      }
+      addConstraintMembers(body);
+    }
+    // Partial 字段先注入；同名本地字段删除注入版本并按本地声明位置重新加入。
+    for (const column of local.columns) {
+      merged.columns = merged.columns.filter((item) => !sameName(item.name, column.name));
+      merged.columns.push({ ...column });
+    }
+    addConstraintMembers(local);
+    if (local.comment) merged.comment = local.comment;
+
+    for (const primaryKey of merged.primaryKeys) {
+      const column = merged.columns.find((item) => sameName(item.name, primaryKey));
+      if (column) column.isPrimaryKey = true;
+    }
+    for (const key of merged.uniqueKeys) {
+      if (key.length !== 1) continue;
+      const column = merged.columns.find((item) => sameName(item.name, key[0]));
+      if (column && !column.isPrimaryKey) column.isUnique = true;
+    }
+    return merged;
   };
 
-  const cleanSrc = stripDbmlComments(dbml);
+  const resolvePartial = (name: string): { partial?: PartialDefinition; ambiguous?: boolean } => {
+    const exact = partials.filter((partial) => sameName(partial.name, name));
+    if (exact.length === 1) return { partial: exact[0] };
+    if (exact.length > 1) return { ambiguous: true };
+    const short = shortName(name).toLowerCase();
+    const matches = partials.filter((partial) => shortName(partial.name).toLowerCase() === short);
+    if (matches.length === 1) return { partial: matches[0] };
+    return matches.length > 1 ? { ambiguous: true } : {};
+  };
 
-  for (const stmt of tokenizeTopLevel(cleanSrc, warnings)) {
+  const partialCache = new Map<PartialDefinition, DbmlBodyDefinition>();
+  const resolvingPartials = new Set<PartialDefinition>();
+  const warnedCycles = new Set<string>();
+  const expandPartial = (partial: PartialDefinition): DbmlBodyDefinition => {
+    const cached = partialCache.get(partial);
+    if (cached) return cloneBody(cached);
+    if (resolvingPartials.has(partial)) {
+      if (!warnedCycles.has(partial.name)) {
+        warnedCycles.add(partial.name);
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          partial.line,
+          `table partial cycle involving "${partial.name}" was skipped`,
+        );
+      }
+      return {
+        columns: [],
+        primaryKeys: [],
+        uniqueKeys: [],
+        inlineRefs: [],
+        injections: [],
+      };
+    }
+    resolvingPartials.add(partial);
+    const injected: DbmlBodyDefinition[] = [];
+    for (const injection of partial.injections) {
+      const resolution = resolvePartial(injection.name);
+      if (resolution.partial) injected.push(expandPartial(resolution.partial));
+      else {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          injection.line,
+          resolution.ambiguous
+            ? `table partial "~${injection.name}" in table "${partial.name}" was skipped because it is ambiguous`
+            : `table partial "~${injection.name}" in table "${partial.name}" was skipped`,
+        );
+      }
+    }
+    const expanded = mergeBodies(injected, partial);
+    resolvingPartials.delete(partial);
+    partialCache.set(partial, expanded);
+    return cloneBody(expanded);
+  };
+
+  const expandTableBody = (tableName: string, local: DbmlBodyDefinition): DbmlBodyDefinition => {
+    const injected: DbmlBodyDefinition[] = [];
+    for (const injection of local.injections) {
+      const resolution = resolvePartial(injection.name);
+      if (resolution.partial) injected.push(expandPartial(resolution.partial));
+      else {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          injection.line,
+          resolution.ambiguous
+            ? `table partial "~${injection.name}" in table "${tableName}" was skipped because it is ambiguous`
+            : `table partial "~${injection.name}" in table "${tableName}" was skipped`,
+        );
+      }
+    }
+    return mergeBodies(injected, local);
+  };
+
+  const definedTableNames = new Set<string>();
+  for (const stmt of statements) {
     if (stmt.kind === "table" && stmt.body !== null) {
-      const head = parseTableHeader(stmt.header);
+      const head = parseTableHeader(stmt.header, warnings, stmt.line);
       if (!head) {
         pushWarning(
           warnings,
@@ -989,157 +1584,127 @@ export const parseDBML = (dbml: string): ParseResult => {
         );
         continue;
       }
-      const columns: ParsedColumn[] = [];
-      const primaryKeys: string[] = [];
-      const foreignKeys: ParsedForeignKey[] = [];
-      const inlineRefs: Array<{
-        column: string;
-        target: RefTarget;
-        op: string;
-        line: number;
-      }> = [];
-      // indexes 块抽取到的复合主键 / 单列唯一约束，循环结束后统一应用。
-      const indexPkCols: string[] = [];
-      const indexUniqueCols: string[] = [];
-
-      for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
-        const trimmed = entry.text.trim();
-        if (!trimmed) continue;
-        // 跳过嵌套块 / 非列声明：
-        //   Note { ... } / Note: '...'
-        //   checks { ... }                    DBML 校验约束块
-        //   records { ... } / records (cols) { ... }   插桩示例数据块
-        //   ~partial_name                     TablePartial 注入；不展开，仅跳过
-        // 不跳过会被 parseColumnLine 错认为以 `checks` / `records` 命名的列。
-        // indexes { ... } 不再整体跳过 —— 复合主键 (a,b)[pk] / 唯一 col[unique]
-        // 写在这里，对 ER 图的主键标记与 1:1 推断都有用。
-        if (/^Note\s*[:{]/i.test(trimmed)) continue;
-        if (/^indexes\s*\{/i.test(trimmed)) {
-          const open = trimmed.indexOf("{");
-          const close = findMatchingBrace(trimmed, open);
-          if (open !== -1 && close !== -1) {
-            const got = extractIndexesConstraints(
-              trimmed.slice(open + 1, close),
-              head.name,
-              warnings,
-              entry.line + countNewlines(trimmed.slice(0, open + 1)),
-            );
-            indexPkCols.push(...got.pkCols);
-            indexUniqueCols.push(...got.uniqueCols);
-          }
-          continue;
-        }
-        if (/^checks\s*\{/i.test(trimmed)) {
-          pushWarning(
-            warnings,
-            "constraint_skipped",
-            entry.line,
-            `checks block in table "${head.name}" was skipped`,
-          );
-          continue;
-        }
-        if (/^records\b/i.test(trimmed)) continue;
-        if (trimmed.startsWith("~")) {
+      const local = parseDbmlBody(stmt.body, head.name, stmt.bodyLine ?? stmt.line, warnings);
+      const body = expandTableBody(head.name, local);
+      const seenColumns = new Set<string>();
+      for (const column of body.columns) {
+        const key = column.name.toLowerCase();
+        if (seenColumns.has(key)) {
           pushWarning(
             warnings,
             "statement_skipped",
-            entry.line,
-            `table partial "${trimmed}" in table "${head.name}" was skipped`,
-          );
-          continue;
-        }
-
-        const { column, inlineRef, malformedType, badInlineRef } = parseColumnLine(trimmed);
-        if (!column) {
-          const missingTypeName = readLeadingIdentifier(trimmed);
-          pushWarning(
-            warnings,
-            missingTypeName ? "column_type_missing" : "statement_skipped",
-            entry.line,
-            missingTypeName
-              ? `column "${missingTypeName}" in table "${head.name}" has no type`
-              : `line in table "${head.name}" was not recognized`,
-          );
-          continue;
-        }
-        if (malformedType) {
-          pushWarning(
-            warnings,
-            "column_type_invalid",
-            entry.line,
-            `column "${column.name}" in table "${head.name}" has malformed type "${column.type}"`,
+            stmt.line,
+            `column "${column.name}" is defined more than once in table "${head.name}"`,
           );
         }
-        if (badInlineRef) {
-          pushWarning(
-            warnings,
-            "foreign_key_unrecognized",
-            entry.line,
-            `inline ref in column "${column.name}" of table "${head.name}" was not recognized`,
-          );
-        }
-        if (column.isPrimaryKey) primaryKeys.push(column.name);
-        if (inlineRef) {
-          inlineRefs.push({
-            column: column.name,
-            target: inlineRef.target,
-            op: inlineRef.op,
-            line: entry.line,
-          });
-        }
-        columns.push(column);
+        seenColumns.add(key);
       }
-
-      // 应用 indexes 块抽取的复合主键与单列唯一约束。
-      for (const c of indexPkCols) {
-        if (!primaryKeys.includes(c)) primaryKeys.push(c);
+      body.primaryKeys = body.primaryKeys.filter((name) => {
+        if (body.columns.some((column) => sameName(column.name, name))) return true;
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          stmt.line,
+          `primary key on table "${head.name}" references missing column "${name}"`,
+        );
+        return false;
+      });
+      body.uniqueKeys = body.uniqueKeys.filter((key) => {
+        const missing = key.filter(
+          (name) => !body.columns.some((column) => sameName(column.name, name)),
+        );
+        if (!missing.length) return true;
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          stmt.line,
+          `unique constraint on table "${head.name}" references missing column${missing.length > 1 ? "s" : ""} "${missing.join('", "')}"`,
+        );
+        return false;
+      });
+      body.inlineRefs = body.inlineRefs.filter((ref) => {
+        if (body.columns.some((column) => sameName(column.name, ref.column))) return true;
+        pushWarning(
+          warnings,
+          "foreign_key_unrecognized",
+          ref.line,
+          `inline Ref in table "${head.name}" references missing local column "${ref.column}"`,
+        );
+        return false;
+      });
+      if (!body.columns.length) {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          stmt.line,
+          `Table "${head.name}" produced no supported columns`,
+        );
       }
-      for (const c of indexUniqueCols) {
-        const col = columns.find((x) => x.name === c);
-        if (col && !col.isPrimaryKey) col.isUnique = true;
-      }
-
-      const tableNote = extractTableNote(stmt.body);
       const table: ParsedTable = {
         name: head.name,
         alias: head.alias,
-        columns,
-        primaryKeys,
-        foreignKeys,
-        ...(tableNote ? { comment: tableNote } : {}),
+        columns: body.columns,
+        primaryKeys: body.primaryKeys,
+        foreignKeys: [],
+        ...(head.comment || body.comment ? { comment: head.comment ?? body.comment } : {}),
       };
-      if (definedTableNames.has(head.name)) {
+      const tableKey = table.name.toLowerCase();
+      if (definedTableNames.has(tableKey)) {
         pushWarning(
           warnings,
           "duplicate_table",
           stmt.line,
-          `table "${head.name}" is defined more than once`,
+          `table "${table.name}" is defined more than once`,
         );
       }
-      definedTableNames.add(head.name);
+      definedTableNames.add(tableKey);
       tables.push(table);
-      tableByName.set(head.name, table);
-      // 别名同样入索引：`Table orders as O` 之后 `Ref: O.x > ...` 才能命中。
-      if (head.alias) tableByName.set(head.alias, table);
-      inlineRefs.forEach((ref) => {
-        addRelationship(
-          {
-            from: { table: head.name, column: ref.column },
-            to: ref.target,
-            op: ref.op,
+      const keys: string[][] = [];
+      if (table.primaryKeys.length) keys.push([...table.primaryKeys]);
+      for (const key of body.uniqueKeys) keys.push([...key]);
+      candidateKeys.set(table, keys);
+      for (const inline of body.inlineRefs) {
+        refRecords.push({
+          ref: {
+            from: {
+              table: table.name,
+              column: inline.column,
+              columns: [inline.column],
+            },
+            to: inline.target,
+            op: inline.op,
+            inline: true,
           },
-          ref.line,
+          line: inline.line,
+        });
+      }
+      continue;
+    }
+
+    if (stmt.kind === "unknown") {
+      // 无 body 的散行已经在 tokenizeTopLevel 中报告；带 body 的未知构造在此
+      // 统一报告，确保 DiagramView / Note / records 等不会静默消失。
+      if (stmt.body !== null) {
+        const compact = stmt.header.replace(/\s+/g, " ").trim();
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          stmt.line,
+          `top-level block "${compact}" was skipped because it is not supported`,
         );
-      });
+      }
       continue;
     }
 
     if (stmt.kind === "ref") {
       const colon = indexOfUnquoted(stmt.header, ":");
       if (colon === -1) continue;
+      const prefix = stmt.header.slice(0, colon).trim();
+      const nameMatch = prefix.match(/^Ref(?:\s+(.+?))?$/i);
       const ref = parseRefBody(stmt.header.slice(colon + 1));
       if (ref) {
-        addRelationship(ref, stmt.line);
+        if (nameMatch?.[1]) ref.name = cleanIdentifier(nameMatch[1]);
+        refRecords.push({ ref, line: stmt.line });
       } else {
         pushWarning(
           warnings,
@@ -1152,10 +1717,12 @@ export const parseDBML = (dbml: string): ParseResult => {
     }
 
     if (stmt.kind === "refblock" && stmt.body !== null) {
+      const nameMatch = stmt.header.trim().match(/^Ref(?:\s+(.+?))?$/i);
       for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
         const ref = parseRefBody(entry.text);
         if (ref) {
-          addRelationship(ref, entry.line);
+          if (nameMatch?.[1]) ref.name = cleanIdentifier(nameMatch[1]);
+          refRecords.push({ ref, line: entry.line });
         } else {
           pushWarning(
             warnings,
@@ -1165,72 +1732,201 @@ export const parseDBML = (dbml: string): ParseResult => {
           );
         }
       }
+    }
+  }
+
+  interface TableResolution {
+    table?: ParsedTable;
+    ambiguous?: boolean;
+  }
+  const resolveTable = (rawName: string, context?: ParsedTable): TableResolution => {
+    const exact = tables.filter((table) => sameName(table.name, rawName));
+    if (exact.length === 1) return { table: exact[0] };
+    if (exact.length > 1) return { ambiguous: true };
+
+    const aliases = tables.filter((table) => table.alias && sameName(table.alias, rawName));
+    if (aliases.length === 1) return { table: aliases[0] };
+    if (aliases.length > 1) return { ambiguous: true };
+
+    const qualified = rawName.includes(".");
+    if (!qualified && context?.name.includes(".")) {
+      const schema = context.name.slice(0, context.name.lastIndexOf("."));
+      const contextual = `${schema}.${rawName}`;
+      const matches = tables.filter((table) => sameName(table.name, contextual));
+      if (matches.length === 1) return { table: matches[0] };
+      if (matches.length > 1) return { ambiguous: true };
+    }
+
+    const short = shortName(rawName).toLowerCase();
+    const candidates = tables.filter((table) => {
+      if (qualified && table.name.includes(".")) return false;
+      return shortName(table.name).toLowerCase() === short;
+    });
+    if (candidates.length === 1) return { table: candidates[0] };
+    return candidates.length > 1 ? { ambiguous: true } : {};
+  };
+
+  const hasExactCandidateKey = (table: ParsedTable, columns: string[]): boolean => {
+    const signature = [...columns]
+      .map((name) => name.toLowerCase())
+      .sort()
+      .join("\u0000");
+    return (candidateKeys.get(table) ?? []).some(
+      (key) =>
+        [...key]
+          .map((name) => name.toLowerCase())
+          .sort()
+          .join("\u0000") === signature,
+    );
+  };
+  for (const { ref, line } of refRecords) {
+    for (const setting of ref.unsupportedSettings ?? []) {
+      pushWarning(warnings, "statement_skipped", line, `Ref setting "${setting}" was skipped`);
+    }
+    let fromResolution = resolveTable(ref.from.table);
+    let toResolution = resolveTable(ref.to.table);
+    if (toResolution.table && !fromResolution.table) {
+      fromResolution = resolveTable(ref.from.table, toResolution.table);
+    }
+    if (fromResolution.table && !toResolution.table) {
+      toResolution = resolveTable(ref.to.table, fromResolution.table);
+    }
+    if (fromResolution.ambiguous || toResolution.ambiguous) {
+      const ambiguousName = fromResolution.ambiguous ? ref.from.table : ref.to.table;
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references ambiguous table "${ambiguousName}"`,
+      );
       continue;
     }
-    // enum / project / tablegroup / unknown：忽略
-  }
 
-  // 关系两端归一化（别名 → 真实表名），并把 FK 挂到真正持有它的表上。
-  // 放在所有语句解析完之后：Ref / 别名可以出现在被引用表定义之前，
-  // 立刻处理会漏掉后声明的表。
-  for (const { ref, relationship } of refRecords) {
-    const fromTable = tableByName.get(ref.from.table);
-    const toTable = tableByName.get(ref.to.table);
-    if (fromTable) relationship.from = fromTable.name;
-    if (toTable) relationship.to = toTable.name;
-    if (ref.op === "<>") continue; // 多对多：没有单侧 FK
-    const holderTable = ref.op === "<" ? toTable : fromTable;
-    const holderColumn = ref.op === "<" ? ref.to.column : ref.from.column;
-    const referencedTable = ref.op === "<" ? relationship.from : relationship.to;
-    const referencedColumn = ref.op === "<" ? ref.from.column : ref.to.column;
-    if (holderTable) {
+    const fromTable = fromResolution.table;
+    const toTable = toResolution.table;
+    if (!fromTable) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references missing table "${ref.from.table}"`,
+      );
+    }
+    if (!toTable) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references missing table "${ref.to.table}"`,
+      );
+    }
+    if (ref.from.columns.length !== ref.to.columns.length) {
+      pushWarning(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        "Ref has mismatched endpoint column counts",
+      );
+      continue;
+    }
+
+    const findColumn = (table: ParsedTable | undefined, name: string): ParsedColumn | undefined =>
+      table?.columns.find((column) => sameName(column.name, name));
+    const missingFromColumns = fromTable
+      ? ref.from.columns.filter((name) => !findColumn(fromTable, name))
+      : [];
+    const missingToColumns = toTable
+      ? ref.to.columns.filter((name) => !findColumn(toTable, name))
+      : [];
+    if (missingFromColumns.length) {
+      pushWarning(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        `Ref references missing column${missingFromColumns.length > 1 ? "s" : ""} "${missingFromColumns.join('", "')}" in table "${fromTable?.name}"`,
+      );
+    }
+    if (missingToColumns.length) {
+      pushWarning(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        `Ref references missing column${missingToColumns.length > 1 ? "s" : ""} "${missingToColumns.join('", "')}" in table "${toTable?.name}"`,
+      );
+    }
+
+    const baseOperator = ref.op.replace(/\?/g, "");
+    const card = opToCardinality(baseOperator);
+    const holderSide = ref.inline
+      ? "from"
+      : baseOperator === ">"
+        ? "from"
+        : baseOperator === "<" || baseOperator === "-"
+          ? "to"
+          : null;
+    const holderEndpoint = holderSide === "to" ? ref.to : ref.from;
+    const holderTable = holderSide === "to" ? toTable : fromTable;
+    const targetEndpoint = holderSide === "to" ? ref.from : ref.to;
+    const targetTable = holderSide === "to" ? fromTable : toTable;
+    if (
+      holderSide &&
+      targetTable &&
+      targetEndpoint.columns.every((name) => !!findColumn(targetTable, name)) &&
+      !hasExactCandidateKey(targetTable, targetEndpoint.columns)
+    ) {
+      pushWarning(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        `Ref target columns in table "${targetTable.name}" are not a primary or unique key`,
+      );
+    }
+
+    if (fromTable && toTable && !missingFromColumns.length && !missingToColumns.length) {
+      for (let i = 0; i < ref.from.columns.length; i++) {
+        const fromColumn = findColumn(fromTable, ref.from.columns[i]);
+        const toColumn = findColumn(toTable, ref.to.columns[i]);
+        if (!fromColumn?.type || !toColumn?.type) continue;
+        const compatibility = relationshipTypesCompatible(fromColumn.type, toColumn.type);
+        if (!compatibility.compatible) {
+          pushWarning(
+            warnings,
+            "foreign_key_unrecognized",
+            line,
+            compatibility.uncertain
+              ? `Ref column types "${fromColumn.type}" and "${toColumn.type}" could not be verified as compatible`
+              : `Ref column types "${fromColumn.type}" and "${toColumn.type}" are incompatible`,
+          );
+        }
+      }
+    }
+    let fromCardinality = card.from;
+    let toCardinality = card.to;
+    if (baseOperator === ">" && fromTable && hasExactCandidateKey(fromTable, ref.from.columns)) {
+      fromCardinality = "1";
+    }
+
+    const relationship: ParsedRelationship = {
+      from: fromTable?.name ?? ref.from.table,
+      to: toTable?.name ?? ref.to.table,
+      label: holderEndpoint.column,
+      fromCardinality,
+      toCardinality,
+      ...(ref.op.startsWith("?") ? { fromOptional: true } : {}),
+      ...(ref.op.endsWith("?") ? { toOptional: true } : {}),
+      ...(ref.name ? { name: ref.name } : {}),
+      ...(ref.onDelete ? { onDelete: ref.onDelete } : {}),
+      ...(ref.onUpdate ? { onUpdate: ref.onUpdate } : {}),
+      ...(ref.comment ? { comment: ref.comment } : {}),
+    };
+    relationships.push(relationship);
+
+    if (holderSide && holderTable) {
       holderTable.foreignKeys.push({
-        column: holderColumn,
-        referencedTable,
-        referencedColumn,
+        column: holderEndpoint.column,
+        referencedTable: targetTable?.name ?? targetEndpoint.table,
+        referencedColumn: targetEndpoint.column,
       });
-    }
-  }
-
-  for (const rel of relationships) {
-    const line = relationshipLines.get(rel);
-    if (!tableByName.has(rel.from)) {
-      pushWarning(
-        warnings,
-        "table_reference_missing",
-        line,
-        `Ref references missing table "${rel.from}"`,
-      );
-    }
-    if (!tableByName.has(rel.to)) {
-      pushWarning(
-        warnings,
-        "table_reference_missing",
-        line,
-        `Ref references missing table "${rel.to}"`,
-      );
-    }
-  }
-
-  // 基数推断：当关系是默认的 N:1（来自 `>` 或缺省），但 FK 列在 from 表上
-  // 是单列主键或带 unique 约束时，把 from 端升级为 "1" —— 这才是 1:1。
-  // 例：
-  //   Table user_profiles { user_id bigint [pk, ref: > users.id] }   // 推断 1:1
-  //   Table payments { order_id bigint [unique]; ... }
-  //   Ref: payments.order_id > orders.id                              // 推断 1:1
-  // 对显式写 `<` / `-` / `<>` 的关系不做改动，尊重作者意图。
-  // label 含逗号说明是复合 FK，单列推断不适用，跳过。
-  for (const rel of relationships) {
-    if (rel.fromCardinality !== "N" || rel.toCardinality !== "1") continue;
-    if (rel.label.includes(",")) continue;
-    const fromTable = tableByName.get(rel.from);
-    if (!fromTable) continue;
-    const col = fromTable.columns.find((c) => c.name === rel.label);
-    if (!col) continue;
-    const isOnlySinglePk =
-      fromTable.primaryKeys.length === 1 && fromTable.primaryKeys[0] === col.name;
-    if (col.isUnique || isOnlySinglePk) {
-      rel.fromCardinality = "1";
     }
   }
 

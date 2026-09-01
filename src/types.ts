@@ -37,6 +37,14 @@ export interface ParsedRelationship {
   // 这是 SQL FK 与 DBML `>` 的隐含语义。
   fromCardinality?: Cardinality;
   toCardinality?: Cardinality;
+  // DBML 可选端点运算符（例如 `>?` / `?>`）只改变最小基数；现有图模型
+  // 仍使用上面的最大基数，故以可选字段保留该语义而不改变旧调用方。
+  fromOptional?: boolean;
+  toOptional?: boolean;
+  // DBML `Ref name:` 与关系设置。
+  name?: string;
+  onDelete?: string;
+  onUpdate?: string;
   comment?: string;
 }
 

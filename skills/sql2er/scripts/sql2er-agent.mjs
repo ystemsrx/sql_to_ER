@@ -16,7 +16,7 @@ import { resolve } from "node:path";
 // src/parser/sql.ts
 var WORD_RE = /[\p{L}\p{N}\p{M}_$]/u;
 var isWordChar = (c) => !!c && WORD_RE.test(c);
-var blankComments = (src) => {
+var blankComments = (src, warnings) => {
   let out = "";
   let i = 0;
   const n = src.length;
@@ -142,6 +142,7 @@ var blankComments = (src) => {
       continue;
     }
     if (ch === "/" && src[i + 1] === "*") {
+      const commentStart = i;
       out += "  ";
       i += 2;
       while (i < n && !(src[i] === "*" && src[i + 1] === "/")) {
@@ -151,6 +152,13 @@ var blankComments = (src) => {
       if (i < n) {
         out += "  ";
         i += 2;
+      } else {
+        const line = 1 + (src.slice(0, commentStart).match(/\n/g) ?? []).length;
+        warnings.push({
+          code: "statement_skipped",
+          message: `line ${line}: block comment was not closed`,
+          line
+        });
       }
       continue;
     }
@@ -320,6 +328,78 @@ var pushWarning = (warnings, code, line, text) => {
 var shortTableName = (name) => {
   const parts = name.split(".");
   return parts[parts.length - 1] || name;
+};
+var relationshipTypeSignature = (raw) => {
+  let normalized = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  const arrayMatch = normalized.match(/(?:\[\s*\])+\s*$/);
+  const arrays = (arrayMatch?.[0] ?? "").replace(/\s+/g, "");
+  if (arrayMatch) normalized = normalized.slice(0, -arrayMatch[0].length).trim();
+  normalized = normalized.replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+  const unsigned = /\bunsigned\b/.test(normalized);
+  normalized = normalized.replace(/\b(?:unsigned|zerofill)\b/g, "").replace(/\s+/g, " ").trim();
+  const aliases = {
+    int: "integer",
+    int4: "integer",
+    serial: "integer",
+    int2: "smallint",
+    smallserial: "smallint",
+    int8: "bigint",
+    bigserial: "bigint",
+    dec: "decimal",
+    "double precision": "double",
+    float8: "double",
+    float4: "real",
+    "character varying": "varchar",
+    nvarchar2: "nvarchar",
+    varchar2: "varchar",
+    "national character varying": "nvarchar",
+    character: "char",
+    "national character": "nchar",
+    uniqueidentifier: "uuid",
+    "timestamp with time zone": "timestamptz",
+    "time with time zone": "timetz"
+  };
+  const base = aliases[normalized] ?? normalized;
+  const value = `${base}${unsigned ? " unsigned" : ""}${arrays}`;
+  const known = (/* @__PURE__ */ new Set([
+    "tinyint",
+    "smallint",
+    "mediumint",
+    "integer",
+    "bigint",
+    "decimal",
+    "numeric",
+    "real",
+    "float",
+    "double",
+    "boolean",
+    "bit",
+    "char",
+    "nchar",
+    "varchar",
+    "nvarchar",
+    "text",
+    "blob",
+    "binary",
+    "varbinary",
+    "date",
+    "time",
+    "timetz",
+    "datetime",
+    "timestamp",
+    "timestamptz",
+    "uuid",
+    "json",
+    "jsonb",
+    "xml"
+  ])).has(base);
+  return { value, known };
+};
+var relationshipTypesCompatible = (left, right) => {
+  const a = relationshipTypeSignature(left);
+  const b = relationshipTypeSignature(right);
+  if (a.value === b.value) return { compatible: true, uncertain: false };
+  return { compatible: false, uncertain: !a.known || !b.known };
 };
 var readCommentValue = (t) => {
   if (!t) return null;
@@ -496,8 +576,44 @@ var splitByComma = (toks) => {
 var parseColumnNameList = (toks, openIdx) => {
   const close = matchParen(toks, openIdx);
   if (close === -1) return [];
-  const inner = toks.slice(openIdx + 1, close);
-  return splitByComma(inner).map((seg) => seg.find(isNameTok)?.value).filter((v) => !!v);
+  const columns = [];
+  for (const segment of splitByComma(toks.slice(openIdx + 1, close))) {
+    if (!isNameTok(segment[0])) return [];
+    let p = 1;
+    if (segment[p]?.type === "punct" && segment[p].value === "(") {
+      const prefixClose = matchParen(segment, p);
+      const prefix = segment.slice(p + 1, prefixClose);
+      if (prefixClose === -1 || prefix.length !== 1 || prefix[0].type !== "word" || !/^\d+$/.test(prefix[0].value)) {
+        return [];
+      }
+      p = prefixClose + 1;
+    }
+    if (kw(segment[p]) === "ASC" || kw(segment[p]) === "DESC") p++;
+    if (p !== segment.length) return [];
+    columns.push(segment[0].value);
+  }
+  return columns;
+};
+var parseSimpleIndexColumnList = (toks, openIdx) => {
+  const close = matchParen(toks, openIdx);
+  if (close === -1) return null;
+  const columns = [];
+  for (const segment of splitByComma(toks.slice(openIdx + 1, close))) {
+    if (!isNameTok(segment[0])) return null;
+    let p = 1;
+    if (segment[p]?.type === "punct" && segment[p].value === "(") {
+      const prefixClose = matchParen(segment, p);
+      const prefix = segment.slice(p + 1, prefixClose);
+      if (prefixClose === -1 || prefix.length !== 1 || prefix[0].type !== "word" || !/^\d+$/.test(prefix[0].value)) {
+        return null;
+      }
+      p = prefixClose + 1;
+    }
+    if (kw(segment[p]) === "ASC" || kw(segment[p]) === "DESC") p++;
+    if (p !== segment.length) return null;
+    columns.push(segment[0].value);
+  }
+  return columns.length ? columns : null;
 };
 var splitStatements = (toks) => {
   const stmts = [];
@@ -520,10 +636,69 @@ var splitStatements = (toks) => {
         continue;
       }
     }
+    if (t.type === "op" && t.value === "/") {
+      const prev = toks[k - 1];
+      const next = toks[k + 1];
+      const aloneBefore = !prev || prev.line !== t.line;
+      const aloneAfter = !next || next.line !== t.line;
+      if (aloneBefore && aloneAfter) {
+        if (cur.length) stmts.push(cur);
+        cur = [];
+        continue;
+      }
+    }
     cur.push(t);
   }
   if (cur.length) stmts.push(cur);
   return stmts;
+};
+var parseReferentialOptions = (toks, from, warnings, tableName, line) => {
+  const out = {};
+  let warnedUnsupported = false;
+  for (let i = from; i < toks.length; i++) {
+    if (kw(toks[i]) === "ON" && (kw(toks[i + 1]) === "DELETE" || kw(toks[i + 1]) === "UPDATE")) {
+      const target = kw(toks[i + 1]) === "DELETE" ? "onDelete" : "onUpdate";
+      const first = kw(toks[i + 2]);
+      const second = kw(toks[i + 3]);
+      let action;
+      if (first === "CASCADE" || first === "RESTRICT") action = first.toLowerCase();
+      else if (first === "SET" && (second === "NULL" || second === "DEFAULT")) {
+        action = `set ${second.toLowerCase()}`;
+        i++;
+      } else if (first === "NO" && second === "ACTION") {
+        action = "no action";
+        i++;
+      }
+      if (action) out[target] = action;
+      else {
+        pushWarning(
+          warnings,
+          "foreign_key_unrecognized",
+          toks[i]?.line ?? line,
+          `foreign key action in table "${tableName}" was not recognized`
+        );
+      }
+      i += 2;
+      continue;
+    }
+    if (!warnedUnsupported && ["MATCH", "DEFERRABLE", "INITIALLY"].includes(kw(toks[i]) ?? "")) {
+      warnedUnsupported = true;
+      pushWarning(
+        warnings,
+        "constraint_skipped",
+        toks[i]?.line ?? line,
+        `foreign key option "${kw(toks[i])}" in table "${tableName}" was not represented`
+      );
+    }
+  }
+  return out;
+};
+var addUniqueKey = (keys, columns) => {
+  if (!columns.length) return;
+  const signature = columns.map((column) => column.toLowerCase()).join("\0");
+  if (!keys.some((key) => key.map((column) => column.toLowerCase()).join("\0") === signature)) {
+    keys.push([...columns]);
+  }
 };
 var parseColumn = (el, acc) => {
   const nameTok = el[0];
@@ -588,9 +763,23 @@ var parseColumn = (el, acc) => {
       const q = readQualifiedName(el, i + 1);
       if (q) {
         let referencedColumn = "";
+        let referencedColumns = [];
         const op = findOpenParen(el, q.next);
+        let optionFrom = q.next;
         if (op === q.next) {
-          referencedColumn = parseColumnNameList(el, op).join(", ");
+          referencedColumns = parseColumnNameList(el, op);
+          if (!referencedColumns.length) {
+            pushWarning(
+              acc.warnings,
+              "foreign_key_unrecognized",
+              t.line,
+              `foreign key in table "${acc.tableName}" has an invalid referenced column list`
+            );
+            continue;
+          }
+          referencedColumn = referencedColumns.join(", ");
+          const close = matchParen(el, op);
+          if (close !== -1) optionFrom = close + 1;
         }
         const fk = {
           column: name,
@@ -598,6 +787,11 @@ var parseColumn = (el, acc) => {
           referencedColumn
         };
         acc.fkLines.set(fk, t.line);
+        acc.fkMeta.set(fk, {
+          columns: [name],
+          referencedColumns,
+          ...parseReferentialOptions(el, optionFrom, acc.warnings, acc.tableName, t.line)
+        });
         acc.foreignKeys.push(fk);
       } else {
         pushWarning(
@@ -607,9 +801,17 @@ var parseColumn = (el, acc) => {
           `foreign key in table "${acc.tableName}" was not recognized`
         );
       }
+    } else if (u === "CHECK" || u === "GENERATED") {
+      pushWarning(
+        acc.warnings,
+        "constraint_skipped",
+        t.line,
+        `${u.toLowerCase()} clause on column "${name}" in table "${acc.tableName}" was not represented`
+      );
     }
   }
   if (isPrimaryKey) acc.primaryKeys.push(name);
+  if (isUnique) addUniqueKey(acc.uniqueKeys, [name]);
   const col = {
     name,
     type: typeStr,
@@ -630,9 +832,19 @@ var parsePrimaryKeyConstraint = (el, acc) => {
     );
     return;
   }
-  acc.primaryKeys.push(...parseColumnNameList(el, op));
+  const columns = parseColumnNameList(el, op);
+  if (!columns.length) {
+    pushWarning(
+      acc.warnings,
+      "constraint_skipped",
+      el[0]?.line,
+      `primary key constraint in table "${acc.tableName}" has an invalid column list`
+    );
+    return;
+  }
+  acc.primaryKeys.push(...columns);
 };
-var parseForeignKeyConstraint = (el, acc) => {
+var parseForeignKeyConstraint = (el, acc, constraintName) => {
   const warnBadFk = () => pushWarning(
     acc.warnings,
     "foreign_key_unrecognized",
@@ -668,13 +880,28 @@ var parseForeignKeyConstraint = (el, acc) => {
   }
   let refCols = [];
   const refOpen = findOpenParen(el, q.next);
-  if (refOpen === q.next) refCols = parseColumnNameList(el, refOpen);
+  let optionFrom = q.next;
+  if (refOpen === q.next) {
+    refCols = parseColumnNameList(el, refOpen);
+    if (!refCols.length) {
+      warnBadFk();
+      return;
+    }
+    const refClose = matchParen(el, refOpen);
+    if (refClose !== -1) optionFrom = refClose + 1;
+  }
   const fk = {
     column: fkCols.join(", "),
     referencedTable: q.name,
     referencedColumn: refCols.join(", ")
   };
   acc.fkLines.set(fk, el[0]?.line ?? refIdx);
+  acc.fkMeta.set(fk, {
+    columns: fkCols,
+    referencedColumns: refCols,
+    ...constraintName ? { constraintName } : {},
+    ...parseReferentialOptions(el, optionFrom, acc.warnings, acc.tableName, el[0]?.line)
+  });
   acc.foreignKeys.push(fk);
 };
 var parseUniqueConstraint = (el, acc) => {
@@ -688,15 +915,34 @@ var parseUniqueConstraint = (el, acc) => {
     );
     return;
   }
-  const cols = parseColumnNameList(el, op);
-  if (cols.length === 1) acc.uniqueSingleCols.add(cols[0]);
+  const columns = parseColumnNameList(el, op);
+  if (!columns.length) {
+    pushWarning(
+      acc.warnings,
+      "constraint_skipped",
+      el[0]?.line,
+      `unique constraint in table "${acc.tableName}" has an invalid column list`
+    );
+    return;
+  }
+  addUniqueKey(acc.uniqueKeys, columns);
 };
-var parseElement = (el, acc) => {
+var parseElement = (el, acc, constraintName) => {
   if (!el.length) return;
   const first = el[0];
+  const firstLine = first.line;
   const head = kw(first);
   if (first.type !== "word" || head === null) {
-    if (isNameTok(first)) parseColumn(el, acc);
+    if (isNameTok(first)) {
+      parseColumn(el, acc);
+    } else {
+      pushWarning(
+        acc.warnings,
+        "statement_skipped",
+        firstLine,
+        `table element in "${acc.tableName}" was not recognized`
+      );
+    }
     return;
   }
   switch (head) {
@@ -711,7 +957,7 @@ var parseElement = (el, acc) => {
           );
           return;
         }
-        parseElement(el.slice(2), acc);
+        parseElement(el.slice(2), acc, el[1].value);
       } else {
         parseColumn(el, acc);
       }
@@ -723,7 +969,7 @@ var parseElement = (el, acc) => {
       return;
     }
     case "FOREIGN": {
-      if (kw(el[1]) === "KEY") parseForeignKeyConstraint(el, acc);
+      if (kw(el[1]) === "KEY") parseForeignKeyConstraint(el, acc, constraintName);
       else parseColumn(el, acc);
       return;
     }
@@ -782,6 +1028,12 @@ var parseElement = (el, acc) => {
       return;
     }
     case "LIKE": {
+      pushWarning(
+        acc.warnings,
+        "statement_skipped",
+        first.line,
+        `LIKE clause in table "${acc.tableName}" was not represented`
+      );
       return;
     }
     default:
@@ -789,7 +1041,7 @@ var parseElement = (el, acc) => {
   }
 };
 var CREATE_MODIFIERS = /* @__PURE__ */ new Set(["TEMP", "TEMPORARY", "GLOBAL", "LOCAL", "UNLOGGED"]);
-var parseAlter = (toks, cleaned, warnings, fkLines) => {
+var parseAlter = (toks, cleaned, warnings, fkLines, fkMeta) => {
   let p = 1;
   if (kw(toks[p]) !== "TABLE") return null;
   p++;
@@ -801,14 +1053,18 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
     columns: [],
     primaryKeys: [],
     foreignKeys: [],
-    uniqueSingleCols: /* @__PURE__ */ new Set(),
+    uniqueKeys: [],
     tableName: nameRead.name,
     cleaned,
     warnings,
-    fkLines
+    fkLines,
+    fkMeta
   };
   const dropColumns = [];
+  const dropForeignKeys = [];
+  const renameColumns = [];
   let renameTo;
+  const mutationKinds = /* @__PURE__ */ new Set();
   let warnedAction = false;
   let sawNoopAction = false;
   const warnSkippedAction = (line, verb) => {
@@ -830,21 +1086,75 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
     "PARTITION",
     "DEFAULT"
   ]);
+  const actionHeads = /* @__PURE__ */ new Set([
+    "ADD",
+    "DROP",
+    "RENAME",
+    "MODIFY",
+    "CHANGE",
+    "ALTER",
+    "CHECK",
+    "NOCHECK",
+    "WITH",
+    "OWNER",
+    "SET",
+    "RESET",
+    "ENABLE",
+    "DISABLE",
+    "VALIDATE",
+    "ATTACH",
+    "DETACH",
+    "INHERIT",
+    "NO",
+    "CLUSTER",
+    "REPLICA",
+    "FORCE",
+    "TRIGGER",
+    "RULE",
+    "SWITCH",
+    "REBUILD",
+    "LOCK",
+    "ALGORITHM",
+    "CONVERT",
+    "COALESCE",
+    "REORGANIZE",
+    "ANALYZE",
+    "OPTIMIZE",
+    "REPAIR",
+    "ORDER",
+    "DISCARD",
+    "IMPORT",
+    "EXCHANGE"
+  ]);
+  let continuingAdd = false;
   for (const action of splitByComma(toks.slice(nameRead.next))) {
     let el = action;
     if (kw(el[0]) === "WITH" && (kw(el[1]) === "CHECK" || kw(el[1]) === "NOCHECK")) {
       el = el.slice(2);
     }
-    const head = kw(el[0]);
+    let head = kw(el[0]);
     if (head === "ADD") {
+      mutationKinds.add("add");
+      continuingAdd = true;
       el = el.slice(1);
       if (kw(el[0]) === "COLUMN") {
         el = el.slice(1);
         if (kw(el[0]) === "IF" && kw(el[1]) === "NOT" && kw(el[2]) === "EXISTS") el = el.slice(3);
       }
-      if (el.length) parseElement(el, acc);
+      if (el[0]?.type === "punct" && el[0].value === "(" && matchParen(el, 0) === el.length - 1) {
+        for (const item of splitByComma(el.slice(1, -1))) parseElement(item, acc);
+      } else if (el.length) {
+        parseElement(el, acc);
+      }
       continue;
     }
+    if (continuingAdd && (head === null || !actionHeads.has(head))) {
+      mutationKinds.add("add");
+      parseElement(el, acc);
+      continue;
+    }
+    continuingAdd = false;
+    head = kw(el[0]);
     if ((head === "CHECK" || head === "NOCHECK") && kw(el[1]) === "CONSTRAINT") {
       sawNoopAction = true;
       continue;
@@ -854,11 +1164,32 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
       if (kw(el[q]) === "COLUMN") {
         q++;
         if (kw(el[q]) === "IF" && kw(el[q + 1]) === "EXISTS") q += 2;
+      } else if (kw(el[q]) === "CONSTRAINT") {
+        let nameIndex = q + 1;
+        if (kw(el[nameIndex]) === "IF" && kw(el[nameIndex + 1]) === "EXISTS") nameIndex += 2;
+        if (isNameTok(el[nameIndex])) {
+          mutationKinds.add("drop");
+          dropForeignKeys.push(el[nameIndex].value);
+          continue;
+        }
+        warnSkippedAction(el[0]?.line, "DROP CONSTRAINT");
+        continue;
+      } else if (kw(el[q]) === "FOREIGN" && kw(el[q + 1]) === "KEY") {
+        let nameIndex = q + 2;
+        if (kw(el[nameIndex]) === "IF" && kw(el[nameIndex + 1]) === "EXISTS") nameIndex += 2;
+        if (isNameTok(el[nameIndex])) {
+          mutationKinds.add("drop");
+          dropForeignKeys.push(el[nameIndex].value);
+          continue;
+        }
+        warnSkippedAction(el[0]?.line, "DROP FOREIGN KEY");
+        continue;
       } else if (NON_COLUMN_DROP.has(kw(el[q]) ?? "")) {
         warnSkippedAction(el[0]?.line, `DROP ${kw(el[q])}`);
         continue;
       }
       if (isNameTok(el[q])) {
+        mutationKinds.add("drop");
         dropColumns.push(el[q].value);
       } else {
         warnSkippedAction(el[0]?.line, "DROP");
@@ -867,15 +1198,22 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
     }
     if (head === "RENAME") {
       const second = kw(el[1]);
+      if (second === "COLUMN" && isNameTok(el[2]) && kw(el[3]) === "TO" && isNameTok(el[4])) {
+        mutationKinds.add("rename");
+        renameColumns.push({ from: el[2].value, to: el[4].value });
+        continue;
+      }
       if (second === "TO" || second === "AS") {
         const q = readQualifiedName(el, 2);
         if (q) {
+          mutationKinds.add("rename");
           renameTo = q.name;
           continue;
         }
       } else if (second !== "COLUMN" && second !== "INDEX" && second !== "KEY" && isNameTok(el[1])) {
         const q = readQualifiedName(el, 1);
         if (q) {
+          mutationKinds.add("rename");
           renameTo = q.name;
           continue;
         }
@@ -891,8 +1229,9 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
       warnSkippedAction(el[0]?.line, "ALTER COLUMN");
       continue;
     }
+    if (el.length) warnSkippedAction(el[0]?.line, head ?? "unrecognized");
   }
-  if (!acc.columns.length && !acc.foreignKeys.length && !acc.primaryKeys.length && !acc.uniqueSingleCols.size && !dropColumns.length && !renameTo) {
+  if (!acc.columns.length && !acc.foreignKeys.length && !acc.primaryKeys.length && !acc.uniqueKeys.length && !dropColumns.length && !dropForeignKeys.length && !renameColumns.length && !renameTo) {
     if (!warnedAction && !sawNoopAction) {
       pushWarning(
         warnings,
@@ -901,7 +1240,15 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
         `ALTER TABLE "${nameRead.name}" was skipped because no supported action was recognized`
       );
     }
-    return null;
+    return sawNoopAction && !warnedAction ? { kind: "noop" } : null;
+  }
+  if (mutationKinds.size > 1) {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      toks[0]?.line,
+      `ALTER TABLE "${nameRead.name}" mixes order-sensitive action types; the final order could not be represented with certainty`
+    );
   }
   return {
     kind: "alter",
@@ -910,8 +1257,10 @@ var parseAlter = (toks, cleaned, warnings, fkLines) => {
     columns: acc.columns,
     foreignKeys: acc.foreignKeys,
     primaryKeys: acc.primaryKeys,
-    uniqueSingleCols: acc.uniqueSingleCols,
+    uniqueKeys: acc.uniqueKeys,
     dropColumns,
+    dropForeignKeys,
+    renameColumns,
     ...renameTo ? { renameTo } : {}
   };
 };
@@ -931,11 +1280,14 @@ var parseCreateIndex = (toks, from, isUnique) => {
   if (!tbl) return null;
   p = tbl.next;
   if (kw(toks[p]) === "USING" && toks[p + 1]) p += 2;
-  if (!isUnique) return null;
   const open = findOpenParen(toks, p);
   if (open === -1) return null;
-  const cols = parseColumnNameList(toks, open);
-  if (cols.length !== 1) return null;
+  const close = matchParen(toks, open);
+  if (close === -1) return null;
+  if (!isUnique) return { kind: "noop" };
+  if (toks.slice(close + 1).some((token) => kw(token) === "WHERE")) return { kind: "noop" };
+  const cols = parseSimpleIndexColumnList(toks, open);
+  if (!cols) return { kind: "noop" };
   return {
     kind: "alter",
     table: tbl.name,
@@ -943,8 +1295,10 @@ var parseCreateIndex = (toks, from, isUnique) => {
     columns: [],
     foreignKeys: [],
     primaryKeys: [],
-    uniqueSingleCols: new Set(cols),
+    uniqueKeys: [cols],
     dropColumns: [],
+    dropForeignKeys: [],
+    renameColumns: [],
     via: "create_index"
   };
 };
@@ -989,9 +1343,19 @@ var extractTableComment = (suffix) => {
   }
   return void 0;
 };
-var parseStatement = (toks, cleaned, warnings, fkLines) => {
-  if (kw(toks[0]) === "ALTER") return parseAlter(toks, cleaned, warnings, fkLines);
+var parseStatement = (toks, cleaned, warnings, fkLines, fkMeta) => {
+  if (kw(toks[0]) === "ALTER") return parseAlter(toks, cleaned, warnings, fkLines, fkMeta);
   if (kw(toks[0]) === "COMMENT" && kw(toks[1]) === "ON") return parseCommentOn(toks);
+  if (kw(toks[0]) === "DROP" && kw(toks[1]) === "TABLE") {
+    let p2 = 2;
+    if (kw(toks[p2]) === "IF" && kw(toks[p2 + 1]) === "EXISTS") p2 += 2;
+    const names = [];
+    for (const part of splitByComma(toks.slice(p2))) {
+      const read = readQualifiedName(part, 0);
+      if (read) names.push(read.name);
+    }
+    return names.length ? { kind: "drop_table", names, line: toks[0]?.line ?? 1 } : null;
+  }
   let p = 0;
   if (kw(toks[p]) !== "CREATE") return null;
   p++;
@@ -1066,19 +1430,106 @@ var parseStatement = (toks, cleaned, warnings, fkLines) => {
   }
   const suffix = toks.slice(close + 1);
   const tableComment = extractTableComment(suffix);
+  const trailingStatement = suffix.find(
+    (token) => [
+      "CREATE",
+      "ALTER",
+      "DROP",
+      "COMMENT",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "MERGE",
+      "SELECT",
+      "GRANT",
+      "REVOKE"
+    ].includes(kw(token) ?? "")
+  );
+  if (trailingStatement) {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      trailingStatement.line,
+      `content after CREATE TABLE "${tableName}" looks like another unterminated statement`
+    );
+  }
+  const unsupportedSuffix = suffix.find(
+    (token) => ["INHERITS", "PARTITION", "AS", "OF"].includes(kw(token) ?? "")
+  );
+  if (unsupportedSuffix) {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      unsupportedSuffix.line,
+      `table suffix "${kw(unsupportedSuffix)}" on "${tableName}" was not represented`
+    );
+  }
   const acc = {
     columns: [],
     primaryKeys: [],
     foreignKeys: [],
-    uniqueSingleCols: /* @__PURE__ */ new Set(),
+    uniqueKeys: [],
     tableName,
     cleaned,
     warnings,
-    fkLines
+    fkLines,
+    fkMeta
   };
   for (const el of splitByComma(bodyToks)) parseElement(el, acc);
+  const sameColumnName = (left, right) => left === right || left.toLowerCase() === right.toLowerCase();
+  const seenColumns = /* @__PURE__ */ new Set();
+  for (const column of acc.columns) {
+    const key = column.name.toLowerCase();
+    if (seenColumns.has(key)) {
+      pushWarning(
+        warnings,
+        "statement_skipped",
+        toks[0]?.line,
+        `column "${column.name}" is defined more than once in table "${tableName}"`
+      );
+    }
+    seenColumns.add(key);
+  }
+  const missingPrimaryKeys = acc.primaryKeys.filter(
+    (name) => !acc.columns.some((column) => sameColumnName(column.name, name))
+  );
+  for (const name of missingPrimaryKeys) {
+    pushWarning(
+      warnings,
+      "constraint_skipped",
+      toks[0]?.line,
+      `primary key on table "${tableName}" references missing column "${name}"`
+    );
+  }
+  acc.primaryKeys = acc.primaryKeys.filter(
+    (name, index, all) => !missingPrimaryKeys.some((missing) => sameColumnName(missing, name)) && all.findIndex((candidate) => sameColumnName(candidate, name)) === index
+  );
+  acc.uniqueKeys = acc.uniqueKeys.filter((key) => {
+    const missing = key.filter(
+      (name) => !acc.columns.some((column) => sameColumnName(column.name, name))
+    );
+    if (!missing.length) return true;
+    pushWarning(
+      warnings,
+      "constraint_skipped",
+      toks[0]?.line,
+      `unique constraint on table "${tableName}" references missing column${missing.length > 1 ? "s" : ""} "${missing.join('", "')}"`
+    );
+    return false;
+  });
+  if (!acc.columns.length) {
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      toks[0]?.line,
+      `CREATE TABLE "${tableName}" produced no supported columns`
+    );
+  }
   for (const col of acc.columns) {
-    if (acc.uniqueSingleCols.has(col.name) && !col.isPrimaryKey) {
+    if (acc.primaryKeys.some((name) => sameColumnName(name, col.name))) {
+      col.isPrimaryKey = true;
+    }
+    if (acc.uniqueKeys.some((key) => key.length === 1 && key[0] === col.name) && !col.isPrimaryKey) {
       col.isUnique = true;
     }
   }
@@ -1089,137 +1540,419 @@ var parseStatement = (toks, cleaned, warnings, fkLines) => {
     foreignKeys: acc.foreignKeys,
     ...tableComment ? { comment: tableComment } : {}
   };
-  return { kind: "table", table, uniqueSingleCols: acc.uniqueSingleCols, line: toks[0]?.line ?? 1 };
+  return { kind: "table", table, uniqueKeys: acc.uniqueKeys, line: toks[0]?.line ?? 1 };
 };
 var parseSQLTables = (sql) => {
-  const cleaned = blankComments(sql);
-  const allToks = tokenize(cleaned);
   const warnings = [];
+  const cleaned = blankComments(sql, warnings);
+  const allToks = tokenize(cleaned);
   const fkLines = /* @__PURE__ */ new WeakMap();
-  const results = splitStatements(allToks).map(
-    (stmt) => parseStatement(stmt, cleaned, warnings, fkLines)
-  );
-  const tableByName = /* @__PURE__ */ new Map();
-  for (const r of results) {
-    if (r && r.kind === "table") tableByName.set(r.table.name, r.table);
-  }
+  const fkMeta = /* @__PURE__ */ new WeakMap();
+  const uniqueKeys = /* @__PURE__ */ new WeakMap();
   const tables = [];
-  const seenTableNames = /* @__PURE__ */ new Set();
+  const resolveTable = (full, context) => {
+    const exact = tables.filter((table) => table.name === full);
+    if (exact.length) return { table: exact[exact.length - 1] };
+    const lower = full.toLowerCase();
+    const ci = tables.filter((table) => table.name.toLowerCase() === lower);
+    if (ci.length) return { table: ci[ci.length - 1] };
+    const queryQualified = full.includes(".");
+    if (!queryQualified && context?.name.includes(".")) {
+      const contextSchema = context.name.slice(0, context.name.lastIndexOf("."));
+      const contextual = `${contextSchema}.${full}`.toLowerCase();
+      const matches = tables.filter((table) => table.name.toLowerCase() === contextual);
+      if (matches.length === 1) return { table: matches[0] };
+      if (matches.length > 1) return { ambiguous: true };
+    }
+    const short2 = shortTableName(full).toLowerCase();
+    const candidates = tables.filter((table) => {
+      if (queryQualified && table.name.includes(".")) return false;
+      return shortTableName(table.name).toLowerCase() === short2;
+    });
+    if (candidates.length === 1) return { table: candidates[0] };
+    return candidates.length > 1 ? { ambiguous: true } : {};
+  };
   const noteTableName = (name, line) => {
-    if (seenTableNames.has(name)) {
+    if (tables.some((table) => table.name.toLowerCase() === name.toLowerCase())) {
       pushWarning(warnings, "duplicate_table", line, `table "${name}" is defined more than once`);
     }
-    seenTableNames.add(name);
   };
-  for (const r of results) {
-    if (!r) continue;
-    if (r.kind === "table") {
-      noteTableName(r.table.name, r.line);
-      tables.push(r.table);
-    } else if (r.kind === "like") {
-      const src = tableByName.get(r.source);
-      if (!src) {
+  const pendingComments = [];
+  const applyComment = (comment) => {
+    const resolution = resolveTable(comment.tableFull);
+    if (!resolution.table || resolution.ambiguous) return false;
+    if (comment.target === "table") {
+      resolution.table.comment = comment.value;
+    } else {
+      const column = resolution.table.columns.find((item) => item.name === comment.column);
+      if (column) column.comment = comment.value;
+    }
+    return true;
+  };
+  const applyPendingComments = () => {
+    for (let i = pendingComments.length - 1; i >= 0; i--) {
+      if (applyComment(pendingComments[i])) pendingComments.splice(i, 1);
+    }
+  };
+  const referencedBy = (target) => {
+    const out = [];
+    for (const owner of tables) {
+      for (const fk of owner.foreignKeys) {
+        if (resolveTable(fk.referencedTable, owner).table === target) out.push({ owner, fk });
+      }
+    }
+    return out;
+  };
+  const sameColumn = (left, right) => left === right || left.toLowerCase() === right.toLowerCase();
+  const removeIncomingForeignKeys = (target, column) => {
+    for (const { owner, fk } of referencedBy(target)) {
+      const meta = fkMeta.get(fk);
+      if (!column || meta?.referencedColumns.some((name) => sameColumn(name, column))) {
+        owner.foreignKeys = owner.foreignKeys.filter((candidate) => candidate !== fk);
+      }
+    }
+  };
+  for (const stmt of splitStatements(allToks)) {
+    const warningCount = warnings.length;
+    const result = parseStatement(stmt, cleaned, warnings, fkLines, fkMeta);
+    if (!result) {
+      if (warnings.length === warningCount) {
+        const raw = cleaned.slice(stmt[0]?.start ?? 0, stmt[stmt.length - 1]?.end ?? 0);
+        const compact = raw.replace(/\s+/g, " ").trim();
+        const snippet = compact.length > 80 ? `${compact.slice(0, 80)}\u2026` : compact;
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          stmt[0]?.line,
+          `statement "${snippet}" was skipped because it is unsupported or malformed`
+        );
+      }
+      continue;
+    }
+    if (result.kind === "noop") continue;
+    if (result.kind === "table") {
+      noteTableName(result.table.name, result.line);
+      tables.push(result.table);
+      const keys = [];
+      addUniqueKey(keys, result.table.primaryKeys);
+      for (const key of result.uniqueKeys) addUniqueKey(keys, key);
+      uniqueKeys.set(result.table, keys);
+      applyPendingComments();
+      continue;
+    }
+    if (result.kind === "like") {
+      const sourceResolution = resolveTable(result.source);
+      const source = sourceResolution.table;
+      if (!source || sourceResolution.ambiguous) {
         pushWarning(
           warnings,
           "table_reference_missing",
-          r.line,
-          `CREATE TABLE "${r.name}" LIKE source "${r.source}" was not found`
+          result.line,
+          sourceResolution.ambiguous ? `CREATE TABLE "${result.name}" LIKE source "${result.source}" is ambiguous` : `CREATE TABLE "${result.name}" LIKE source "${result.source}" was not found`
         );
       }
-      noteTableName(r.name, r.line);
-      tables.push({
-        name: r.name,
-        columns: src ? src.columns.map((c) => ({ ...c })) : [],
-        primaryKeys: src ? [...src.primaryKeys] : [],
+      noteTableName(result.name, result.line);
+      const table2 = {
+        name: result.name,
+        columns: source ? source.columns.map((column) => ({ ...column })) : [],
+        primaryKeys: source ? [...source.primaryKeys] : [],
         foreignKeys: []
+      };
+      tables.push(table2);
+      uniqueKeys.set(table2, source ? (uniqueKeys.get(source) ?? []).map((key) => [...key]) : []);
+      applyPendingComments();
+      continue;
+    }
+    if (result.kind === "drop_table") {
+      for (const name of result.names) {
+        const resolution2 = resolveTable(name);
+        if (!resolution2.table || resolution2.ambiguous) continue;
+        removeIncomingForeignKeys(resolution2.table);
+        const index = tables.indexOf(resolution2.table);
+        if (index !== -1) tables.splice(index, 1);
+      }
+      continue;
+    }
+    if (result.kind === "comment") {
+      if (!applyComment(result)) pendingComments.push(result);
+      continue;
+    }
+    const resolution = resolveTable(result.table);
+    const table = resolution.table;
+    if (!table || resolution.ambiguous) {
+      pushWarning(
+        warnings,
+        "table_reference_missing",
+        result.line,
+        result.via === "create_index" ? `CREATE INDEX on "${result.table}" skipped because the table ${resolution.ambiguous ? "is ambiguous" : "was not found"}` : `ALTER TABLE "${result.table}" skipped because the table ${resolution.ambiguous ? "is ambiguous" : "was not found"}`
+      );
+      continue;
+    }
+    for (const column of result.columns) {
+      if (!table.columns.some((item) => sameColumn(item.name, column.name))) {
+        table.columns.push(column);
+      } else {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          result.line,
+          `column "${column.name}" was not added to table "${table.name}" because it already exists`
+        );
+      }
+    }
+    for (const primaryKey of result.primaryKeys) {
+      if (!table.columns.some((column2) => sameColumn(column2.name, primaryKey))) {
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          result.line,
+          `primary key on table "${table.name}" references missing column "${primaryKey}"`
+        );
+        continue;
+      }
+      if (!table.primaryKeys.some((name) => sameColumn(name, primaryKey))) {
+        table.primaryKeys.push(primaryKey);
+      }
+      const column = table.columns.find((item) => sameColumn(item.name, primaryKey));
+      if (column) column.isPrimaryKey = true;
+    }
+    const tableKeys = uniqueKeys.get(table) ?? [];
+    const validPrimaryKeys = result.primaryKeys.filter(
+      (name) => table.columns.some((column) => sameColumn(column.name, name))
+    );
+    if (validPrimaryKeys.length === result.primaryKeys.length && validPrimaryKeys.length) {
+      addUniqueKey(tableKeys, validPrimaryKeys);
+    }
+    for (const key of result.uniqueKeys) {
+      const missing = key.filter(
+        (name) => !table.columns.some((column) => sameColumn(column.name, name))
+      );
+      if (missing.length) {
+        pushWarning(
+          warnings,
+          "constraint_skipped",
+          result.line,
+          `unique constraint on table "${table.name}" references missing column${missing.length > 1 ? "s" : ""} "${missing.join('", "')}"`
+        );
+        continue;
+      }
+      addUniqueKey(tableKeys, key);
+      if (key.length === 1) {
+        const column = table.columns.find((item) => sameColumn(item.name, key[0]));
+        if (column && !column.isPrimaryKey) column.isUnique = true;
+      }
+    }
+    uniqueKeys.set(table, tableKeys);
+    table.foreignKeys.push(...result.foreignKeys);
+    if (result.dropForeignKeys.length) {
+      const names = new Set(result.dropForeignKeys.map((name) => name.toLowerCase()));
+      let removed = false;
+      table.foreignKeys = table.foreignKeys.filter((fk) => {
+        const constraintName = fkMeta.get(fk)?.constraintName;
+        if (constraintName && names.has(constraintName.toLowerCase())) {
+          removed = true;
+          return false;
+        }
+        return true;
       });
+      if (!removed) {
+        pushWarning(
+          warnings,
+          "statement_skipped",
+          result.line,
+          `ALTER TABLE "${result.table}" DROP CONSTRAINT action was skipped`
+        );
+      }
+    }
+    for (const rename of result.renameColumns) {
+      const column = table.columns.find((item) => sameColumn(item.name, rename.from));
+      if (!column) {
+        pushWarning(
+          warnings,
+          "table_reference_missing",
+          result.line,
+          `ALTER TABLE "${table.name}" cannot rename missing column "${rename.from}"`
+        );
+        continue;
+      }
+      const incoming = referencedBy(table);
+      column.name = rename.to;
+      table.primaryKeys = table.primaryKeys.map(
+        (name) => sameColumn(name, rename.from) ? rename.to : name
+      );
+      const keys = uniqueKeys.get(table) ?? [];
+      for (const key of keys) {
+        for (let i = 0; i < key.length; i++) {
+          if (sameColumn(key[i], rename.from)) key[i] = rename.to;
+        }
+      }
+      for (const fk of table.foreignKeys) {
+        const meta = fkMeta.get(fk);
+        if (!meta) continue;
+        meta.columns = meta.columns.map(
+          (name) => sameColumn(name, rename.from) ? rename.to : name
+        );
+        fk.column = meta.columns.join(", ");
+      }
+      for (const { fk } of incoming) {
+        const meta = fkMeta.get(fk);
+        if (!meta) continue;
+        meta.referencedColumns = meta.referencedColumns.map(
+          (name) => sameColumn(name, rename.from) ? rename.to : name
+        );
+        fk.referencedColumn = meta.referencedColumns.join(", ");
+      }
+    }
+    for (const droppedColumn of result.dropColumns) {
+      if (!table.columns.some((column) => sameColumn(column.name, droppedColumn))) {
+        pushWarning(
+          warnings,
+          "table_reference_missing",
+          result.line,
+          `ALTER TABLE "${table.name}" cannot drop missing column "${droppedColumn}"`
+        );
+        continue;
+      }
+      if (table.primaryKeys.some((name) => sameColumn(name, droppedColumn))) {
+        table.primaryKeys = [];
+        for (const column of table.columns) column.isPrimaryKey = false;
+      }
+      table.columns = table.columns.filter((column) => !sameColumn(column.name, droppedColumn));
+      table.foreignKeys = table.foreignKeys.filter(
+        (fk) => !fkMeta.get(fk)?.columns.some((name) => sameColumn(name, droppedColumn))
+      );
+      uniqueKeys.set(
+        table,
+        (uniqueKeys.get(table) ?? []).filter(
+          (key) => !key.some((name) => sameColumn(name, droppedColumn))
+        )
+      );
+      removeIncomingForeignKeys(table, droppedColumn);
+    }
+    if (result.renameTo) {
+      const references = referencedBy(table);
+      const oldName = table.name;
+      const schema = oldName.includes(".") ? oldName.slice(0, oldName.lastIndexOf(".")) : "";
+      table.name = result.renameTo.includes(".") || !schema ? result.renameTo : `${schema}.${result.renameTo}`;
+      for (const { fk } of references) fk.referencedTable = table.name;
+      applyPendingComments();
     }
   }
-  const findTable = (full) => {
-    const exact = tables.find((tb) => tb.name === full);
-    if (exact) return exact;
-    const fullLower = full.toLowerCase();
-    const ci = tables.find((tb) => tb.name.toLowerCase() === fullLower);
-    if (ci) return ci;
-    const queryQualified = full.includes(".");
-    const shortLower = shortTableName(full).toLowerCase();
-    return tables.find((tb) => {
-      if (queryQualified && tb.name.includes(".")) return false;
-      return shortTableName(tb.name).toLowerCase() === shortLower;
-    });
-  };
-  for (const r of results) {
-    if (!r || r.kind !== "alter") continue;
-    const t = findTable(r.table);
-    if (!t) {
-      pushWarning(
-        warnings,
-        "table_reference_missing",
-        r.line,
-        r.via === "create_index" ? `CREATE INDEX on "${r.table}" skipped because the table was not found` : `ALTER TABLE "${r.table}" skipped because the table was not found`
-      );
-      continue;
-    }
-    for (const c of r.columns) {
-      if (!t.columns.some((x) => x.name === c.name)) t.columns.push(c);
-    }
-    for (const pk of r.primaryKeys) {
-      if (!t.primaryKeys.includes(pk)) t.primaryKeys.push(pk);
-    }
-    for (const uc of r.uniqueSingleCols) {
-      const col = t.columns.find((x) => x.name === uc);
-      if (col && !col.isPrimaryKey) col.isUnique = true;
-    }
-    t.foreignKeys.push(...r.foreignKeys);
-    for (const dc of r.dropColumns) {
-      t.columns = t.columns.filter((c) => c.name !== dc);
-      t.primaryKeys = t.primaryKeys.filter((pk) => pk !== dc);
-      t.foreignKeys = t.foreignKeys.filter((fk) => fk.column !== dc);
-    }
-    if (r.renameTo) t.name = r.renameTo;
-  }
-  for (const r of results) {
-    if (!r || r.kind !== "comment") continue;
-    const t = findTable(r.tableFull);
-    if (!t) {
-      pushWarning(
-        warnings,
-        "table_reference_missing",
-        r.line,
-        `COMMENT ON ${r.target.toUpperCase()} "${r.tableFull}" skipped because the table was not found`
-      );
-      continue;
-    }
-    if (r.target === "table") {
-      t.comment = r.value;
-    } else {
-      const col = t.columns.find((c) => c.name === r.column);
-      if (col) col.comment = r.value;
-    }
+  for (const comment of pendingComments) {
+    pushWarning(
+      warnings,
+      "table_reference_missing",
+      comment.line,
+      `COMMENT ON ${comment.target.toUpperCase()} "${comment.tableFull}" skipped because the table was not found`
+    );
   }
   const relationships = [];
-  for (const t of tables) {
-    for (const fk of t.foreignKeys) {
-      const target = findTable(fk.referencedTable);
+  for (const table of tables) {
+    for (const fk of table.foreignKeys) {
+      const meta = fkMeta.get(fk) ?? {
+        columns: [fk.column],
+        referencedColumns: fk.referencedColumn ? [fk.referencedColumn] : []
+      };
+      const targetResolution = resolveTable(fk.referencedTable, table);
+      const target = targetResolution.table;
+      if (targetResolution.ambiguous) {
+        pushWarning(
+          warnings,
+          "table_reference_missing",
+          fkLines.get(fk),
+          `table "${table.name}" references ambiguous table "${fk.referencedTable}"`
+        );
+        continue;
+      }
       if (!target) {
         pushWarning(
           warnings,
           "table_reference_missing",
           fkLines.get(fk),
-          `table "${t.name}" references missing table "${fk.referencedTable}"`
+          `table "${table.name}" references missing table "${fk.referencedTable}"`
         );
       }
-      const composite = fk.column.includes(",");
-      const fkCol = t.columns.find((c) => c.name === fk.column);
-      const isOnlySinglePk = t.primaryKeys.length === 1 && t.primaryKeys[0] === fk.column;
-      const fromCardinality = !composite && (fkCol?.isUnique || isOnlySinglePk) ? "1" : "N";
+      if (!meta.columns.length || meta.columns.some((name) => !table.columns.some((column) => sameColumn(column.name, name)))) {
+        pushWarning(
+          warnings,
+          "foreign_key_unrecognized",
+          fkLines.get(fk),
+          `foreign key in table "${table.name}" references a missing local column`
+        );
+        continue;
+      }
+      let referencedColumns = [...meta.referencedColumns];
+      if (target && !referencedColumns.length) referencedColumns = [...target.primaryKeys];
+      if (target && referencedColumns.length !== meta.columns.length) {
+        pushWarning(
+          warnings,
+          "foreign_key_unrecognized",
+          fkLines.get(fk),
+          `foreign key in table "${table.name}" has mismatched local and referenced column counts`
+        );
+        continue;
+      }
+      if (target && referencedColumns.some(
+        (name) => !target.columns.some((column) => sameColumn(column.name, name))
+      )) {
+        pushWarning(
+          warnings,
+          "foreign_key_unrecognized",
+          fkLines.get(fk),
+          `foreign key in table "${table.name}" references a missing column in table "${target.name}"`
+        );
+        continue;
+      }
+      if (target && referencedColumns.length) {
+        const targetKey = [...referencedColumns].map((name) => name.toLowerCase()).sort().join("\0");
+        const referencesCandidateKey = (uniqueKeys.get(target) ?? []).some(
+          (key) => [...key].map((name) => name.toLowerCase()).sort().join("\0") === targetKey
+        );
+        if (!referencesCandidateKey) {
+          pushWarning(
+            warnings,
+            "foreign_key_unrecognized",
+            fkLines.get(fk),
+            `foreign key in table "${table.name}" references columns in table "${target.name}" that are not a primary or unique key`
+          );
+        }
+        for (let i = 0; i < meta.columns.length; i++) {
+          const sourceColumn = table.columns.find(
+            (column) => sameColumn(column.name, meta.columns[i])
+          );
+          const targetColumn = target.columns.find(
+            (column) => sameColumn(column.name, referencedColumns[i])
+          );
+          if (!sourceColumn || !targetColumn || !sourceColumn.type || !targetColumn.type) continue;
+          const compatibility = relationshipTypesCompatible(sourceColumn.type, targetColumn.type);
+          if (!compatibility.compatible) {
+            pushWarning(
+              warnings,
+              "foreign_key_unrecognized",
+              fkLines.get(fk),
+              compatibility.uncertain ? `foreign key column types "${sourceColumn.type}" and "${targetColumn.type}" could not be verified as compatible` : `foreign key column types "${sourceColumn.type}" and "${targetColumn.type}" are incompatible`
+            );
+          }
+        }
+      }
+      meta.referencedColumns = referencedColumns;
+      fk.column = meta.columns.join(", ");
+      fk.referencedColumn = referencedColumns.join(", ");
+      if (target) fk.referencedTable = target.name;
+      const sourceKey = [...meta.columns].map((name) => name.toLowerCase()).sort().join("\0");
+      const isCandidateKey = (uniqueKeys.get(table) ?? []).some(
+        (key) => [...key].map((name) => name.toLowerCase()).sort().join("\0") === sourceKey
+      );
+      const fkColumn = meta.columns.length === 1 ? table.columns.find((column) => sameColumn(column.name, meta.columns[0])) : void 0;
       relationships.push({
-        from: t.name,
+        from: table.name,
         to: target ? target.name : fk.referencedTable,
-        label: fk.column,
-        fromCardinality,
+        label: meta.columns.join(", "),
+        fromCardinality: isCandidateKey ? "1" : "N",
         toCardinality: "1",
-        ...fkCol?.comment ? { comment: fkCol.comment } : {}
+        ...meta.onDelete ? { onDelete: meta.onDelete } : {},
+        ...meta.onUpdate ? { onUpdate: meta.onUpdate } : {},
+        ...fkColumn?.comment ? { comment: fkColumn.comment } : {}
       });
     }
   }
@@ -1244,6 +1977,78 @@ var pushWarning2 = (warnings, code, line, detail) => {
   });
 };
 var countNewlines = (s) => (s.match(/\n/g) ?? []).length;
+var relationshipTypeSignature2 = (raw) => {
+  let normalized = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  const arrayMatch = normalized.match(/(?:\[\s*\])+\s*$/);
+  const arrays = (arrayMatch?.[0] ?? "").replace(/\s+/g, "");
+  if (arrayMatch) normalized = normalized.slice(0, -arrayMatch[0].length).trim();
+  normalized = normalized.replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+  const unsigned = /\bunsigned\b/.test(normalized);
+  normalized = normalized.replace(/\b(?:unsigned|zerofill)\b/g, "").replace(/\s+/g, " ").trim();
+  const aliases = {
+    int: "integer",
+    int4: "integer",
+    serial: "integer",
+    int2: "smallint",
+    smallserial: "smallint",
+    int8: "bigint",
+    bigserial: "bigint",
+    dec: "decimal",
+    "double precision": "double",
+    float8: "double",
+    float4: "real",
+    "character varying": "varchar",
+    nvarchar2: "nvarchar",
+    varchar2: "varchar",
+    "national character varying": "nvarchar",
+    character: "char",
+    "national character": "nchar",
+    uniqueidentifier: "uuid",
+    "timestamp with time zone": "timestamptz",
+    "time with time zone": "timetz"
+  };
+  const base = aliases[normalized] ?? normalized;
+  const value = `${base}${unsigned ? " unsigned" : ""}${arrays}`;
+  const known = (/* @__PURE__ */ new Set([
+    "tinyint",
+    "smallint",
+    "mediumint",
+    "integer",
+    "bigint",
+    "decimal",
+    "numeric",
+    "real",
+    "float",
+    "double",
+    "boolean",
+    "bit",
+    "char",
+    "nchar",
+    "varchar",
+    "nvarchar",
+    "text",
+    "blob",
+    "binary",
+    "varbinary",
+    "date",
+    "time",
+    "timetz",
+    "datetime",
+    "timestamp",
+    "timestamptz",
+    "uuid",
+    "json",
+    "jsonb",
+    "xml"
+  ])).has(base);
+  return { value, known };
+};
+var relationshipTypesCompatible2 = (left, right) => {
+  const a = relationshipTypeSignature2(left);
+  const b = relationshipTypeSignature2(right);
+  if (a.value === b.value) return { compatible: true, uncertain: false };
+  return { compatible: false, uncertain: !a.known || !b.known };
+};
 var splitQualified = (raw) => {
   const parts = [];
   let cur = "";
@@ -1317,6 +2122,7 @@ var cleanIdentifier = (raw) => {
   const last = parts.length ? parts[parts.length - 1] : raw.trim();
   return stripOuterQuotes(last) || raw.trim();
 };
+var cleanQualifiedIdentifier = (raw) => splitQualified(raw).map(stripOuterQuotes).filter(Boolean).join(".");
 var stripQuotes = (s) => {
   const t = s.trim();
   if (t.startsWith("'''") && t.endsWith("'''") && t.length >= 6) {
@@ -1351,7 +2157,7 @@ var skipString = (src, i) => {
   }
   return j;
 };
-var stripDbmlComments = (src) => {
+var stripDbmlComments = (src, warnings) => {
   let out = "";
   let i = 0;
   while (i < src.length) {
@@ -1371,9 +2177,20 @@ var stripDbmlComments = (src) => {
       continue;
     }
     if (ch === "/" && src[i + 1] === "*") {
+      const commentStart = i;
+      out += "  ";
       i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
-      i = Math.min(src.length, i + 2);
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
+        out += src[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < src.length) {
+        out += "  ";
+        i += 2;
+      } else {
+        const line = 1 + (src.slice(0, commentStart).match(/\n/g) ?? []).length;
+        pushWarning2(warnings, "statement_skipped", line, "block comment was not closed");
+      }
       continue;
     }
     out += ch;
@@ -1509,10 +2326,10 @@ var splitLogicalLineEntries = (body, startLine = 1) => {
       i++;
       continue;
     }
-    if (ch === "\n" && bracketDepth <= 0 && braceDepth <= 0) {
+    if ((ch === "\n" || ch === ";") && bracketDepth <= 0 && braceDepth <= 0) {
       if (cur.trim()) lines.push({ text: cur, line: curLine });
       cur = "";
-      line++;
+      if (ch === "\n") line++;
       curLine = line;
       i++;
       continue;
@@ -1527,25 +2344,21 @@ var splitLogicalLineEntries = (body, startLine = 1) => {
 var splitLogicalLines = (body) => splitLogicalLineEntries(body).map((entry) => entry.text);
 var parseRefTarget = (raw) => {
   let cleaned = raw.trim().replace(/^,+|,+$/g, "").trim();
-  const lb = indexOfUnquoted(cleaned, "[");
-  if (lb !== -1) {
-    const rb = findMatchingBracket(cleaned, lb);
-    if (rb !== -1) {
-      cleaned = (cleaned.slice(0, lb) + " " + cleaned.slice(rb + 1)).trim();
-    }
-  }
   if (!cleaned) return null;
-  const segs = splitQualified(cleaned).map(stripOuterQuotes).filter(Boolean);
+  const rawSegments = splitQualified(cleaned);
+  const segs = rawSegments.map(stripOuterQuotes).filter(Boolean);
   if (segs.length < 2) return null;
   let column = segs[segs.length - 1];
-  const composite = column.match(/^\(\s*([\s\S]+?)\s*\)$/);
+  let columns = [column];
+  const composite = rawSegments[rawSegments.length - 1].match(/^\(\s*([\s\S]+?)\s*\)$/);
   if (composite) {
-    column = composite[1].split(",").map((s) => s.trim()).filter(Boolean).join(", ");
+    columns = splitTopLevelCommas(composite[1]).map(cleanIdentifier).filter(Boolean);
+    column = columns.join(", ");
   }
-  return { table: segs[segs.length - 2], column };
+  return { table: segs.slice(0, -1).join("."), column, columns };
 };
 var parseInlineRef = (refValue) => {
-  const m = refValue.match(/^\s*(<>|[<>\-])\s*(.+)$/);
+  const m = refValue.match(/^\s*(\?>\?|\?<\?|\?>|>\?|\?<|<\?|<>|[<>\-])\s*(.+)$/);
   if (!m) return null;
   const target = parseRefTarget(m[2]);
   return target ? { op: m[1], target } : null;
@@ -1635,6 +2448,7 @@ var parseColumnLine = (line) => {
   let inlineRef = null;
   let badInlineRef = false;
   let comment;
+  const unsupportedAttrs = [];
   if (attrsRaw) {
     for (const attr of parseColumnAttrs(attrsRaw)) {
       if (attr.key === "pk" || attr.key === "primary key") {
@@ -1647,9 +2461,13 @@ var parseColumnLine = (line) => {
         else badInlineRef = true;
       } else if (attr.key === "note" && attr.value) {
         comment = stripQuotes(attr.value);
+      } else if (attr.key === "not null" || attr.key === "null" || attr.key === "increment" || attr.key === "default" && attr.value) {
+      } else {
+        unsupportedAttrs.push(attr.key || "(empty)");
       }
     }
   }
+  const trailingText = sb ? trimmed.slice(sb.rb + 1).trim() : "";
   const column = { name, type, isPrimaryKey };
   if (isUnique) column.isUnique = true;
   if (comment !== void 0) column.comment = comment;
@@ -1657,31 +2475,66 @@ var parseColumnLine = (line) => {
     column,
     inlineRef,
     ...malformedType ? { malformedType } : {},
-    ...badInlineRef ? { badInlineRef } : {}
+    ...badInlineRef ? { badInlineRef } : {},
+    ...unsupportedAttrs.length ? { unsupportedAttrs } : {},
+    ...trailingText ? { trailingText } : {}
   };
 };
 var stripRefSettings = (body) => {
   let cleaned = body;
   let comment;
-  const lb = indexOfUnquoted(cleaned, "[");
+  let onDelete;
+  let onUpdate;
+  const unsupportedSettings = [];
+  const lb = cleaned.lastIndexOf("[");
   if (lb !== -1) {
     const rb = findMatchingBracket(cleaned, lb);
-    if (rb !== -1) {
+    if (rb !== -1 && !cleaned.slice(rb + 1).trim()) {
       const inner = cleaned.slice(lb + 1, rb);
-      for (const attr of splitTopLevelCommas(inner)) {
-        const colon = indexOfUnquoted(attr, ":");
-        if (colon === -1) continue;
-        const key = attr.slice(0, colon).trim().toLowerCase();
-        const value = attr.slice(colon + 1).trim();
-        if (key === "note") comment = stripQuotes(value);
+      const attrs = parseColumnAttrs(inner);
+      const recognized = attrs.some(
+        (attr) => ["note", "delete", "update", "color"].includes(attr.key)
+      );
+      const isSettingsBlock = /\s/.test(cleaned[lb - 1] ?? "") || recognized;
+      if (isSettingsBlock) {
+        const referentialActions = /* @__PURE__ */ new Set([
+          "cascade",
+          "restrict",
+          "set null",
+          "set default",
+          "no action"
+        ]);
+        for (const attr of attrs) {
+          if (attr.key === "note" && attr.value) {
+            comment = stripQuotes(attr.value);
+          } else if (attr.key === "delete" && attr.value) {
+            const action = stripQuotes(attr.value).toLowerCase();
+            if (referentialActions.has(action)) onDelete = action;
+            else unsupportedSettings.push(`delete: ${action}`);
+          } else if (attr.key === "update" && attr.value) {
+            const action = stripQuotes(attr.value).toLowerCase();
+            if (referentialActions.has(action)) onUpdate = action;
+            else unsupportedSettings.push(`update: ${action}`);
+          } else if (attr.key === "color" && attr.value) {
+          } else {
+            unsupportedSettings.push(attr.key || "(empty)");
+          }
+        }
+        cleaned = cleaned.slice(0, lb).trim();
       }
-      cleaned = (cleaned.slice(0, lb) + " " + cleaned.slice(rb + 1)).trim();
     }
   }
-  return { body: cleaned, comment };
+  return {
+    body: cleaned,
+    ...comment ? { comment } : {},
+    ...onDelete ? { onDelete } : {},
+    ...onUpdate ? { onUpdate } : {},
+    ...unsupportedSettings.length ? { unsupportedSettings } : {}
+  };
 };
 var parseRefBody = (rawBody) => {
-  const { body, comment } = stripRefSettings(rawBody);
+  const { body, comment, onDelete, onUpdate, unsupportedSettings } = stripRefSettings(rawBody);
+  const operators = ["?>?", "?<?", "?>", ">?", "?<", "<?", "<>", "-", ">", "<"];
   let i = 0;
   while (i < body.length) {
     const ch = body[i];
@@ -1689,26 +2542,30 @@ var parseRefBody = (rawBody) => {
       i = skipString(body, i);
       continue;
     }
-    if (body.startsWith("<>", i)) {
+    const operator = operators.find((candidate) => body.startsWith(candidate, i));
+    if (operator) {
       const left = body.slice(0, i).trim();
-      const right = body.slice(i + 2).trim();
+      const right = body.slice(i + operator.length).trim();
       const from = parseRefTarget(left);
       const to = parseRefTarget(right);
-      return from && to ? { from, to, op: "<>", ...comment ? { comment } : {} } : null;
-    }
-    if (ch === "<" || ch === ">" || ch === "-") {
-      const left = body.slice(0, i).trim();
-      const right = body.slice(i + 1).trim();
-      const from = parseRefTarget(left);
-      const to = parseRefTarget(right);
-      if (from && to) return { from, to, op: ch, ...comment ? { comment } : {} };
+      if (from && to) {
+        return {
+          from,
+          to,
+          op: operator,
+          ...comment ? { comment } : {},
+          ...onDelete ? { onDelete } : {},
+          ...onUpdate ? { onUpdate } : {},
+          ...unsupportedSettings?.length ? { unsupportedSettings } : {}
+        };
+      }
     }
     i++;
   }
   return null;
 };
 var classifyHeader = (header) => {
-  if (/^TablePartial\b/i.test(header)) return "unknown";
+  if (/^TablePartial\b/i.test(header)) return "tablepartial";
   if (/^TableGroup\b/i.test(header)) return "tablegroup";
   if (/^Table\b/i.test(header)) return "table";
   if (/^Ref\b[^{]*:/i.test(header)) return "ref";
@@ -1742,7 +2599,7 @@ var tableNameFromHeader = (header) => {
   const head = parseTableHeader(header);
   if (head) return head.name;
   const m = header.match(new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})`, "iu"));
-  return m ? cleanIdentifier(m[1]) : null;
+  return m ? cleanQualifiedIdentifier(m[1]) : null;
 };
 var tokenizeTopLevel = (src, warnings) => {
   const out = [];
@@ -1772,8 +2629,42 @@ var tokenizeTopLevel = (src, warnings) => {
   };
   let i = 0;
   while (i < n) {
+    while (i < n && (/\s/.test(src[i]) || src[i] === ";")) i++;
+    if (i >= n) break;
     const startIdx = findNextKeyword(src, i);
-    if (startIdx === -1) break;
+    if (startIdx !== i) {
+      const lineEndFound = src.indexOf("\n", i);
+      const lineEnd = lineEndFound === -1 ? n : lineEndFound;
+      const keywordBoundary = startIdx === -1 ? n : startIdx;
+      const scanEnd = Math.min(lineEnd, keywordBoundary);
+      let cursor = i;
+      let unknownBrace = -1;
+      while (cursor < scanEnd) {
+        const ch = src[cursor];
+        if (ch === "'" || ch === '"' || ch === "`") {
+          cursor = skipString(src, cursor);
+          continue;
+        }
+        if (ch === "{") {
+          unknownBrace = cursor;
+          break;
+        }
+        cursor++;
+      }
+      let end;
+      if (unknownBrace !== -1) {
+        const close = findMatchingBrace(src, unknownBrace);
+        end = close === -1 ? n : close + 1;
+      } else if (keywordBoundary < lineEnd) {
+        end = keywordBoundary;
+      } else {
+        end = lineEnd;
+      }
+      const unknown = src.slice(i, end).trim();
+      if (unknown) warnStrayLine(unknown.replace(/\s+/g, " "), i);
+      i = end === lineEnd && end < n ? end + 1 : end;
+      continue;
+    }
     i = startIdx;
     let braceIdx = -1;
     let lineEndIdx = -1;
@@ -1840,6 +2731,13 @@ var tokenizeTopLevel = (src, warnings) => {
             lineAt(startIdx),
             tableName ? `Table "${tableName}" was skipped because its block is not closed` : "Table block was skipped because its block is not closed"
           );
+        } else {
+          pushWarning2(
+            warnings,
+            "statement_skipped",
+            lineAt(startIdx),
+            `${header2 || "top-level"} block was skipped because it is not closed`
+          );
         }
         break;
       }
@@ -1881,24 +2779,47 @@ var tokenizeTopLevel = (src, warnings) => {
   }
   return out;
 };
-var parseTableHeader = (header) => {
+var parseTableHeader = (header, warnings, line) => {
   let h = header;
+  let comment;
   const lb = indexOfUnquoted(h, "[");
   if (lb !== -1) {
     const rb = findMatchingBracket(h, lb);
-    if (rb !== -1) h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
+    if (rb !== -1) {
+      for (const attr of parseColumnAttrs(h.slice(lb + 1, rb))) {
+        if (attr.key === "note" && attr.value) {
+          comment = stripQuotes(attr.value);
+        } else if (attr.key === "headercolor" && attr.value) {
+        } else if (warnings) {
+          pushWarning2(
+            warnings,
+            "statement_skipped",
+            line,
+            `table setting "${attr.key || "(empty)"}" was skipped`
+          );
+        }
+      }
+      h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
+    }
   }
   const m = h.match(
     new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "iu")
   );
   if (!m) return null;
   return {
-    name: cleanIdentifier(m[1]),
-    alias: m[2] ? cleanIdentifier(m[2]) : void 0
+    name: cleanQualifiedIdentifier(m[1]),
+    alias: m[2] ? cleanIdentifier(m[2]) : void 0,
+    ...comment ? { comment } : {}
   };
 };
+var parsePartialHeader = (header) => {
+  const m = header.match(
+    new RegExp(String.raw`^TablePartial\s+(${QUALIFIED_IDENT})(?:\s+as\s+${IDENT})?\s*$`, "iu")
+  );
+  return m ? cleanQualifiedIdentifier(m[1]) : null;
+};
 var opToCardinality = (op) => {
-  switch (op) {
+  switch (op.replace(/\?/g, "")) {
     case "<":
       return { from: "1", to: "N" };
     case "-":
@@ -1935,25 +2856,51 @@ var parseIndexColumns = (head) => {
   if (h.startsWith("`")) return null;
   if (h.startsWith("(")) {
     const inner = h.replace(/^\(|\)$/g, "");
-    return splitTopLevelCommas(inner).map(cleanIdentifier).filter(Boolean);
+    const segments = splitTopLevelCommas(inner);
+    const identifier = new RegExp(String.raw`^${IDENT}$`, "u");
+    if (segments.some((segment) => segment.trim().startsWith("`") || !identifier.test(segment.trim()))) {
+      return null;
+    }
+    return segments.map(cleanIdentifier).filter(Boolean);
   }
+  if (!new RegExp(String.raw`^${IDENT}$`, "u").test(h)) return null;
   const c = cleanIdentifier(h);
   return c ? [c] : null;
 };
 var extractIndexesConstraints = (blockBody, tableName, warnings, startLine = 1) => {
   const pkCols = [];
   const uniqueCols = [];
+  const uniqueKeys = [];
   for (const entry of splitLogicalLineEntries(blockBody, startLine)) {
     const line = entry.text.trim();
     if (!line) continue;
     const sb = findSettingsBracket(line);
-    if (!sb) continue;
+    if (!sb) {
+      if (line.includes("[") && warnings && tableName) {
+        pushWarning2(
+          warnings,
+          "constraint_skipped",
+          entry.line,
+          `index definition in table "${tableName}" has malformed settings`
+        );
+      }
+      continue;
+    }
     const head = line.slice(0, sb.lb).trim();
     let isPk = false;
     let isUnique = false;
     for (const attr of parseColumnAttrs(line.slice(sb.lb + 1, sb.rb))) {
       if (attr.key === "pk" || attr.key === "primary key") isPk = true;
       else if (attr.key === "unique") isUnique = true;
+      else if ((attr.key === "name" || attr.key === "type") && attr.value) {
+      } else if (warnings && tableName) {
+        pushWarning2(
+          warnings,
+          "constraint_skipped",
+          entry.line,
+          `index setting "${attr.key || "(empty)"}" in table "${tableName}" was skipped`
+        );
+      }
     }
     if (!isPk && !isUnique) continue;
     const cols = parseIndexColumns(head);
@@ -1969,37 +2916,303 @@ var extractIndexesConstraints = (blockBody, tableName, warnings, startLine = 1) 
       continue;
     }
     if (isPk) pkCols.push(...cols);
+    if (isUnique) uniqueKeys.push(cols);
     if (isUnique && cols.length === 1) uniqueCols.push(cols[0]);
   }
-  return { pkCols, uniqueCols };
+  return { pkCols, uniqueCols, uniqueKeys };
+};
+var parseDbmlBody = (body, ownerName, startLine, warnings) => {
+  const columns = [];
+  const primaryKeys = [];
+  const uniqueKeys = [];
+  const inlineRefs = [];
+  const injections = [];
+  for (const entry of splitLogicalLineEntries(body, startLine)) {
+    const trimmed = entry.text.trim();
+    if (!trimmed || /^Note\s*[:{]/i.test(trimmed)) continue;
+    if (/^indexes\s*\{/i.test(trimmed)) {
+      const open = trimmed.indexOf("{");
+      const close = findMatchingBrace(trimmed, open);
+      if (open !== -1 && close !== -1) {
+        const got = extractIndexesConstraints(
+          trimmed.slice(open + 1, close),
+          ownerName,
+          warnings,
+          entry.line + countNewlines(trimmed.slice(0, open + 1))
+        );
+        for (const column2 of got.pkCols) {
+          if (!primaryKeys.includes(column2)) primaryKeys.push(column2);
+        }
+        for (const key of got.uniqueKeys) uniqueKeys.push([...key]);
+        for (const uniqueColumn of got.uniqueCols) {
+          const column2 = columns.find((item) => item.name === uniqueColumn);
+          if (column2 && !column2.isPrimaryKey) column2.isUnique = true;
+        }
+      }
+      continue;
+    }
+    if (/^checks\s*\{/i.test(trimmed)) {
+      pushWarning2(
+        warnings,
+        "constraint_skipped",
+        entry.line,
+        `checks block in table "${ownerName}" was skipped`
+      );
+      continue;
+    }
+    if (/^records\b/i.test(trimmed)) continue;
+    if (trimmed.startsWith("~")) {
+      const name = cleanQualifiedIdentifier(trimmed.slice(1).trim());
+      if (name) injections.push({ name, line: entry.line });
+      else {
+        pushWarning2(
+          warnings,
+          "statement_skipped",
+          entry.line,
+          `table partial "${trimmed}" in table "${ownerName}" was skipped`
+        );
+      }
+      continue;
+    }
+    const { column, inlineRef, malformedType, badInlineRef, unsupportedAttrs, trailingText } = parseColumnLine(trimmed);
+    if (!column) {
+      const missingTypeName = readLeadingIdentifier(trimmed);
+      pushWarning2(
+        warnings,
+        missingTypeName ? "column_type_missing" : "statement_skipped",
+        entry.line,
+        missingTypeName ? `column "${missingTypeName}" in table "${ownerName}" has no type` : `line in table "${ownerName}" was not recognized`
+      );
+      continue;
+    }
+    if (malformedType) {
+      pushWarning2(
+        warnings,
+        "column_type_invalid",
+        entry.line,
+        `column "${column.name}" in table "${ownerName}" has malformed type "${column.type}"`
+      );
+    }
+    if (badInlineRef) {
+      pushWarning2(
+        warnings,
+        "foreign_key_unrecognized",
+        entry.line,
+        `inline ref in column "${column.name}" of table "${ownerName}" was not recognized`
+      );
+    }
+    for (const attr of unsupportedAttrs ?? []) {
+      pushWarning2(
+        warnings,
+        "statement_skipped",
+        entry.line,
+        `column setting "${attr}" on "${column.name}" in table "${ownerName}" was skipped`
+      );
+    }
+    if (trailingText) {
+      pushWarning2(
+        warnings,
+        "statement_skipped",
+        entry.line,
+        `trailing content "${trailingText}" on column "${column.name}" in table "${ownerName}" was skipped`
+      );
+    }
+    if (column.isPrimaryKey && !primaryKeys.includes(column.name)) primaryKeys.push(column.name);
+    if (column.isUnique) uniqueKeys.push([column.name]);
+    if (inlineRef) {
+      inlineRefs.push({
+        column: column.name,
+        target: inlineRef.target,
+        op: inlineRef.op,
+        line: entry.line
+      });
+    }
+    columns.push(column);
+  }
+  for (const primaryKey of primaryKeys) {
+    const column = columns.find((item) => item.name === primaryKey);
+    if (column) column.isPrimaryKey = true;
+  }
+  for (const key of uniqueKeys) {
+    if (key.length !== 1) continue;
+    const column = columns.find((item) => item.name === key[0]);
+    if (column && !column.isPrimaryKey) column.isUnique = true;
+  }
+  const comment = extractTableNote(body);
+  return {
+    columns,
+    primaryKeys,
+    uniqueKeys,
+    inlineRefs,
+    injections,
+    ...comment ? { comment } : {}
+  };
 };
 var parseDBML = (dbml) => {
   const tables = [];
   const relationships = [];
   const warnings = [];
-  const tableByName = /* @__PURE__ */ new Map();
-  const definedTableNames = /* @__PURE__ */ new Set();
-  const relationshipLines = /* @__PURE__ */ new WeakMap();
+  const cleanSrc = stripDbmlComments(dbml, warnings);
+  const statements = tokenizeTopLevel(cleanSrc, warnings);
+  const candidateKeys = /* @__PURE__ */ new WeakMap();
+  const partials = [];
   const refRecords = [];
-  const addRelationship = (ref, line) => {
-    const card = opToCardinality(ref.op);
-    const labelColumn = ref.op === "<" ? ref.to.column : ref.from.column;
-    const relationship = {
-      from: ref.from.table,
-      to: ref.to.table,
-      label: labelColumn,
-      fromCardinality: card.from,
-      toCardinality: card.to,
-      ...ref.comment ? { comment: ref.comment } : {}
-    };
-    relationships.push(relationship);
-    if (line) relationshipLines.set(relationship, line);
-    refRecords.push({ ref, relationship });
+  for (const stmt of statements) {
+    if (stmt.kind !== "tablepartial" || stmt.body === null) continue;
+    const name = parsePartialHeader(stmt.header);
+    if (!name) {
+      pushWarning2(
+        warnings,
+        "statement_skipped",
+        stmt.line,
+        "table partial definition was skipped because its name was not recognized"
+      );
+      continue;
+    }
+    partials.push({
+      name,
+      line: stmt.line,
+      ...parseDbmlBody(stmt.body, name, stmt.bodyLine ?? stmt.line, warnings)
+    });
+  }
+  const sameName = (left, right) => left === right || left.toLowerCase() === right.toLowerCase();
+  const shortName = (name) => {
+    const parts = name.split(".");
+    return parts[parts.length - 1] || name;
   };
-  const cleanSrc = stripDbmlComments(dbml);
-  for (const stmt of tokenizeTopLevel(cleanSrc, warnings)) {
+  const cloneBody = (body) => ({
+    columns: body.columns.map((column) => ({ ...column })),
+    primaryKeys: [...body.primaryKeys],
+    uniqueKeys: body.uniqueKeys.map((key) => [...key]),
+    inlineRefs: body.inlineRefs.map((ref) => ({
+      ...ref,
+      target: { ...ref.target, columns: [...ref.target.columns] }
+    })),
+    injections: body.injections.map((injection) => ({ ...injection })),
+    ...body.comment ? { comment: body.comment } : {}
+  });
+  const mergeBodies = (injected, local) => {
+    const merged = {
+      columns: [],
+      primaryKeys: [],
+      uniqueKeys: [],
+      inlineRefs: [],
+      injections: []
+    };
+    const addConstraintMembers = (body) => {
+      for (const primaryKey of body.primaryKeys) {
+        if (!merged.primaryKeys.some((name) => sameName(name, primaryKey))) {
+          merged.primaryKeys.push(primaryKey);
+        }
+      }
+      for (const key of body.uniqueKeys) {
+        const signature = [...key].map((name) => name.toLowerCase()).sort().join("\0");
+        if (!merged.uniqueKeys.some(
+          (candidate) => [...candidate].map((name) => name.toLowerCase()).sort().join("\0") === signature
+        )) {
+          merged.uniqueKeys.push([...key]);
+        }
+      }
+      merged.inlineRefs.push(...cloneBody(body).inlineRefs);
+      if (!merged.comment && body.comment) merged.comment = body.comment;
+    };
+    for (const body of injected) {
+      for (const column of body.columns) {
+        if (!merged.columns.some((item) => sameName(item.name, column.name))) {
+          merged.columns.push({ ...column });
+        }
+      }
+      addConstraintMembers(body);
+    }
+    for (const column of local.columns) {
+      merged.columns = merged.columns.filter((item) => !sameName(item.name, column.name));
+      merged.columns.push({ ...column });
+    }
+    addConstraintMembers(local);
+    if (local.comment) merged.comment = local.comment;
+    for (const primaryKey of merged.primaryKeys) {
+      const column = merged.columns.find((item) => sameName(item.name, primaryKey));
+      if (column) column.isPrimaryKey = true;
+    }
+    for (const key of merged.uniqueKeys) {
+      if (key.length !== 1) continue;
+      const column = merged.columns.find((item) => sameName(item.name, key[0]));
+      if (column && !column.isPrimaryKey) column.isUnique = true;
+    }
+    return merged;
+  };
+  const resolvePartial = (name) => {
+    const exact = partials.filter((partial) => sameName(partial.name, name));
+    if (exact.length === 1) return { partial: exact[0] };
+    if (exact.length > 1) return { ambiguous: true };
+    const short2 = shortName(name).toLowerCase();
+    const matches = partials.filter((partial) => shortName(partial.name).toLowerCase() === short2);
+    if (matches.length === 1) return { partial: matches[0] };
+    return matches.length > 1 ? { ambiguous: true } : {};
+  };
+  const partialCache = /* @__PURE__ */ new Map();
+  const resolvingPartials = /* @__PURE__ */ new Set();
+  const warnedCycles = /* @__PURE__ */ new Set();
+  const expandPartial = (partial) => {
+    const cached = partialCache.get(partial);
+    if (cached) return cloneBody(cached);
+    if (resolvingPartials.has(partial)) {
+      if (!warnedCycles.has(partial.name)) {
+        warnedCycles.add(partial.name);
+        pushWarning2(
+          warnings,
+          "constraint_skipped",
+          partial.line,
+          `table partial cycle involving "${partial.name}" was skipped`
+        );
+      }
+      return {
+        columns: [],
+        primaryKeys: [],
+        uniqueKeys: [],
+        inlineRefs: [],
+        injections: []
+      };
+    }
+    resolvingPartials.add(partial);
+    const injected = [];
+    for (const injection of partial.injections) {
+      const resolution = resolvePartial(injection.name);
+      if (resolution.partial) injected.push(expandPartial(resolution.partial));
+      else {
+        pushWarning2(
+          warnings,
+          "statement_skipped",
+          injection.line,
+          resolution.ambiguous ? `table partial "~${injection.name}" in table "${partial.name}" was skipped because it is ambiguous` : `table partial "~${injection.name}" in table "${partial.name}" was skipped`
+        );
+      }
+    }
+    const expanded = mergeBodies(injected, partial);
+    resolvingPartials.delete(partial);
+    partialCache.set(partial, expanded);
+    return cloneBody(expanded);
+  };
+  const expandTableBody = (tableName, local) => {
+    const injected = [];
+    for (const injection of local.injections) {
+      const resolution = resolvePartial(injection.name);
+      if (resolution.partial) injected.push(expandPartial(resolution.partial));
+      else {
+        pushWarning2(
+          warnings,
+          "statement_skipped",
+          injection.line,
+          resolution.ambiguous ? `table partial "~${injection.name}" in table "${tableName}" was skipped because it is ambiguous` : `table partial "~${injection.name}" in table "${tableName}" was skipped`
+        );
+      }
+    }
+    return mergeBodies(injected, local);
+  };
+  const definedTableNames = /* @__PURE__ */ new Set();
+  for (const stmt of statements) {
     if (stmt.kind === "table" && stmt.body !== null) {
-      const head = parseTableHeader(stmt.header);
+      const head = parseTableHeader(stmt.header, warnings, stmt.line);
       if (!head) {
         pushWarning2(
           warnings,
@@ -2009,134 +3222,123 @@ var parseDBML = (dbml) => {
         );
         continue;
       }
-      const columns = [];
-      const primaryKeys = [];
-      const foreignKeys = [];
-      const inlineRefs = [];
-      const indexPkCols = [];
-      const indexUniqueCols = [];
-      for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
-        const trimmed = entry.text.trim();
-        if (!trimmed) continue;
-        if (/^Note\s*[:{]/i.test(trimmed)) continue;
-        if (/^indexes\s*\{/i.test(trimmed)) {
-          const open = trimmed.indexOf("{");
-          const close = findMatchingBrace(trimmed, open);
-          if (open !== -1 && close !== -1) {
-            const got = extractIndexesConstraints(
-              trimmed.slice(open + 1, close),
-              head.name,
-              warnings,
-              entry.line + countNewlines(trimmed.slice(0, open + 1))
-            );
-            indexPkCols.push(...got.pkCols);
-            indexUniqueCols.push(...got.uniqueCols);
-          }
-          continue;
-        }
-        if (/^checks\s*\{/i.test(trimmed)) {
-          pushWarning2(
-            warnings,
-            "constraint_skipped",
-            entry.line,
-            `checks block in table "${head.name}" was skipped`
-          );
-          continue;
-        }
-        if (/^records\b/i.test(trimmed)) continue;
-        if (trimmed.startsWith("~")) {
+      const local = parseDbmlBody(stmt.body, head.name, stmt.bodyLine ?? stmt.line, warnings);
+      const body = expandTableBody(head.name, local);
+      const seenColumns = /* @__PURE__ */ new Set();
+      for (const column of body.columns) {
+        const key = column.name.toLowerCase();
+        if (seenColumns.has(key)) {
           pushWarning2(
             warnings,
             "statement_skipped",
-            entry.line,
-            `table partial "${trimmed}" in table "${head.name}" was skipped`
-          );
-          continue;
-        }
-        const { column, inlineRef, malformedType, badInlineRef } = parseColumnLine(trimmed);
-        if (!column) {
-          const missingTypeName = readLeadingIdentifier(trimmed);
-          pushWarning2(
-            warnings,
-            missingTypeName ? "column_type_missing" : "statement_skipped",
-            entry.line,
-            missingTypeName ? `column "${missingTypeName}" in table "${head.name}" has no type` : `line in table "${head.name}" was not recognized`
-          );
-          continue;
-        }
-        if (malformedType) {
-          pushWarning2(
-            warnings,
-            "column_type_invalid",
-            entry.line,
-            `column "${column.name}" in table "${head.name}" has malformed type "${column.type}"`
+            stmt.line,
+            `column "${column.name}" is defined more than once in table "${head.name}"`
           );
         }
-        if (badInlineRef) {
-          pushWarning2(
-            warnings,
-            "foreign_key_unrecognized",
-            entry.line,
-            `inline ref in column "${column.name}" of table "${head.name}" was not recognized`
-          );
-        }
-        if (column.isPrimaryKey) primaryKeys.push(column.name);
-        if (inlineRef) {
-          inlineRefs.push({
-            column: column.name,
-            target: inlineRef.target,
-            op: inlineRef.op,
-            line: entry.line
-          });
-        }
-        columns.push(column);
+        seenColumns.add(key);
       }
-      for (const c of indexPkCols) {
-        if (!primaryKeys.includes(c)) primaryKeys.push(c);
+      body.primaryKeys = body.primaryKeys.filter((name) => {
+        if (body.columns.some((column) => sameName(column.name, name))) return true;
+        pushWarning2(
+          warnings,
+          "constraint_skipped",
+          stmt.line,
+          `primary key on table "${head.name}" references missing column "${name}"`
+        );
+        return false;
+      });
+      body.uniqueKeys = body.uniqueKeys.filter((key) => {
+        const missing = key.filter(
+          (name) => !body.columns.some((column) => sameName(column.name, name))
+        );
+        if (!missing.length) return true;
+        pushWarning2(
+          warnings,
+          "constraint_skipped",
+          stmt.line,
+          `unique constraint on table "${head.name}" references missing column${missing.length > 1 ? "s" : ""} "${missing.join('", "')}"`
+        );
+        return false;
+      });
+      body.inlineRefs = body.inlineRefs.filter((ref) => {
+        if (body.columns.some((column) => sameName(column.name, ref.column))) return true;
+        pushWarning2(
+          warnings,
+          "foreign_key_unrecognized",
+          ref.line,
+          `inline Ref in table "${head.name}" references missing local column "${ref.column}"`
+        );
+        return false;
+      });
+      if (!body.columns.length) {
+        pushWarning2(
+          warnings,
+          "statement_skipped",
+          stmt.line,
+          `Table "${head.name}" produced no supported columns`
+        );
       }
-      for (const c of indexUniqueCols) {
-        const col = columns.find((x) => x.name === c);
-        if (col && !col.isPrimaryKey) col.isUnique = true;
-      }
-      const tableNote = extractTableNote(stmt.body);
       const table = {
         name: head.name,
         alias: head.alias,
-        columns,
-        primaryKeys,
-        foreignKeys,
-        ...tableNote ? { comment: tableNote } : {}
+        columns: body.columns,
+        primaryKeys: body.primaryKeys,
+        foreignKeys: [],
+        ...head.comment || body.comment ? { comment: head.comment ?? body.comment } : {}
       };
-      if (definedTableNames.has(head.name)) {
+      const tableKey = table.name.toLowerCase();
+      if (definedTableNames.has(tableKey)) {
         pushWarning2(
           warnings,
           "duplicate_table",
           stmt.line,
-          `table "${head.name}" is defined more than once`
+          `table "${table.name}" is defined more than once`
         );
       }
-      definedTableNames.add(head.name);
+      definedTableNames.add(tableKey);
       tables.push(table);
-      tableByName.set(head.name, table);
-      if (head.alias) tableByName.set(head.alias, table);
-      inlineRefs.forEach((ref) => {
-        addRelationship(
-          {
-            from: { table: head.name, column: ref.column },
-            to: ref.target,
-            op: ref.op
+      const keys = [];
+      if (table.primaryKeys.length) keys.push([...table.primaryKeys]);
+      for (const key of body.uniqueKeys) keys.push([...key]);
+      candidateKeys.set(table, keys);
+      for (const inline of body.inlineRefs) {
+        refRecords.push({
+          ref: {
+            from: {
+              table: table.name,
+              column: inline.column,
+              columns: [inline.column]
+            },
+            to: inline.target,
+            op: inline.op,
+            inline: true
           },
-          ref.line
+          line: inline.line
+        });
+      }
+      continue;
+    }
+    if (stmt.kind === "unknown") {
+      if (stmt.body !== null) {
+        const compact = stmt.header.replace(/\s+/g, " ").trim();
+        pushWarning2(
+          warnings,
+          "statement_skipped",
+          stmt.line,
+          `top-level block "${compact}" was skipped because it is not supported`
         );
-      });
+      }
       continue;
     }
     if (stmt.kind === "ref") {
       const colon = indexOfUnquoted(stmt.header, ":");
       if (colon === -1) continue;
+      const prefix = stmt.header.slice(0, colon).trim();
+      const nameMatch = prefix.match(/^Ref(?:\s+(.+?))?$/i);
       const ref = parseRefBody(stmt.header.slice(colon + 1));
       if (ref) {
-        addRelationship(ref, stmt.line);
+        if (nameMatch?.[1]) ref.name = cleanIdentifier(nameMatch[1]);
+        refRecords.push({ ref, line: stmt.line });
       } else {
         pushWarning2(
           warnings,
@@ -2148,10 +3350,12 @@ var parseDBML = (dbml) => {
       continue;
     }
     if (stmt.kind === "refblock" && stmt.body !== null) {
+      const nameMatch = stmt.header.trim().match(/^Ref(?:\s+(.+?))?$/i);
       for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
         const ref = parseRefBody(entry.text);
         if (ref) {
-          addRelationship(ref, entry.line);
+          if (nameMatch?.[1]) ref.name = cleanIdentifier(nameMatch[1]);
+          refRecords.push({ ref, line: entry.line });
         } else {
           pushWarning2(
             warnings,
@@ -2161,56 +3365,161 @@ var parseDBML = (dbml) => {
           );
         }
       }
+    }
+  }
+  const resolveTable = (rawName, context) => {
+    const exact = tables.filter((table) => sameName(table.name, rawName));
+    if (exact.length === 1) return { table: exact[0] };
+    if (exact.length > 1) return { ambiguous: true };
+    const aliases = tables.filter((table) => table.alias && sameName(table.alias, rawName));
+    if (aliases.length === 1) return { table: aliases[0] };
+    if (aliases.length > 1) return { ambiguous: true };
+    const qualified = rawName.includes(".");
+    if (!qualified && context?.name.includes(".")) {
+      const schema = context.name.slice(0, context.name.lastIndexOf("."));
+      const contextual = `${schema}.${rawName}`;
+      const matches = tables.filter((table) => sameName(table.name, contextual));
+      if (matches.length === 1) return { table: matches[0] };
+      if (matches.length > 1) return { ambiguous: true };
+    }
+    const short2 = shortName(rawName).toLowerCase();
+    const candidates = tables.filter((table) => {
+      if (qualified && table.name.includes(".")) return false;
+      return shortName(table.name).toLowerCase() === short2;
+    });
+    if (candidates.length === 1) return { table: candidates[0] };
+    return candidates.length > 1 ? { ambiguous: true } : {};
+  };
+  const hasExactCandidateKey = (table, columns) => {
+    const signature = [...columns].map((name) => name.toLowerCase()).sort().join("\0");
+    return (candidateKeys.get(table) ?? []).some(
+      (key) => [...key].map((name) => name.toLowerCase()).sort().join("\0") === signature
+    );
+  };
+  for (const { ref, line } of refRecords) {
+    for (const setting of ref.unsupportedSettings ?? []) {
+      pushWarning2(warnings, "statement_skipped", line, `Ref setting "${setting}" was skipped`);
+    }
+    let fromResolution = resolveTable(ref.from.table);
+    let toResolution = resolveTable(ref.to.table);
+    if (toResolution.table && !fromResolution.table) {
+      fromResolution = resolveTable(ref.from.table, toResolution.table);
+    }
+    if (fromResolution.table && !toResolution.table) {
+      toResolution = resolveTable(ref.to.table, fromResolution.table);
+    }
+    if (fromResolution.ambiguous || toResolution.ambiguous) {
+      const ambiguousName = fromResolution.ambiguous ? ref.from.table : ref.to.table;
+      pushWarning2(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references ambiguous table "${ambiguousName}"`
+      );
       continue;
     }
-  }
-  for (const { ref, relationship } of refRecords) {
-    const fromTable = tableByName.get(ref.from.table);
-    const toTable = tableByName.get(ref.to.table);
-    if (fromTable) relationship.from = fromTable.name;
-    if (toTable) relationship.to = toTable.name;
-    if (ref.op === "<>") continue;
-    const holderTable = ref.op === "<" ? toTable : fromTable;
-    const holderColumn = ref.op === "<" ? ref.to.column : ref.from.column;
-    const referencedTable = ref.op === "<" ? relationship.from : relationship.to;
-    const referencedColumn = ref.op === "<" ? ref.from.column : ref.to.column;
-    if (holderTable) {
+    const fromTable = fromResolution.table;
+    const toTable = toResolution.table;
+    if (!fromTable) {
+      pushWarning2(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references missing table "${ref.from.table}"`
+      );
+    }
+    if (!toTable) {
+      pushWarning2(
+        warnings,
+        "table_reference_missing",
+        line,
+        `Ref references missing table "${ref.to.table}"`
+      );
+    }
+    if (ref.from.columns.length !== ref.to.columns.length) {
+      pushWarning2(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        "Ref has mismatched endpoint column counts"
+      );
+      continue;
+    }
+    const findColumn = (table, name) => table?.columns.find((column) => sameName(column.name, name));
+    const missingFromColumns = fromTable ? ref.from.columns.filter((name) => !findColumn(fromTable, name)) : [];
+    const missingToColumns = toTable ? ref.to.columns.filter((name) => !findColumn(toTable, name)) : [];
+    if (missingFromColumns.length) {
+      pushWarning2(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        `Ref references missing column${missingFromColumns.length > 1 ? "s" : ""} "${missingFromColumns.join('", "')}" in table "${fromTable?.name}"`
+      );
+    }
+    if (missingToColumns.length) {
+      pushWarning2(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        `Ref references missing column${missingToColumns.length > 1 ? "s" : ""} "${missingToColumns.join('", "')}" in table "${toTable?.name}"`
+      );
+    }
+    const baseOperator = ref.op.replace(/\?/g, "");
+    const card = opToCardinality(baseOperator);
+    const holderSide = ref.inline ? "from" : baseOperator === ">" ? "from" : baseOperator === "<" || baseOperator === "-" ? "to" : null;
+    const holderEndpoint = holderSide === "to" ? ref.to : ref.from;
+    const holderTable = holderSide === "to" ? toTable : fromTable;
+    const targetEndpoint = holderSide === "to" ? ref.from : ref.to;
+    const targetTable = holderSide === "to" ? fromTable : toTable;
+    if (holderSide && targetTable && targetEndpoint.columns.every((name) => !!findColumn(targetTable, name)) && !hasExactCandidateKey(targetTable, targetEndpoint.columns)) {
+      pushWarning2(
+        warnings,
+        "foreign_key_unrecognized",
+        line,
+        `Ref target columns in table "${targetTable.name}" are not a primary or unique key`
+      );
+    }
+    if (fromTable && toTable && !missingFromColumns.length && !missingToColumns.length) {
+      for (let i = 0; i < ref.from.columns.length; i++) {
+        const fromColumn = findColumn(fromTable, ref.from.columns[i]);
+        const toColumn = findColumn(toTable, ref.to.columns[i]);
+        if (!fromColumn?.type || !toColumn?.type) continue;
+        const compatibility = relationshipTypesCompatible2(fromColumn.type, toColumn.type);
+        if (!compatibility.compatible) {
+          pushWarning2(
+            warnings,
+            "foreign_key_unrecognized",
+            line,
+            compatibility.uncertain ? `Ref column types "${fromColumn.type}" and "${toColumn.type}" could not be verified as compatible` : `Ref column types "${fromColumn.type}" and "${toColumn.type}" are incompatible`
+          );
+        }
+      }
+    }
+    let fromCardinality = card.from;
+    let toCardinality = card.to;
+    if (baseOperator === ">" && fromTable && hasExactCandidateKey(fromTable, ref.from.columns)) {
+      fromCardinality = "1";
+    }
+    const relationship = {
+      from: fromTable?.name ?? ref.from.table,
+      to: toTable?.name ?? ref.to.table,
+      label: holderEndpoint.column,
+      fromCardinality,
+      toCardinality,
+      ...ref.op.startsWith("?") ? { fromOptional: true } : {},
+      ...ref.op.endsWith("?") ? { toOptional: true } : {},
+      ...ref.name ? { name: ref.name } : {},
+      ...ref.onDelete ? { onDelete: ref.onDelete } : {},
+      ...ref.onUpdate ? { onUpdate: ref.onUpdate } : {},
+      ...ref.comment ? { comment: ref.comment } : {}
+    };
+    relationships.push(relationship);
+    if (holderSide && holderTable) {
       holderTable.foreignKeys.push({
-        column: holderColumn,
-        referencedTable,
-        referencedColumn
+        column: holderEndpoint.column,
+        referencedTable: targetTable?.name ?? targetEndpoint.table,
+        referencedColumn: targetEndpoint.column
       });
-    }
-  }
-  for (const rel of relationships) {
-    const line = relationshipLines.get(rel);
-    if (!tableByName.has(rel.from)) {
-      pushWarning2(
-        warnings,
-        "table_reference_missing",
-        line,
-        `Ref references missing table "${rel.from}"`
-      );
-    }
-    if (!tableByName.has(rel.to)) {
-      pushWarning2(
-        warnings,
-        "table_reference_missing",
-        line,
-        `Ref references missing table "${rel.to}"`
-      );
-    }
-  }
-  for (const rel of relationships) {
-    if (rel.fromCardinality !== "N" || rel.toCardinality !== "1") continue;
-    if (rel.label.includes(",")) continue;
-    const fromTable = tableByName.get(rel.from);
-    if (!fromTable) continue;
-    const col = fromTable.columns.find((c) => c.name === rel.label);
-    if (!col) continue;
-    const isOnlySinglePk = fromTable.primaryKeys.length === 1 && fromTable.primaryKeys[0] === col.name;
-    if (col.isUnique || isOnlySinglePk) {
-      rel.fromCardinality = "1";
     }
   }
   return { tables, relationships, ...warnings.length ? { warnings } : {} };
@@ -8980,6 +10289,13 @@ function printParserWarnings(warnings) {
 `);
   });
 }
+function formatParserWarnings(warnings) {
+  if (!warnings?.length) return null;
+  return [
+    "PARSER WARNINGS  (code | message)",
+    ...warnings.map((warning) => `  ${warning.code}  ${warning.message}`)
+  ].join("\n");
+}
 function htmlLang(flags) {
   if (flags.lang !== "zh" && flags.lang !== "en") {
     throw new Error("export html requires --lang zh|en");
@@ -9026,15 +10342,17 @@ function readLabels(flags) {
   });
   return labels;
 }
-function printState(state, flags) {
+function printState(state, flags, includeParserWarnings = false) {
   const graph = createHeadlessGraph(state.nodes, state.edges);
-  process.stdout.write(
-    describe(graph, {
-      full: boolFlag(flags.full),
-      details: boolFlag(flags.details),
-      focus: typeof flags.focus === "string" ? flags.focus : void 0
-    }) + "\n"
-  );
+  const report = describe(graph, {
+    full: boolFlag(flags.full),
+    details: boolFlag(flags.details),
+    focus: typeof flags.focus === "string" ? flags.focus : void 0
+  });
+  const warningReport = includeParserWarnings ? formatParserWarnings(state.parserWarnings) : null;
+  process.stdout.write(report + (warningReport ? `
+
+${warningReport}` : "") + "\n");
 }
 var HELP = `sql2er-agent \u2014 headless SQL/DBML \u2192 Chen-model ER layout for agents
 
@@ -9164,11 +10482,16 @@ function main() {
       const state = loadState(flags);
       const graph = createHeadlessGraph(state.nodes, state.edges);
       if (boolFlag(flags.json)) {
+        const scene = describeJson(graph, { details: boolFlag(flags.details) });
         process.stdout.write(
-          JSON.stringify(describeJson(graph, { details: boolFlag(flags.details) }), null, 2) + "\n"
+          JSON.stringify(
+            state.parserWarnings?.length ? { ...scene, parserWarnings: state.parserWarnings } : scene,
+            null,
+            2
+          ) + "\n"
         );
       } else {
-        printState(state, flags);
+        printState(state, flags, true);
       }
       break;
     }
