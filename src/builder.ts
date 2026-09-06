@@ -40,6 +40,27 @@ const pickLabel = (
 const resolveAttrLabel = (column: ParsedColumn, labelMode: AttributeLabelMode | string): string =>
   pickLabel(column.name || "", column.comment, labelMode);
 
+const foreignKeyOnlyColumns = (table: ParsedTable): Set<string> =>
+  new Set(
+    table.foreignKeys
+      .filter((fk) => fk.represented !== false)
+      // Older callers may still pass display strings. An exact column match wins
+      // over the legacy composite format, including quoted names with commas.
+      .flatMap(
+        (fk) =>
+          fk.columns ??
+          (table.columns.some((c) => c.name === fk.column)
+            ? [fk.column]
+            : fk.column.split(",").map((s) => s.trim())),
+      )
+      .filter(
+        (col) =>
+          col &&
+          !table.primaryKeys.includes(col) &&
+          !table.columns.find((c) => c.name === col)?.isPrimaryKey,
+      ),
+  );
+
 const generateChenModelData = (
   tables: ParsedTable[],
   relationships: ParsedRelationship[],
@@ -86,13 +107,7 @@ const generateChenModelData = (
     if (!hideFields) {
       // 纯 FK 列（不同时是 PK 的）在 Chen 模型里由关系菱形表达，不再画成属性椭圆，
       // 否则会出现菱形和椭圆同时挂在实体上、且文本相同（FK 列 COMMENT 也是关系标签来源）。
-      // 复合 FK 的 column 是 "a, b" 拼接串，需按逗号拆开逐列加入，
-      // 否则复合 FK 列会既有椭圆又有菱形，与单列 FK 行为不一致。
-      const fkOnlyColumns = new Set(
-        table.foreignKeys
-          .flatMap((fk) => fk.column.split(",").map((s) => s.trim()))
-          .filter((col) => col && !table.primaryKeys.includes(col)),
-      );
+      const fkOnlyColumns = foreignKeyOnlyColumns(table);
 
       // Create attribute nodes (ellipses) for each column
       table.columns.forEach((column, colIndex) => {
@@ -878,12 +893,7 @@ const buildAttributeData = (
   const edges: EREdgeModel[] = [];
   tables.forEach((table, tableIndex) => {
     const entityId = `entity-${table.name}-${tableIndex}`;
-    // 与 generateChenModelData 保持一致：复合 FK 的 "a, b" 拼接串按逗号拆开。
-    const fkOnlyColumns = new Set(
-      table.foreignKeys
-        .flatMap((fk) => fk.column.split(",").map((s) => s.trim()))
-        .filter((col) => col && !table.primaryKeys.includes(col)),
-    );
+    const fkOnlyColumns = foreignKeyOnlyColumns(table);
     table.columns.forEach((column, colIndex) => {
       if (fkOnlyColumns.has(column.name)) return;
       const attributeId = `attr-${table.name}-${column.name}-${tableIndex}-${colIndex}`;

@@ -128,14 +128,14 @@ describe("parseDBML", () => {
         fromCardinality: "N",
         toCardinality: "1",
       },
-      // 显式 `<` 反向：from 端为 1，to 端为 N；FK 落在右侧表上，
+      // 显式 `<` 反向：FK 落在右侧表上；a.id 是 PK，故仍是 1:1。
       // 菱形标签取真实 FK 列（a.id），而非左侧列名
       {
         from: "b",
         to: "a",
         label: "id",
         fromCardinality: "1",
-        toCardinality: "N",
+        toCardinality: "1",
       },
     ]);
   });

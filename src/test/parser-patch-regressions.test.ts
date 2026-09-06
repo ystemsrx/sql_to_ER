@@ -239,7 +239,13 @@ describe("补丁解析修复 — DBML", () => {
     `);
     expect(topLevel.tables.find((table) => table.name === "users")?.foreignKeys).toEqual([]);
     expect(topLevel.tables.find((table) => table.name === "profiles")?.foreignKeys).toEqual([
-      { column: "user_id", referencedTable: "users", referencedColumn: "id" },
+      {
+        column: "user_id",
+        columns: ["user_id"],
+        referencedTable: "users",
+        referencedColumn: "id",
+        referencedColumns: ["id"],
+      },
     ]);
     expect(topLevel.relationships[0].name).toBe("owns");
 

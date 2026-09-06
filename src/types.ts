@@ -16,8 +16,13 @@ export interface ParsedColumn {
 
 export interface ParsedForeignKey {
   column: string;
+  /** Structured identifiers; display strings must never be split to recover them. */
+  columns?: string[];
   referencedTable: string;
   referencedColumn: string;
+  referencedColumns?: string[];
+  /** False when no relationship was emitted for this constraint. */
+  represented?: boolean;
 }
 
 export interface ParsedTable {
@@ -163,6 +168,9 @@ export interface SnapshotRecord {
   isColored: boolean;
   showComment: boolean;
   hideFields: boolean;
+  fontScale?: number;
+  /** Capture order, independent of thumbnail completion and history sorting. */
+  revision?: number;
   nodes: NodeSnapshot[];
   thumbnail: string | null;
   /** 缩略图生成规格版本；旧记录没有该字段。 */

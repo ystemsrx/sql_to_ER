@@ -1857,9 +1857,8 @@ export const parseDBML = (dbml: string): ParseResult => {
 
     const baseOperator = ref.op.replace(/\?/g, "");
     const card = opToCardinality(baseOperator);
-    const holderSide = ref.inline
-      ? "from"
-      : baseOperator === ">"
+    const holderSide =
+      baseOperator === ">" || (baseOperator === "-" && ref.inline)
         ? "from"
         : baseOperator === "<" || baseOperator === "-"
           ? "to"
@@ -1902,8 +1901,15 @@ export const parseDBML = (dbml: string): ParseResult => {
     }
     let fromCardinality = card.from;
     let toCardinality = card.to;
-    if (baseOperator === ">" && fromTable && hasExactCandidateKey(fromTable, ref.from.columns)) {
-      fromCardinality = "1";
+    if ((baseOperator === ">" || baseOperator === "<") && holderTable) {
+      const holderColumns = new Set(holderEndpoint.columns.map((name) => name.toLowerCase()));
+      const unique = (candidateKeys.get(holderTable) ?? []).some(
+        (key) => key.length > 0 && key.every((name) => holderColumns.has(name.toLowerCase())),
+      );
+      if (unique) {
+        if (holderSide === "from") fromCardinality = "1";
+        else toCardinality = "1";
+      }
     }
 
     const relationship: ParsedRelationship = {
@@ -1924,8 +1930,10 @@ export const parseDBML = (dbml: string): ParseResult => {
     if (holderSide && holderTable) {
       holderTable.foreignKeys.push({
         column: holderEndpoint.column,
+        columns: holderEndpoint.columns.map((name) => findColumn(holderTable, name)?.name ?? name),
         referencedTable: targetTable?.name ?? targetEndpoint.table,
         referencedColumn: targetEndpoint.column,
+        referencedColumns: [...targetEndpoint.columns],
       });
     }
   }

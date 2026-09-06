@@ -11,7 +11,7 @@
     "strict": false,
     "noEmit": true,
     "types": ["node"],
-    "paths": { "@app/*": ["../../../../../src/*"] }
+    "paths": { "@app/*": ["../../../../src/*"] }
   },
   "include": ["*.ts"]
 }

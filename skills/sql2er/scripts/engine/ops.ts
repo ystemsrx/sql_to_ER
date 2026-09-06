@@ -33,6 +33,7 @@ import {
 import { computeAutoAvoidTargets } from "@app/graph/autoAvoid";
 import type { EREdgeModel, ERNodeModel, ParseResult, ParserWarning } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
+import { assertCoordinate, validateState } from "./validateState";
 
 export type LayoutKind = "optimal" | "arrange" | "none";
 
@@ -834,21 +835,27 @@ export function setAutoAvoid(state: State, enabled: boolean): State {
 }
 
 export function move(state: State, arg: string, x: number, y: number, raw: boolean): EditResult {
+  assertCoordinate(x, "move x");
+  assertCoordinate(y, "move y");
   const node = resolveNodeById(state, arg);
   const startPositions = captureNodePositions(state.nodes);
   const dx = x - (typeof node.x === "number" ? node.x : 0);
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
   if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
+  validateState(state);
   if (!raw) applyAutoAvoid(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 
 export function nudge(state: State, arg: string, dx: number, dy: number, raw: boolean): EditResult {
+  assertCoordinate(dx, "nudge dx");
+  assertCoordinate(dy, "nudge dy");
   const node = resolveNodeById(state, arg);
   const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, node, dx, dy);
   if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
+  validateState(state);
   if (!raw) applyAutoAvoid(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
@@ -947,7 +954,7 @@ export function splitComponents(state: State): Component[] {
       comps.push(comp);
     });
 
-  const usedNames = new Map<string, number>();
+  const usedNames = new Set<string>();
   const nameFor = (entIds: string[]): string => {
     // representative = highest-degree entity (tie → alphabetical by table name)
     const labelOf = (id: string) => {
@@ -965,9 +972,11 @@ export function splitComponents(state: State): Component[] {
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
     if (!base) base = "component";
-    const n = usedNames.get(base) ?? 0;
-    usedNames.set(base, n + 1);
-    return n === 0 ? base : `${base}_${n + 1}`;
+    let name = base;
+    let suffix = 2;
+    while (usedNames.has(name)) name = `${base}_${suffix++}`;
+    usedNames.add(name);
+    return name;
   };
 
   return comps.map((entIds) => {
@@ -988,6 +997,11 @@ export function splitComponents(state: State): Component[] {
     });
     const nodes = state.nodes.filter((n) => nodeSet.has(n.id));
     const edges = state.edges.filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target));
-    return { name: nameFor(entIds), state: { ...state, nodes, edges } };
+    // A component export is a shareable graph. Source text and diagnostics can
+    // mention unrelated tables, so omit both rather than attempting to slice SQL.
+    return {
+      name: nameFor(entIds),
+      state: { ...state, input: "", parserWarnings: undefined, nodes, edges },
+    };
   });
 }

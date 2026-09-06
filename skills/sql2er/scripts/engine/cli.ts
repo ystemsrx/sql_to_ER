@@ -38,6 +38,7 @@ import {
   type EmbeddedHtmlLanguage,
 } from "./exporters";
 import { createHeadlessGraph } from "./adapter";
+import { validateState } from "./validateState";
 
 interface Args {
   _: string[];
@@ -115,11 +116,11 @@ function statePath(flags: Record<string, string | boolean>): string {
 function loadState(flags: Record<string, string | boolean>): State {
   const p = statePath(flags);
   if (!existsSync(p)) throw new Error(`No state at ${p}. Run \`generate\` first.`);
-  return JSON.parse(readFileSync(p, "utf8")) as State;
+  return validateState(JSON.parse(readFileSync(p, "utf8")));
 }
 
 function saveState(flags: Record<string, string | boolean>, state: State): void {
-  writeFileSync(statePath(flags), JSON.stringify(state), "utf8");
+  writeFileSync(statePath(flags), JSON.stringify(validateState(state)), "utf8");
 }
 
 function readInput(flags: Record<string, string | boolean>): string {
@@ -211,6 +212,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       html requires --lang zh|en
       --split                        one diagram per disconnected component
                                      (--out base.ext -> base-<name>.ext per component)
+                                     omits source text and parser diagnostics
   help
 `;
 
@@ -394,6 +396,11 @@ function main(): void {
       }
       const fmt = _[1];
       const state = loadState(flags);
+      if (boolFlag(flags.split)) {
+        // Apply sharing semantics even when there is only one (or no) component.
+        state.input = "";
+        delete state.parserWarnings;
+      }
       const render = (s: State): { out: string | Buffer; ext: string } => {
         if (fmt === "drawio") return { out: exportDrawio(s), ext: "drawio" };
         if (fmt === "svg") return { out: exportSvg(s), ext: "svg" };

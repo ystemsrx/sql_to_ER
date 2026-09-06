@@ -10,6 +10,7 @@ import { computeLayoutSizeScale } from "@app/graph/sizeAwareGeometry";
 import type { ERNodeModel, GraphLike } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import type { State } from "./ops";
+import { validateState } from "./validateState";
 import { EMBEDDED_APP_CSS, EMBEDDED_APP_JS } from "./embedded-assets.generated";
 
 const esc = (s: unknown): string =>
@@ -20,11 +21,13 @@ const esc = (s: unknown): string =>
     .replace(/"/g, "&quot;");
 
 export function exportDrawio(state: State): string {
+  state = validateState(state);
   const graph = createHeadlessGraph(state.nodes, state.edges);
   return buildDrawioXML(graph as unknown as GraphLike);
 }
 
 export function exportJson(state: State): string {
+  state = validateState(state);
   const sized = new Map(state.nodes.map((n) => [n.id, measureNodeSize(n)]));
   const out = {
     nodes: state.nodes.map((n) => {
@@ -65,6 +68,7 @@ const safeInlineStyle = (value: string): string => value.replace(/<\/style/gi, "
 export type EmbeddedHtmlLanguage = "zh" | "en";
 
 export function exportHtml(state: State, lang: EmbeddedHtmlLanguage): string {
+  state = validateState(state);
   const stateJson = safeJsonForHtml(state);
   const configJson = safeJsonForHtml({ lang });
   const htmlLang = lang === "zh" ? "zh-CN" : "en";
@@ -102,6 +106,7 @@ export function exportPng(state: State): Buffer {
     const result = spawnSync(cmd, ["--format", "png", "-"], {
       input: svg,
       maxBuffer: 200 * 1024 * 1024,
+      timeout: 30_000,
     });
     if (result.error) {
       if ((result.error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -135,6 +140,7 @@ interface Sized {
 }
 
 export function exportSvg(state: State): string {
+  state = validateState(state);
   const sizeScale = computeLayoutSizeScale(state.nodes);
   const sized = new Map<string, Sized>();
   let minX = Infinity,
@@ -200,12 +206,12 @@ export function exportSvg(state: State): string {
   // nodes
   state.nodes.forEach((n) => {
     const s = sized.get(n.id)!;
-    const fill = n.style?.fill ?? "#fff";
-    const stroke = n.style?.stroke ?? "#000";
-    const lw = n.style?.lineWidth ?? 1.5;
+    const fill = esc(n.style?.fill ?? "#fff");
+    const stroke = esc(n.style?.stroke ?? "#000");
+    const lw = esc(n.style?.lineWidth ?? 1.5);
     const dash =
       Array.isArray(n.style?.lineDash) && n.style?.lineDash.length ? ` stroke-dasharray="4 4"` : "";
-    const fontFill = n.labelCfg?.style?.fill ?? "#000";
+    const fontFill = esc(n.labelCfg?.style?.fill ?? "#000");
     const fontSize =
       n.labelCfg?.style?.fontSize ??
       (n.nodeType === "entity" ? 18 : n.nodeType === "relationship" ? 16 : 15);
@@ -231,7 +237,7 @@ export function exportSvg(state: State): string {
     }
     const label = esc(n.label ?? "");
     parts.push(
-      `<text x="${cx.toFixed(1)}" y="${(cy + Number(fontSize) * 0.34).toFixed(1)}" font-size="${fontSize}" fill="${fontFill}"${fw} text-anchor="middle">${label}</text>`,
+      `<text x="${cx.toFixed(1)}" y="${(cy + Number(fontSize) * 0.34).toFixed(1)}" font-size="${esc(fontSize)}" fill="${fontFill}"${fw} text-anchor="middle">${label}</text>`,
     );
     if (n.nodeType === "attribute" && n.keyType === "pk") {
       const tw = getTextWidth(String(n.label ?? ""), Number(fontSize));

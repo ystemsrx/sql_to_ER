@@ -31,6 +31,7 @@ import {
 } from "../graph/sizeAwareGeometry";
 import { computeAutoAvoidTargets } from "../graph/autoAvoid";
 import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
+import { readEditorDraft, writeEditorDraft, type EditorDraft } from "../sessionDraft";
 import type {
   EREdgeModel,
   ERNodeModel,
@@ -187,6 +188,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       isColored: stateRef.current.isColored,
       showComment: stateRef.current.showComment,
       hideFields: stateRef.current.hideFields,
+      fontScale: stateRef.current.fontScale,
     };
   };
 
@@ -409,6 +411,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
           isColored: cur.isColored,
           showComment: cur.showComment,
           hideFields: cur.hideFields,
+          fontScale: cur.fontScale,
         });
       }
 
@@ -523,6 +526,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
           isColored: useIsColored,
           showComment: useShowComment,
           hideFields: useHideFields,
+          fontScale: useFontScale,
         },
         saveDelay,
         restoringSnapshot ? { preserveUpdatedAt: true } : undefined,
@@ -589,22 +593,36 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // 不再用 useEffect 监听 props 后用 ref 抑制重入。
 
   // 输入文本的轻量草稿：即使快照写库失败/来不及，刷新后 SQL 文本也不丢。
-  const DRAFT_KEY = "sql2er-draft";
-  const DRAFT_UPDATED_AT_KEY = "sql2er-draft-updated-at";
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setInputText = (next: string) => {
-    setInputTextState(next);
+  const pendingDraftRef = useRef<EditorDraft | null>(null);
+  const inputEditRevisionRef = useRef(0);
+  const flushDraft = () => {
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = setTimeout(() => {
-      draftTimerRef.current = null;
-      try {
-        window.localStorage.setItem(DRAFT_KEY, next);
-        window.localStorage.setItem(DRAFT_UPDATED_AT_KEY, String(Date.now()));
-      } catch (_) {
-        /* 隐私模式等场景下写失败可忽略 */
-      }
-    }, 500);
+    draftTimerRef.current = null;
+    if (pendingDraftRef.current) writeEditorDraft(pendingDraftRef.current);
+    pendingDraftRef.current = null;
   };
+  const setInputText = (next: string) => {
+    inputEditRevisionRef.current++;
+    stateRef.current.inputText = next;
+    setInputTextState(next);
+    pendingDraftRef.current = { text: next, updatedAt: Date.now() };
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(flushDraft, 500);
+  };
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushDraft();
+    };
+    window.addEventListener("pagehide", flushDraft);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      flushDraft();
+      window.removeEventListener("pagehide", flushDraft);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   const setIsColored = (next: boolean) => {
     stateRef.current.isColored = next;
@@ -752,13 +770,19 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     },
   };
 
-  const restoreFromSnapshot = (snap: SnapshotRecord) => {
+  const restoreFromSnapshot = (snap: SnapshotRecord, automatic = false) => {
     if (!snap || !snap.nodes) return;
     // 直接刷 React 状态 + 用 opts 覆盖触发一次 handleGenerate
     setInputTextState(snap.inputText);
+    if (!automatic) {
+      setInputText(snap.inputText);
+      flushDraft();
+    }
     setIsColoredState(!!snap.isColored);
     setShowCommentState(!!snap.showComment);
     setHideFieldsState(!!snap.hideFields);
+    const restoredFontScale = snap.fontScale ?? 1;
+    setFontScaleState(restoredFontScale);
 
     const positionMap = new Map<string, { x?: number; y?: number; label?: string }>();
     snap.nodes.forEach((n) => {
@@ -770,6 +794,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       isColored: !!snap.isColored,
       showComment: !!snap.showComment,
       hideFields: !!snap.hideFields,
+      fontScale: restoredFontScale,
       positionMap,
     });
   };
@@ -787,6 +812,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     // 会话恢复：仅恢复 6 小时内的最近快照或草稿；更早的内容仍保留在
     // 生成历史中，但刷新/重进时直接回到初始示例。
     let cancelled = false;
+    const initialEditRevision = inputEditRevisionRef.current;
     (async () => {
       try {
         // 清理旧版本曾允许写入的示例快照；即使清理失败，下面的游标筛选
@@ -807,33 +833,32 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         );
         if (
           !cancelled &&
+          inputEditRevisionRef.current === initialEditRevision &&
           recent &&
           recent.inputText &&
           Array.isArray(recent.nodes) &&
           recent.nodes.length > 0 &&
           Snapshots.isWithinSessionRestoreWindow(recent.updatedAt)
         ) {
-          restoreFromSnapshot(recent);
+          restoreFromSnapshot(recent, true);
+          // Editor text has its own lifecycle. Later graph-only edits must not
+          // make an older graph source replace a pending (even empty) draft.
+          const draft = readEditorDraft();
+          if (draft) {
+            stateRef.current.inputText = draft.text;
+            setInputTextState(draft.text);
+          }
           return;
         }
       } catch (_) {
         /* IndexedDB 不可用时直接走下面的兜底 */
       }
-      if (cancelled) return;
-      let draft: string | null = null;
-      let draftUpdatedAt: string | null = null;
-      try {
-        draft = window.localStorage.getItem(DRAFT_KEY);
-        draftUpdatedAt = window.localStorage.getItem(DRAFT_UPDATED_AT_KEY);
-      } catch (_) {}
-      const trimmedDraft = draft ? draft.trim() : "";
-      if (
-        trimmedDraft &&
-        !isInitialSampleInput(trimmedDraft) &&
-        Snapshots.isWithinSessionRestoreWindow(draftUpdatedAt)
-      ) {
-        setInputTextState(draft as string);
-        handleGenerate({ inputText: draft as string });
+      if (cancelled || inputEditRevisionRef.current !== initialEditRevision) return;
+      const draft = readEditorDraft();
+      if (draft) {
+        stateRef.current.inputText = draft.text;
+        setInputTextState(draft.text);
+        if (draft.text.trim()) handleGenerate({ inputText: draft.text });
       } else {
         handleGenerate();
       }

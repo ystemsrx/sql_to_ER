@@ -2267,6 +2267,7 @@ export const parseSQLTables = (sql: string): ParseResult => {
         columns: [fk.column],
         referencedColumns: fk.referencedColumn ? [fk.referencedColumn] : [],
       };
+      fk.represented = false;
       const targetResolution = resolveTable(fk.referencedTable, table);
       const target = targetResolution.table;
       if (targetResolution.ambiguous) {
@@ -2372,18 +2373,16 @@ export const parseSQLTables = (sql: string): ParseResult => {
       meta.referencedColumns = referencedColumns;
       fk.column = meta.columns.join(", ");
       fk.referencedColumn = referencedColumns.join(", ");
+      fk.columns = meta.columns.map(
+        (name) => table.columns.find((c) => sameColumn(c.name, name))?.name ?? name,
+      );
+      fk.referencedColumns = [...referencedColumns];
+      fk.represented = true;
       if (target) fk.referencedTable = target.name;
 
-      const sourceKey = [...meta.columns]
-        .map((name) => name.toLowerCase())
-        .sort()
-        .join("\u0000");
+      const sourceColumns = new Set(meta.columns.map((name) => name.toLowerCase()));
       const isCandidateKey = (uniqueKeys.get(table) ?? []).some(
-        (key) =>
-          [...key]
-            .map((name) => name.toLowerCase())
-            .sort()
-            .join("\u0000") === sourceKey,
+        (key) => key.length > 0 && key.every((name) => sourceColumns.has(name.toLowerCase())),
       );
       const fkColumn =
         meta.columns.length === 1

@@ -13,6 +13,7 @@ export interface PersistMeta {
   isColored: boolean;
   showComment: boolean;
   hideFields: boolean;
+  fontScale?: number;
 }
 
 export interface PersistOptions {
@@ -41,6 +42,7 @@ export interface SnapshotPersistence {
 // 和 3D 放大预留更充足的采样，同时继续使用 WebP 0.8 控制历史记录体积。
 const THUMBNAIL_TARGET_WIDTH = 1440;
 const THUMBNAIL_VERSION = 3;
+let lastCaptureRevision = 0;
 
 export function resolveSnapshotUpdatedAt(
   existing: SnapshotRecord | null,
@@ -164,48 +166,64 @@ export function useSnapshotPersistence({
     const thumbPromise = options?.skipThumbnail
       ? Promise.resolve<string | null>(null)
       : captureThumbnail();
-    return thumbPromise.then((thumb) =>
-      Snapshots.upsert(meta.id, (existing: SnapshotRecord | null) => {
-        // 数据没变化时跳过写入：恢复 / 打开历史面板都会触发一次
-        // persistSnapshot，若原封不动也刷新 updatedAt，会让历史排序"乱跳"。
-        const dataUnchanged =
-          existing &&
-          existing.isColored === meta.isColored &&
-          existing.showComment === meta.showComment &&
-          existing.hideFields === meta.hideFields &&
-          Array.isArray(existing.nodes) &&
-          existing.nodes.length === nodes.length &&
-          existing.nodes.every(
-            (p, i) =>
-              p.id === nodes[i].id &&
-              p.x === nodes[i].x &&
-              p.y === nodes[i].y &&
-              p.label === nodes[i].label,
-          );
-        // 版本 3 之前的缩略图分辨率较低。当前图即使节点没变，也要在下一次
-        // 保存时重拍为 1440px WebP；页面隐藏时的无缩略图快照仍可跳过。
-        if (
-          dataUnchanged &&
-          (options?.skipThumbnail || existing?.thumbnailVersion === THUMBNAIL_VERSION || !thumb)
-        ) {
-          return null;
-        }
-        return {
-          id: meta.id,
-          inputText: meta.inputText,
-          isColored: meta.isColored,
-          showComment: meta.showComment,
-          hideFields: meta.hideFields,
-          nodes,
-          thumbnail: thumb || (existing && existing.thumbnail) || null,
-          thumbnailVersion: thumb ? THUMBNAIL_VERSION : existing?.thumbnailVersion,
-          createdAt: existing && existing.createdAt ? existing.createdAt : Date.now(),
-          updatedAt: resolveSnapshotUpdatedAt(existing, !!options?.preserveUpdatedAt),
-        };
-      }).catch((e: unknown) => {
-        console.warn("snapshot upsert failed", e);
-      }),
-    );
+    const capturedAt = Date.now();
+    const revision = Math.max(capturedAt, lastCaptureRevision + 1);
+    lastCaptureRevision = revision;
+    const dataWrite = Snapshots.upsert(meta.id, (existing: SnapshotRecord | null) => {
+      // A delayed retry (e.g. quota recovery) must not replace a later capture.
+      if (existing?.revision && existing.revision > revision) return null;
+      if (existing && existing.inputText !== meta.inputText) {
+        throw new Error("Snapshot key collision: refusing to overwrite another input");
+      }
+      // 数据没变化时保留 updatedAt，但推进 revision 以拒绝更早的缩略图。
+      // 恢复 / 打开历史面板不应让历史排序发生变化。
+      const dataUnchanged =
+        existing &&
+        existing.isColored === meta.isColored &&
+        existing.showComment === meta.showComment &&
+        existing.hideFields === meta.hideFields &&
+        (existing.fontScale ?? 1) === (meta.fontScale ?? 1) &&
+        Array.isArray(existing.nodes) &&
+        existing.nodes.length === nodes.length &&
+        existing.nodes.every(
+          (p, i) =>
+            p.id === nodes[i].id &&
+            p.x === nodes[i].x &&
+            p.y === nodes[i].y &&
+            p.label === nodes[i].label,
+        );
+      return {
+        id: meta.id,
+        inputText: meta.inputText,
+        isColored: meta.isColored,
+        showComment: meta.showComment,
+        hideFields: meta.hideFields,
+        fontScale: meta.fontScale ?? 1,
+        revision,
+        nodes,
+        thumbnail: existing?.thumbnail ?? null,
+        thumbnailVersion: dataUnchanged ? existing?.thumbnailVersion : undefined,
+        createdAt: existing?.createdAt || capturedAt,
+        updatedAt: resolveSnapshotUpdatedAt(
+          existing,
+          !!options?.preserveUpdatedAt || !!dataUnchanged,
+          capturedAt,
+        ),
+      };
+    });
+    // Persist geometry immediately. Rasterization may finish after a newer save,
+    // or never finish while the page is hidden; it cannot hold up the data write.
+    void dataWrite
+      .then(() => thumbPromise)
+      .then((thumb) => {
+        if (!thumb) return;
+        return Snapshots.upsert(meta.id, (existing) => {
+          if (!existing || existing.revision !== revision) return null;
+          return { ...existing, thumbnail: thumb, thumbnailVersion: THUMBNAIL_VERSION };
+        });
+      })
+      .catch((e: unknown) => console.warn("snapshot thumbnail update failed", e));
+    return dataWrite.catch((e: unknown) => console.warn("snapshot upsert failed", e));
   };
 
   const cancelPendingPersist = () => {

@@ -138,7 +138,14 @@ describe("parseSQLTables — 边界场景", () => {
     // 不再出现名为 "FOREIGN" 的幻列
     expect(r.tables[0].columns.map((c) => c.name)).toEqual(["a", "b"]);
     expect(r.tables[0].foreignKeys).toEqual([
-      { column: "a, b", referencedTable: "parent", referencedColumn: "x, y" },
+      {
+        column: "a, b",
+        columns: ["a", "b"],
+        referencedTable: "parent",
+        referencedColumn: "x, y",
+        referencedColumns: ["x", "y"],
+        represented: true,
+      },
     ]);
     expect(r.relationships).toEqual([
       {
@@ -158,7 +165,14 @@ describe("parseSQLTables — 边界场景", () => {
       `CREATE TABLE t (id INT PRIMARY KEY, author_id INT REFERENCES users);`,
     );
     expect(r.tables[0].foreignKeys).toEqual([
-      { column: "author_id", referencedTable: "users", referencedColumn: "" },
+      {
+        column: "author_id",
+        columns: ["author_id"],
+        referencedTable: "users",
+        referencedColumn: "",
+        referencedColumns: [],
+        represented: true,
+      },
     ]);
     expect(r.relationships).toEqual([
       {

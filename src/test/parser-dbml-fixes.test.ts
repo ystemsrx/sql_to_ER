@@ -84,7 +84,13 @@ describe("parseDBML — `<` / `<>` 的 FK 归属", () => {
     // FK 记录在真正持有 FK 的 subs 上；users 的属性椭圆不再被错误隐藏
     expect(users.foreignKeys).toEqual([]);
     expect(subs.foreignKeys).toEqual([
-      { column: "user_id", referencedTable: "users", referencedColumn: "id" },
+      {
+        column: "user_id",
+        columns: ["user_id"],
+        referencedTable: "users",
+        referencedColumn: "id",
+        referencedColumns: ["id"],
+      },
     ]);
   });
 
@@ -123,7 +129,13 @@ describe("parseDBML — 表别名", () => {
     ]);
     const orders = r.tables.find((t) => t.name === "orders")!;
     expect(orders.foreignKeys).toEqual([
-      { column: "user_id", referencedTable: "users", referencedColumn: "id" },
+      {
+        column: "user_id",
+        columns: ["user_id"],
+        referencedTable: "users",
+        referencedColumn: "id",
+        referencedColumns: ["id"],
+      },
     ]);
   });
 

@@ -66,28 +66,41 @@ interface Bounds {
 export class SpatialGrid<T> {
   private cells = new Map<string, Set<T>>();
   private bounds = new Map<T, Bounds>();
+  private overflow = new Set<T>();
 
   constructor(private cellSize: number) {
     if (!Number.isFinite(cellSize) || cellSize <= 0) this.cellSize = 64;
   }
 
-  private forEachCellKey(bounds: Bounds, cb: (key: string) => void): void {
+  private forEachCellKey(bounds: Bounds, cb: (key: string) => void): boolean {
     const size = this.cellSize;
     const minCx = Math.floor(bounds.minX / size);
     const maxCx = Math.floor(bounds.maxX / size);
     const minCy = Math.floor(bounds.minY / size);
     const maxCy = Math.floor(bounds.maxY / size);
+    const width = maxCx - minCx + 1;
+    const height = maxCy - minCy + 1;
+    // Wide segments and unsafe coordinates use an item scan. Never allocate or
+    // iterate an unbounded rectangle of cells, even for finite JS numbers.
+    if (
+      ![minCx, maxCx, minCy, maxCy].every(Number.isSafeInteger) ||
+      width <= 0 ||
+      height <= 0 ||
+      width * height > 4096
+    )
+      return false;
     for (let cx = minCx; cx <= maxCx; cx++) {
       for (let cy = minCy; cy <= maxCy; cy++) {
         cb(cx + "," + cy);
       }
     }
+    return true;
   }
 
   insert(item: T, bounds: Bounds): void {
     this.remove(item);
     this.bounds.set(item, bounds);
-    this.forEachCellKey(bounds, (key) => {
+    const indexed = this.forEachCellKey(bounds, (key) => {
       let bucket = this.cells.get(key);
       if (!bucket) {
         bucket = new Set();
@@ -95,6 +108,7 @@ export class SpatialGrid<T> {
       }
       bucket.add(item);
     });
+    if (!indexed) this.overflow.add(item);
   }
 
   remove(item: T): void {
@@ -107,13 +121,14 @@ export class SpatialGrid<T> {
       if (!bucket.size) this.cells.delete(key);
     });
     this.bounds.delete(item);
+    this.overflow.delete(item);
   }
 
   /** Visit every item whose cells intersect the query rectangle (padded). */
   queryRect(bounds: Bounds, pad: number, cb: (item: T) => boolean | void): void {
     const seen = new Set<T>();
     let stop = false;
-    this.forEachCellKey(
+    const indexed = this.forEachCellKey(
       {
         minX: bounds.minX - pad,
         minY: bounds.minY - pad,
@@ -134,6 +149,13 @@ export class SpatialGrid<T> {
         }
       },
     );
+    // Including all overflow items is conservative: callers perform the exact
+    // intersection test. Preserve query early exit and visit each item once.
+    for (const item of indexed ? this.overflow : this.bounds.keys()) {
+      if (stop) break;
+      if (seen.has(item)) continue;
+      if (cb(item) === true) stop = true;
+    }
   }
 
   /** Visit every item whose cells intersect a segment's bounding box (padded). */

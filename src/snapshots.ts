@@ -55,6 +55,7 @@ function openDB(): Promise<IDBDatabase> {
   // 失败的 open 不能粘在 dbPromise 上：IndexedDB 可能因临时错误（隐私模式切换、
   // 配额抖动）首次失败后续可用，缓存 rejected promise 会让后续每次调用都直接拿到
   // 同一个失败结果，必须刷新页面才能恢复。捕获后清掉缓存让下次调用重试。
+  let abandoned = false;
   const p = new Promise<IDBDatabase>((resolve, reject) => {
     if (!("indexedDB" in window)) {
       reject(new Error("IndexedDB unavailable"));
@@ -71,10 +72,15 @@ function openDB(): Promise<IDBDatabase> {
     };
     // 其他标签页还开着旧版本连接时 open 会一直挂起；给出明确错误而不是无限等。
     req.onblocked = () => {
+      abandoned = true;
       reject(new Error("IndexedDB upgrade blocked by another tab"));
     };
     req.onsuccess = () => {
       const db = req.result;
+      if (abandoned) {
+        db.close();
+        return;
+      }
       // 另一个标签页请求升级时主动让路，并清掉缓存让下次调用重新 open。
       db.onversionchange = () => {
         try {
@@ -89,9 +95,9 @@ function openDB(): Promise<IDBDatabase> {
     };
     req.onerror = () => reject(req.error);
   });
-  dbPromise = p.catch((err) => {
+  dbPromise = p;
+  void p.catch(() => {
     if (dbPromise === p) dbPromise = null;
-    throw err;
   });
   return dbPromise;
 }

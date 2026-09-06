@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import { placeholder as placeholderExtension } from "@codemirror/view";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
 
@@ -16,6 +16,8 @@ export interface CodeEditorProps {
   placeholder?: string;
   readOnly?: boolean;
 }
+
+const externalValueSync = Annotation.define<boolean>();
 
 /**
  * SQL/DBML 编辑器。CodeMirror 6 用 EditorView + EditorState 模型，
@@ -43,7 +45,10 @@ export const CodeEditor = ({ value, onChange, placeholder, readOnly = false }: C
         EditorView.editable.of(!readOnly),
         placeholderCompartmentRef.current.of(placeholderExtension(placeholder ?? "")),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (
+            update.docChanged &&
+            !update.transactions.every((tr) => tr.annotation(externalValueSync))
+          ) {
             onChangeRef.current(update.state.doc.toString());
           }
         }),
@@ -79,6 +84,7 @@ export const CodeEditor = ({ value, onChange, placeholder, readOnly = false }: C
     if (current === value) return;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
+      annotations: externalValueSync.of(true),
     });
   }, [value]);
 
